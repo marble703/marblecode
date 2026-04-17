@@ -1,0 +1,86 @@
+{
+  // Project-local config. Keep secrets in environment variables.
+  "workspaceRoot": ".",
+  "providers": {
+    "openai": {
+      "type": "openai-compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    }
+  },
+  "models": {
+    "cheap": {
+      "provider": "openai",
+      "model": "gpt-4o-mini"
+    },
+    "code": {
+      "provider": "openai",
+      "model": "gpt-4.1"
+    },
+    "strong": {
+      "provider": "openai",
+      "model": "gpt-4.1"
+    }
+  },
+  "routing": {
+    "defaultModel": "cheap",
+    "codeModel": "code",
+    "planningModel": "strong",
+    "maxSteps": 8,
+    "maxAutoRepairAttempts": 2
+  },
+  "context": {
+    "maxFiles": 8,
+    "maxChars": 24000,
+    "recentFileCount": 4,
+    "exclude": [
+      "node_modules/**",
+      ".git/**",
+      ".agent/**"
+    ],
+    "sensitive": [
+      ".env*",
+      "**/*.pem",
+      "**/*.key",
+      "**/id_rsa*",
+      "**/credentials*.json",
+      "**/secrets.*",
+      "**/*.p12",
+      "**/*.crt"
+    ]
+  },
+  "policy": {
+    "path": {
+      "readWrite": ["."],
+      "readOnly": [".git"],
+      "deny": ["/etc", "~/.ssh"]
+    },
+    "shell": {
+      "enabled": true,
+      "workspaceOnly": true,
+      "inheritEnv": false,
+      "allowEnv": ["PATH", "HOME", "LANG", "LC_ALL", "TERM"],
+      "denyCommands": ["sudo", "curl", "wget", "ssh", "scp", "nc", "ncat", "netcat", "ping"],
+      "denyPatterns": ["rm -rf /", "nohup", "disown", "&"],
+      "timeoutMs": 120000,
+      "maxBufferBytes": 1048576
+    },
+    "network": {
+      "allowExternalToolNetwork": false,
+      "allowProviderHosts": ["api.openai.com"]
+    }
+  },
+  "verifier": {
+    "enabled": false,
+    "timeoutMs": 120000,
+    "commands": []
+  },
+  "session": {
+    "dir": ".agent/sessions",
+    "maxSessions": 100,
+    "maxAgeDays": 14,
+    "logPromptBodies": false,
+    "logToolBodies": false,
+    "redactSecrets": true
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "coding-agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "coding-agent": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "node --loader tsx ./src/index.ts"
+  },
+  "dependencies": {
+    "diff": "^5.2.0",
+    "jsonc-parser": "^3.2.1",
+    "minimatch": "^9.0.5"
+  },
+  "devDependencies": {
+    "@types/diff": "^5.2.1",
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
