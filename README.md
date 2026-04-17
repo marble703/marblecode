@@ -66,6 +66,7 @@ npm run smoke:edit
 ## Configuration
 
 - Fill the provider base URL in `agent.config.jsonc` at `providers.openai.baseUrl`.
+  `http://...` and `https://...` are both accepted in the current MVP so local compatible endpoints can be tested.
 - Fill the API key in your shell environment variable named by `providers.openai.apiKeyEnv`.
 - If your compatible API uses different model IDs, update `models.cheap.model`, `models.code.model`, and `models.strong.model`.
 

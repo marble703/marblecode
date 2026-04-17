@@ -211,7 +211,7 @@ Example shape:
 
 ### Provider safety
 
-- base URL must be `https`
+- base URL must be `http` or `https`
 - provider host must be on an allowlist
 - tool networking remains disabled even though provider calls are allowed
 

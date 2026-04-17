@@ -84,8 +84,8 @@ function validateConfig(config: AppConfig): void {
 
   for (const [providerId, provider] of Object.entries(config.providers)) {
     const url = new URL(provider.baseUrl);
-    if (url.protocol !== 'https:') {
-      throw new Error(`Provider ${providerId} must use https`);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new Error(`Provider ${providerId} must use http or https`);
     }
 
     if (config.policy.network.allowProviderHosts.length > 0 && !config.policy.network.allowProviderHosts.includes(url.host)) {
