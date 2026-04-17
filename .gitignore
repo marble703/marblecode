@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .agent/
+agent.config.jsonc
 .env
 .env.*
 !.env.example
+token-usage-output.txt
+*.test-output.txt

@@ -21,9 +21,9 @@ export class OpenAICompatibleProvider implements ModelProvider {
   ) {}
 
   public async invoke(request: ModelRequest): Promise<ModelResponse> {
-    const apiKey = process.env[this.config.apiKeyEnv];
+    const apiKey = resolveApiKey(this.config.apiKeyEnv);
     if (!apiKey) {
-      throw new Error(`Missing provider credential in env ${this.config.apiKeyEnv}`);
+      throw new Error('Missing provider credential from configured apiKeyEnv value');
     }
 
     const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
@@ -109,6 +109,27 @@ export class OpenAICompatibleProvider implements ModelProvider {
       },
     };
   }
+}
+
+function resolveApiKey(configuredValue: string): string | undefined {
+  const fromEnv = process.env[configuredValue];
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  if (looksLikeInlineApiKey(configuredValue)) {
+    return configuredValue;
+  }
+
+  return undefined;
+}
+
+function looksLikeInlineApiKey(value: string): boolean {
+  if (value.length < 12) {
+    return false;
+  }
+
+  return /[-_]/.test(value) || /\d/.test(value);
 }
 
 function toOpenAIMessages(request: ModelRequest): OpenAIMessage[] {

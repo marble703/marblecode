@@ -4,6 +4,24 @@
 
 Build a small, stable coding agent core for local CLI-based development workflows. The MVP prioritizes correctness, safety, and extensibility over feature breadth.
 
+## Current Implementation Status
+
+The current repository has already implemented and verified these behaviors:
+
+- CLI task execution with `run`
+- OpenAI-compatible provider using Chat Completions
+- local config loading from `agent.config.jsonc`
+- static routing between `cheap`, `code`, and `strong` model aliases
+- bounded context collection from explicit files and recent files
+- built-in tools for file read, file listing, text search, shell execution, and git diff
+- policy-checked shell execution inside the workspace root
+- structured patch parsing, preview, application, and rollback metadata generation
+- local verifier execution with structured failure reporting
+- local session artifact persistence with cleanup by age and count
+- connectivity check script for configured model access
+- smoke test proving one patch-driven edit loop works end to end
+- one real coding run in this repository that updated routing logic and still built successfully
+
 ## Non-goals
 
 - multi-agent orchestration
@@ -18,7 +36,7 @@ Build a small, stable coding agent core for local CLI-based development workflow
 - language: `TypeScript`
 - interface: local `CLI`
 - config: `agent.config.jsonc`
-- secrets: environment variables only via `apiKeyEnv`
+- secrets: prefer environment variables via `apiKeyEnv`; inline keys are also accepted in the current MVP for local testing compatibility
 - routing: static rule-based
 - execution: single agent with explicit step cap, `max_steps=8`
 - edit protocol: model outputs structured patch operations only
@@ -40,6 +58,13 @@ Unified model interface. The internal request and response types must already re
 - vendor-specific metadata
 
 MVP implementation: `OpenAICompatibleProvider` only, using the traditional `POST /chat/completions` interface.
+
+Current implementation details:
+
+- supports a separate system prompt field internally
+- records usage information when the provider returns it
+- can parse tool call objects from compatible responses, even though the main agent loop still uses the JSON step protocol
+- accepts credentials either from the configured environment variable name or from an inline configured key value
 
 ### `router`
 
@@ -72,6 +97,12 @@ Every context item carries:
 
 Sensitive files are excluded by default. If the user explicitly requests one, it can be read in a read-only path with a visible warning.
 
+Current implementation details:
+
+- explicit file selection is supported
+- recent-file selection is supported
+- git diff and search-based candidate expansion are documented but not yet wired into the automatic context builder
+
 ### `tools`
 
 Uniform tool registry with policy checks before execution.
@@ -86,6 +117,14 @@ MVP tools:
 
 No direct `write_file` tool is exposed to the model.
 
+Current implementation details:
+
+- `read_file` is enabled
+- `list_files` is enabled
+- `search_text` is enabled
+- `run_shell` is enabled behind policy checks
+- `git_diff` is enabled
+
 ### `patch`
 
 System-internal standard patch representation. Models do not write files directly. They emit structured edit intentions that are converted to the patch format and then applied by the host.
@@ -99,6 +138,12 @@ Patch operations contain at least:
 
 The host generates rollback metadata during apply.
 
+Current implementation details:
+
+- `create_file`, `replace_file`, and `delete_file` operations are implemented
+- `replace_file` currently expects full-file replacement text
+- patch previews are rendered as unified diffs for review
+
 ### `policy`
 
 Mandatory policy checks for every file and tool operation.
@@ -110,6 +155,11 @@ MVP scope:
 - environment variable allowlist
 - provider host allowlist
 - no external tool networking
+
+Current implementation details:
+
+- shell commands are blocked for `sudo`, common network tools, backgrounding patterns, and several remote git operations by default
+- provider host allowlists are supported, but may be left empty for local compatibility testing
 
 ### `verifier`
 
@@ -125,9 +175,19 @@ Verifier failure is not a generic text error. It is structured feedback with:
 
 The task is considered incomplete while verification fails.
 
+Current implementation details:
+
+- verifier execution is configuration-driven
+- failures include command, exit code, stdout, stderr, stage, and retryability
+
 ### `session`
 
 Persists request metadata, context selection, tool activity, patch artifacts, and verification output locally. Retention is controlled by both age and count.
+
+Current implementation details:
+
+- session directories are stored under `.agent/sessions`
+- request, context, model logs, tool logs, patch, rollback, and verifier outputs are persisted when available
 
 ## Execution loop
 
@@ -142,6 +202,11 @@ Persists request metadata, context selection, tool activity, patch artifacts, an
 9. Run verifier.
 10. If verifier fails and repair attempts remain, feed structured failure back into the next loop.
 11. Stop when complete, when limits are hit, or when user intervention is required.
+
+Current implementation details:
+
+- patch approval is manual by default and can be skipped with `--yes`
+- verifier failure can trigger bounded automatic repair attempts
 
 ## Step protocol
 
@@ -189,7 +254,8 @@ Example shape:
 
 ### Secrets
 
-- config stores `apiKeyEnv`, never raw API keys
+- prefer environment variables for credentials
+- inline configured API keys are currently accepted for local testing compatibility and should be treated as a temporary convenience, not the recommended default
 - CLI flags must not accept raw secrets
 - logs redact known secret fields and authorization headers
 
@@ -224,6 +290,7 @@ Example shape:
 - can run verifier commands and return structured failures
 - can persist session artifacts locally and clean them by age and count
 - can complete one local smoke-tested patch-driven code edit loop
+- can perform a real provider-backed model connectivity check with `npm run check:model`
 
 ## Deferred items
 
