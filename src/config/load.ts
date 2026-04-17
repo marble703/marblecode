@@ -37,24 +37,25 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     },
     policy: {
       path: {
-        readWrite: parsed.policy?.path.readWrite ?? ['.'],
-        readOnly: parsed.policy?.path.readOnly ?? [],
-        deny: parsed.policy?.path.deny ?? [],
+        readWrite: parsed.policy?.path?.readWrite ?? ['.'],
+        readOnly: parsed.policy?.path?.readOnly ?? [],
+        deny: parsed.policy?.path?.deny ?? [],
       },
       shell: {
-        enabled: parsed.policy?.shell.enabled ?? true,
-        workspaceOnly: parsed.policy?.shell.workspaceOnly ?? true,
-        inheritEnv: parsed.policy?.shell.inheritEnv ?? false,
-        allowEnv: parsed.policy?.shell.allowEnv ?? ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM'],
+        enabled: parsed.policy?.shell?.enabled ?? true,
+        workspaceOnly: parsed.policy?.shell?.workspaceOnly ?? true,
+        inheritEnv: parsed.policy?.shell?.inheritEnv ?? false,
+        allowEnv: parsed.policy?.shell?.allowEnv ?? ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TERM'],
         denyCommands:
-          parsed.policy?.shell.denyCommands ?? ['sudo', 'curl', 'wget', 'ssh', 'scp', 'nc', 'ncat', 'netcat', 'ping'],
-        denyPatterns: parsed.policy?.shell.denyPatterns ?? ['rm -rf /', 'nohup', 'disown', '&'],
-        timeoutMs: parsed.policy?.shell.timeoutMs ?? 120000,
-        maxBufferBytes: parsed.policy?.shell.maxBufferBytes ?? 1024 * 1024,
+          parsed.policy?.shell?.denyCommands ?? ['sudo', 'curl', 'wget', 'ssh', 'scp', 'nc', 'ncat', 'netcat', 'ping'],
+        denyPatterns:
+          parsed.policy?.shell?.denyPatterns ?? ['rm -rf /', 'nohup', 'disown', '&', 'http://', 'https://', 'git clone', 'git fetch', 'git pull', 'git push'],
+        timeoutMs: parsed.policy?.shell?.timeoutMs ?? 120000,
+        maxBufferBytes: parsed.policy?.shell?.maxBufferBytes ?? 1024 * 1024,
       },
       network: {
-        allowExternalToolNetwork: parsed.policy?.network.allowExternalToolNetwork ?? false,
-        allowProviderHosts: parsed.policy?.network.allowProviderHosts ?? [],
+        allowExternalToolNetwork: parsed.policy?.network?.allowExternalToolNetwork ?? false,
+        allowProviderHosts: parsed.policy?.network?.allowProviderHosts ?? [],
       },
     },
     verifier: {
@@ -87,10 +88,7 @@ function validateConfig(config: AppConfig): void {
       throw new Error(`Provider ${providerId} must use https`);
     }
 
-    if (
-      config.policy.network.allowProviderHosts.length > 0 &&
-      !config.policy.network.allowProviderHosts.includes(url.host)
-    ) {
+    if (config.policy.network.allowProviderHosts.length > 0 && !config.policy.network.allowProviderHosts.includes(url.host)) {
       throw new Error(`Provider host ${url.host} is not allowed by policy`);
     }
   }

@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
+import { PolicyEngine } from '../policy/index.js';
 
 export interface ContextInput {
   prompt: string;
@@ -23,7 +24,7 @@ export interface ContextBundle {
   totalChars: number;
 }
 
-export async function buildContext(input: ContextInput, config: AppConfig): Promise<ContextBundle> {
+export async function buildContext(input: ContextInput, config: AppConfig, policy: PolicyEngine): Promise<ContextBundle> {
   const items: ContextItem[] = [];
   const seen = new Set<string>();
 
@@ -33,6 +34,8 @@ export async function buildContext(input: ContextInput, config: AppConfig): Prom
     if (isExcluded(relativePath, config.context.exclude)) {
       continue;
     }
+
+    policy.assertReadable(absolutePath);
 
     const sensitive = isExcluded(relativePath, config.context.sensitive);
     const excerpt = await safeReadSnippet(absolutePath, config.context.maxChars);
@@ -59,7 +62,9 @@ export async function buildContext(input: ContextInput, config: AppConfig): Prom
       continue;
     }
 
-    const excerpt = await safeReadSnippet(path.resolve(config.workspaceRoot, candidate.path), config.context.maxChars);
+    const absolutePath = path.resolve(config.workspaceRoot, candidate.path);
+    policy.assertReadable(absolutePath);
+    const excerpt = await safeReadSnippet(absolutePath, config.context.maxChars);
     items.push({
       path: candidate.path,
       reason: 'Recently modified file.',

@@ -9,8 +9,8 @@ export interface RouteDecision {
 
 export function routeTask(prompt: string, config: AppConfig): RouteDecision {
   const lowerPrompt = prompt.toLowerCase();
-  const codeKeywords = ['fix', 'modify', 'refactor', 'implement', 'edit', 'patch', 'bug'];
-  const planningKeywords = ['plan', 'design', 'architecture', 'strategy', 'roadmap'];
+  const codeKeywords = ['fix', 'modify', 'refactor', 'implement', 'edit', 'patch', 'bug', '修复', '修改', '重构', '实现'];
+  const planningKeywords = ['plan', 'design', 'architecture', 'strategy', 'roadmap', '规划', '设计', '架构', '方案'];
 
   const isPlanning = planningKeywords.some((keyword) => lowerPrompt.includes(keyword));
   const isCode = codeKeywords.some((keyword) => lowerPrompt.includes(keyword));

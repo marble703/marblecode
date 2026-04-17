@@ -1,5 +1,6 @@
 {
-  // Project-local config. Keep secrets in environment variables.
+  // Fill your OpenAI-compatible Chat Completions base URL here.
+  // Example: https://api.openai.com/v1
   "workspaceRoot": ".",
   "providers": {
     "openai": {
@@ -36,7 +37,8 @@
     "exclude": [
       "node_modules/**",
       ".git/**",
-      ".agent/**"
+      ".agent/**",
+      "dist/**"
     ],
     "sensitive": [
       ".env*",

@@ -36,6 +36,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         model: request.model,
         messages: toOpenAIMessages(request),
         stream: false,
+        temperature: 0,
         tools: request.tools?.map((tool) => ({
           type: 'function',
           function: {
@@ -50,7 +51,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`Provider request failed with status ${response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Provider request failed with status ${response.status}: ${errorText}`);
     }
 
     const payload = (await response.json()) as {

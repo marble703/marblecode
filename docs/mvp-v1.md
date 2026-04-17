@@ -39,7 +39,7 @@ Unified model interface. The internal request and response types must already re
 - reasoning token accounting
 - vendor-specific metadata
 
-MVP implementation: `OpenAICompatibleProvider` only.
+MVP implementation: `OpenAICompatibleProvider` only, using the traditional `POST /chat/completions` interface.
 
 ### `router`
 
@@ -223,6 +223,7 @@ Example shape:
 - can parse, preview, apply, and rollback structured patches
 - can run verifier commands and return structured failures
 - can persist session artifacts locally and clean them by age and count
+- can complete one local smoke-tested patch-driven code edit loop
 
 ## Deferred items
 

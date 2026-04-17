@@ -67,6 +67,7 @@ export async function runAgent(
       explicitFiles: input.explicitFiles,
     },
     config,
+    policy,
   );
 
   await writeSessionArtifact(session, 'context.json', JSON.stringify(context, null, 2));
@@ -91,7 +92,15 @@ export async function runAgent(
     let stepCount = 0;
     let applyResult: PatchApplyResult | undefined;
     while (stepCount < route.maxSteps) {
-      const request = buildModelRequest(config, modelConfig.model, modelConfig.provider, input.prompt, context, transcript);
+      const request = buildModelRequest(
+        config,
+        modelConfig.model,
+        modelConfig.provider,
+        input.prompt,
+        context,
+        transcript,
+        tools.listDefinitions(),
+      );
       const response = await provider.invoke(request);
       await appendSessionLog(
         session,
@@ -204,6 +213,7 @@ function buildModelRequest(
   prompt: string,
   context: Awaited<ReturnType<typeof buildContext>>,
   transcript: string[],
+  tools: ReturnType<ToolRegistry['listDefinitions']>,
 ): ModelRequest {
   const contextText = context.items
     .map((item) => {
@@ -211,6 +221,9 @@ function buildModelRequest(
       return `File: ${item.path}\nReason: ${item.reason}\n${warning}${item.excerpt}`;
     })
     .join('\n\n---\n\n');
+  const toolText = tools
+    .map((tool) => `- ${tool.name}: ${tool.description} input=${JSON.stringify(tool.inputSchema)}`)
+    .join('\n');
 
   return {
     providerId,
@@ -221,6 +234,7 @@ function buildModelRequest(
         role: 'user',
         content: [
           `User request:\n${prompt}`,
+          `Available tools:\n${toolText || '(none)'}`,
           `Context:\n${contextText || '(no context selected)'}`,
           transcript.length > 0 ? `Transcript:\n${transcript.join('\n')}` : '',
         ]
@@ -243,6 +257,8 @@ function buildSystemPrompt(maxSteps: number): string {
     'Valid response types are JSON objects with type = tool_call, patch, or final.',
     'Do not output prose outside JSON.',
     'Never request write_file. The host applies structured patches on your behalf.',
+    'When using replace_file, newText must contain the full final file content, not a partial diff.',
+    'Prefer read_file before editing unless the file content is already fully present in context.',
     'Sensitive files such as .env are unavailable unless they were explicitly supplied.',
     'Patch responses must follow this schema:',
     '{"type":"patch","thought":"...","patch":{"version":"1","summary":"...","operations":[{"type":"replace_file","path":"src/file.ts","diff":"brief summary","newText":"full file contents"}]}}',
@@ -250,7 +266,7 @@ function buildSystemPrompt(maxSteps: number): string {
 }
 
 function parseAgentStep(content: string): AgentStep {
-  const parsed = JSON.parse(content) as Record<string, unknown>;
+  const parsed = JSON.parse(extractJsonObject(content)) as Record<string, unknown>;
   const type = parsed.type;
   if (type === 'tool_call') {
     return withOptionalThought(
@@ -284,6 +300,26 @@ function parseAgentStep(content: string): AgentStep {
   }
 
   throw new Error('Model response did not contain a valid agent step');
+}
+
+function extractJsonObject(content: string): string {
+  const trimmed = content.trim();
+  if (trimmed.startsWith('{')) {
+    return trimmed;
+  }
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim();
+  }
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+
+  return trimmed;
 }
 
 function withOptionalThought<T extends AgentStep>(step: T, thought: unknown): T {

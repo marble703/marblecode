@@ -19,14 +19,15 @@ export class PolicyEngine {
       throw new Error('Shell execution is disabled by policy');
     }
 
-    const tokens = command.trim().split(/\s+/);
-    const binary = tokens[0] ?? '';
+    const normalizedCommand = command.trim().toLowerCase();
+    const tokens = normalizedCommand.split(/\s+/);
+    const binary = path.basename(tokens[0] ?? '');
     if (shell.denyCommands.includes(binary)) {
       throw new Error(`Command ${binary} is blocked by policy`);
     }
 
     for (const pattern of shell.denyPatterns) {
-      if (command.includes(pattern)) {
+      if (normalizedCommand.includes(pattern.toLowerCase())) {
         throw new Error(`Command matched blocked pattern: ${pattern}`);
       }
     }
