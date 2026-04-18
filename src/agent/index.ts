@@ -7,13 +7,14 @@ import type { ModelProvider, ModelRequest } from '../provider/types.js';
 import { routeTask } from '../router/index.js';
 import { appendSessionLog, createSession, writeSessionArtifact } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
-import { runVerifier } from '../verifier/index.js';
+import { runVerifier, type VerifyResult } from '../verifier/index.js';
 import { PolicyEngine } from '../policy/index.js';
 
 export interface RunAgentInput {
   prompt: string;
   explicitFiles: string[];
   pastedSnippets: string[];
+  manualVerifierCommands: string[];
   autoApprove: boolean;
   confirm: (message: string) => Promise<boolean>;
 }
@@ -81,6 +82,7 @@ export async function runAgent(
           prompt: input.prompt,
           explicitFiles: input.explicitFiles,
           pastedSnippets: input.pastedSnippets.map((snippet, index) => `[Pasted #${index + 1}] ${snippet}`),
+          manualVerifierCommands: input.manualVerifierCommands,
           route,
         },
         null,
@@ -186,8 +188,15 @@ export async function runAgent(
       }
       await writeSessionArtifact(session, 'rollback.json', JSON.stringify(applyResult.rollback, null, 2));
       await writeSessionArtifact(session, 'backups.json', JSON.stringify(applyResult.backupFiles, null, 2));
-      const verifyResult = await runVerifier(config, policy);
+      const verifyResult = await runVerifier(config, policy, {
+        changedFiles: applyResult.changedFiles,
+        manualCommands: input.manualVerifierCommands,
+        providers,
+      });
       await writeSessionArtifact(session, 'verify.json', JSON.stringify(verifyResult, null, 2));
+      if (verifyResult.analysis) {
+        await writeSessionArtifact(session, 'verify.analysis.json', JSON.stringify(verifyResult.analysis, null, 2));
+      }
 
       if (verifyResult.success) {
         return {
@@ -205,7 +214,7 @@ export async function runAgent(
           status: 'needs_intervention',
           sessionDir: session.dir,
           changedFiles: applyResult.changedFiles,
-          message: 'Verifier failed after the maximum number of repair attempts.',
+          message: buildVerifierFailureMessage(verifyResult),
         };
       }
 
@@ -284,6 +293,7 @@ function buildSystemPrompt(maxSteps: number): string {
     'When using replace_file, newText must contain the full final file content, not a partial diff.',
     'Prefer read_file before editing unless the file content is already fully present in context.',
     'Sensitive files such as .env are unavailable unless they were explicitly supplied.',
+    'Project-scoped verification plans may live in .marblecode/verifier.md. If verifier analysis says the verification plan is stale, you may update that file.',
     'Patch responses must follow this schema:',
     '{"type":"patch","thought":"...","patch":{"version":"1","summary":"...","operations":[{"type":"replace_file","path":"src/file.ts","diff":"brief summary","newText":"full file contents"}]}}',
   ].join(' ');
@@ -433,6 +443,18 @@ function renderPatchPreview(preview: Array<{ path: string; type: string; summary
   return preview
     .map((item) => [`[${item.type}] ${item.path}`, item.summary, item.preview].join('\n'))
     .join('\n\n');
+}
+
+function buildVerifierFailureMessage(verifyResult: VerifyResult): string {
+  const blockingFailures = verifyResult.failures.filter((failure) => failure.blocking);
+  const analysis = verifyResult.analysis;
+  const details = blockingFailures.length > 0
+    ? ` Failed commands: ${blockingFailures.map((failure) => failure.command).join('; ')}.`
+    : '';
+  const analysisText = analysis
+    ? ` Analysis: ${analysis.summary || analysis.reason}${analysis.shouldEditVerifier ? ' Consider updating .marblecode/verifier.md.' : ''}`
+    : '';
+  return `Verifier failed after the maximum number of repair attempts.${details}${analysisText}`;
 }
 
 export async function tryRollback(

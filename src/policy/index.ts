@@ -35,7 +35,10 @@ export class PolicyEngine {
 
   public filterShellEnv(): NodeJS.ProcessEnv {
     if (this.config.policy.shell.inheritEnv) {
-      return process.env;
+      return {
+        ...process.env,
+        ...this.config.project.env,
+      };
     }
 
     const env: NodeJS.ProcessEnv = {};
@@ -45,6 +48,11 @@ export class PolicyEngine {
         env[key] = value;
       }
     }
+
+    for (const [key, value] of Object.entries(this.config.project.env)) {
+      env[key] = value;
+    }
+
     return env;
   }
 

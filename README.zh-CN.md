@@ -8,6 +8,7 @@
 
 - 支持 CLI 入口
 - 支持配置加载
+- 支持项目级 `.marblecode/` 配置加载
 - 支持 OpenAI-compatible Provider
 - 底层使用传统 `POST /chat/completions`
 - 支持静态规则路由
@@ -18,6 +19,7 @@
 - 支持替换/删除前自动备份原文件
 - 支持路径和 Shell 策略控制
 - 支持验证器
+- 支持项目内 Markdown verifier 设计
 - 支持本地 Session 日志和自动清理
 - 支持模型连通性检查脚本
 - 支持一次本地 smoke test，验证 Patch 驱动改码闭环
@@ -42,6 +44,8 @@
 - Patch 替换或删除文件前会自动备份原文件
 - 支持一键回滚最近一次或指定 session 的改动
 - Patch 应用后可执行 verifier
+- verifier 可从 `.marblecode/verifier.md` 解析
+- 支持通过 `--verify` 临时覆盖本次 verifier
 - 将请求、上下文、模型输出、工具调用、Patch、验证结果记录到本地 session
 
 ## 当前限制
@@ -101,6 +105,12 @@ node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/
 node dist/index.js run "修复这个函数" --paste $'function add(a, b) {\n  return a - b;\n}'
 ```
 
+临时覆盖本次 verifier：
+
+```bash
+node dist/index.js run "修复 add 函数" --file examples/snippets/math.ts --verify "npm run build"
+```
+
 6. 运行本地 smoke test
 
 ```bash
@@ -124,10 +134,16 @@ node dist/index.js rollback --last
 - `npm run build`：编译项目
 - `npm run dev`：用 `tsx` 直接运行 CLI
 - `npm run smoke:edit`：执行一个不依赖外部 API 的本地改码 smoke test
+- `npm run smoke:verifier`：对 `examples/verifier-fixture` 运行现有 verifier 冒烟验证
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
 
 ## 配置说明
 
+- `agent.config.jsonc` 仍然负责本地运行时配置，比如 provider、model 和本地策略
+- `.marblecode/config.jsonc` 是项目级共享配置入口
+- `.marblecode/verifier.md` 是共享 verifier 设计的推荐位置
+- 项目配置可以覆盖 `context`、`policy`、`routing`、`session`、`verifier` 等共享运行参数
+- 项目配置也可以通过 `env` 注入项目级 shell 环境变量
 - `agent.config.jsonc` 是本地配置文件，已经加入 `.gitignore`
 - `providers.openai.baseUrl` 填你的兼容接口地址
 - 当前 MVP 同时接受 `http://...` 和 `https://...`
@@ -156,6 +172,7 @@ node dist/index.js rollback --last
 
 ## 仓库结构
 
+- `.marblecode`：项目级 agent 配置和 verifier 计划
 - `src/cli`：CLI 入口
 - `src/agent`：主执行循环
 - `src/provider`：模型抽象和 OpenAI-compatible Provider
@@ -167,7 +184,19 @@ node dist/index.js rollback --last
 - `src/verifier`：补丁后的验证执行
 - `src/session`：本地会话记录
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
+- `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
 - `docs/mvp-v1.md`：MVP 架构和协议说明
+
+## Verifier Markdown
+
+`.marblecode/verifier.md` 中每个 `##` 小节代表一个 verifier 步骤。
+
+- `- run: ...`：必填，实际执行的命令
+- `- when: ...`：自由描述，供人和模型理解这个步骤为什么存在
+- `- paths: src/**, scripts/**`：只在匹配到改动文件时执行
+- `- platforms: linux, darwin, win32`：按平台筛选
+- `- timeout: 120s`：覆盖默认超时
+- `- optional: true`：标记为非阻塞步骤
 
 ## 说明
 

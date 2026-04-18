@@ -26,6 +26,10 @@ export async function main(): Promise<void> {
         type: 'string',
         multiple: true,
       },
+      verify: {
+        type: 'string',
+        multiple: true,
+      },
       session: {
         type: 'string',
       },
@@ -69,6 +73,7 @@ export async function main(): Promise<void> {
     prompt,
     explicitFiles: parsed.values.file ?? [],
     pastedSnippets: parsed.values.paste ?? [],
+    manualVerifierCommands: parsed.values.verify ?? [],
     autoApprove: parsed.values.yes,
     confirm: confirmPatch,
   });
@@ -92,7 +97,7 @@ async function confirmPatch(message: string): Promise<boolean> {
 }
 
 function printUsage(): void {
-  output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--yes]\n');
+  output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
   output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
 }
 

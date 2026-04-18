@@ -1,0 +1,7 @@
+{
+  // Project-scoped agent settings live here.
+  // Keep local secrets in agent.config.jsonc or shell env vars.
+  "verifier": {
+    "autoAnalyzeFailures": true
+  }
+}

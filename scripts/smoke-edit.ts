@@ -98,6 +98,8 @@ async function main(): Promise<void> {
         enabled: false,
         timeoutMs: 5000,
         commands: [],
+        path: path.join(workspaceRoot, '.marblecode/verifier.md'),
+        autoAnalyzeFailures: false,
       },
       session: {
         dir: '.agent/sessions',
@@ -106,6 +108,11 @@ async function main(): Promise<void> {
         logPromptBodies: false,
         logToolBodies: false,
         redactSecrets: true,
+      },
+      project: {
+        dir: path.join(workspaceRoot, '.marblecode'),
+        configPath: null,
+        env: {},
       },
     };
 
@@ -119,6 +126,7 @@ async function main(): Promise<void> {
       prompt: 'Modify the sample file.',
       explicitFiles: ['sample.txt'],
       pastedSnippets: [],
+      manualVerifierCommands: [],
       autoApprove: true,
       confirm: async () => true,
     });

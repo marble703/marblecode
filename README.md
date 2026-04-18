@@ -10,6 +10,7 @@ Implemented today:
 
 - CLI entrypoint
 - config loading
+- project-scoped `.marblecode/` config loading
 - provider abstraction with an OpenAI-compatible implementation
 - traditional OpenAI-compatible `POST /chat/completions` model calls
 - rule-based routing
@@ -20,6 +21,7 @@ Implemented today:
 - automatic source-file backups before replace/delete operations
 - path and shell policy enforcement
 - verifier execution
+- markdown verifier plans with project-local storage
 - local session logging with retention cleanup
 - model connectivity check script
 - a local smoke test that proves the patch-driven edit loop works once end to end
@@ -44,6 +46,8 @@ Validated in this repository:
 - Back up original files before replace/delete patch operations
 - Roll back the latest or a chosen session with one CLI command
 - Run configured verifier commands after patch application
+- Resolve verifier plans from `.marblecode/verifier.md`
+- Allow per-run verifier overrides with `--verify`
 - Persist request, context, model, tool, patch, and verifier artifacts in local session directories
 
 ## Current Limits
@@ -103,6 +107,12 @@ Run with pasted code instead of a file:
 node dist/index.js run "Fix this function" --paste $'function add(a, b) {\n  return a - b;\n}'
 ```
 
+Override the verifier for one run:
+
+```bash
+node dist/index.js run "Fix the add function" --file examples/snippets/math.ts --verify "npm run build"
+```
+
 6. Optional: run the local smoke test without any external API.
 
 ```bash
@@ -126,6 +136,7 @@ node dist/index.js rollback --last
 - `npm run build`: compile the project
 - `npm run dev`: run the CLI with `tsx`
 - `npm run smoke:edit`: run a local no-network patch-application smoke test
+- `npm run smoke:verifier`: run the existing verifier against `examples/verifier-fixture`
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 
 ## Notes
@@ -138,6 +149,11 @@ node dist/index.js rollback --last
 
 ## Configuration
 
+- `agent.config.jsonc` remains the local runtime config for providers, models, and local policy.
+- `.marblecode/config.jsonc` is the project-scoped config entrypoint for shared verifier and future project overrides.
+- `.marblecode/verifier.md` is the preferred place for shared verifier plans.
+- project config may override shared runtime sections such as `context`, `policy`, `routing`, `session`, and `verifier`
+- project config may inject project-specific shell environment variables through `env`
 - Fill the provider base URL in `agent.config.jsonc` at `providers.openai.baseUrl`.
   `http://...` and `https://...` are both accepted in the current MVP so local compatible endpoints can be tested.
 - Prefer storing the API key in the shell environment variable named by `providers.openai.apiKeyEnv`.
@@ -165,6 +181,7 @@ node dist/index.js rollback --last
 
 ## Repository Layout
 
+- `.marblecode`: project-scoped agent configuration and verifier plans
 - `src/cli`: CLI entrypoint
 - `src/agent`: agent loop
 - `src/provider`: model abstraction and OpenAI-compatible provider
@@ -176,7 +193,19 @@ node dist/index.js rollback --last
 - `src/verifier`: post-patch verification
 - `src/session`: local session persistence and cleanup
 - `examples/snippets`: small demo code snippets for testing coding edits
+- `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `docs/mvp-v1.md`: architecture and protocol contract
 - `README.zh-CN.md`: Chinese project overview
+
+## Verifier Markdown
+
+Each `##` section in `.marblecode/verifier.md` defines one verifier step.
+
+- `- run: ...` is required
+- `- when: ...` is free-form documentation for humans and model analysis
+- `- paths: src/**, scripts/**` limits a step to matching changed files
+- `- platforms: linux, darwin, win32` limits a step by platform
+- `- timeout: 120s` overrides the default verifier timeout for that step
+- `- optional: true` marks a step as non-blocking
 
 See `docs/mvp-v1.md` for the MVP contract.

@@ -4,9 +4,20 @@ export interface ProviderConfig {
   apiKeyEnv: string;
 }
 
+export interface ProviderConfigInput {
+  type?: 'openai-compatible';
+  baseUrl?: string;
+  apiKeyEnv?: string;
+}
+
 export interface ModelProfileConfig {
   provider: string;
   model: string;
+}
+
+export interface ModelProfileConfigInput {
+  provider?: string;
+  model?: string;
 }
 
 export interface RoutingConfig {
@@ -57,6 +68,16 @@ export interface VerifierConfig {
   enabled: boolean;
   timeoutMs: number;
   commands: string[];
+  path: string;
+  autoAnalyzeFailures: boolean;
+}
+
+export interface VerifierConfigInput {
+  enabled?: boolean;
+  timeoutMs?: number;
+  commands?: string[];
+  path?: string;
+  autoAnalyzeFailures?: boolean;
 }
 
 export interface SessionConfig {
@@ -68,6 +89,27 @@ export interface SessionConfig {
   redactSecrets: boolean;
 }
 
+export interface ProjectConfigInput {
+  providers?: Record<string, ProviderConfigInput>;
+  models?: Record<string, ModelProfileConfigInput>;
+  routing?: Partial<RoutingConfig>;
+  context?: Partial<ContextConfig>;
+  policy?: {
+    path?: Partial<PathPolicyConfig>;
+    shell?: Partial<ShellPolicyConfig>;
+    network?: Partial<NetworkPolicyConfig>;
+  };
+  verifier?: VerifierConfigInput;
+  session?: Partial<SessionConfig>;
+  env?: Record<string, string>;
+}
+
+export interface ProjectConfig {
+  dir: string;
+  configPath: string | null;
+  env: Record<string, string>;
+}
+
 export interface AppConfig {
   workspaceRoot: string;
   providers: Record<string, ProviderConfig>;
@@ -77,4 +119,5 @@ export interface AppConfig {
   policy: PolicyConfig;
   verifier: VerifierConfig;
   session: SessionConfig;
+  project: ProjectConfig;
 }

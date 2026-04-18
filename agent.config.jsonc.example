@@ -70,11 +70,6 @@
       "allowProviderHosts": []
     }
   },
-  "verifier": {
-    "enabled": false,
-    "timeoutMs": 120000,
-    "commands": []
-  },
   "session": {
     "dir": ".agent/sessions",
     "maxSessions": 100,
