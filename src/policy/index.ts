@@ -104,7 +104,11 @@ export class PolicyEngine {
         return targetPath === normalizedPattern || targetPath.startsWith(`${normalizedPattern}${path.sep}`);
       }
 
-      return minimatch(targetPath, normalizedPattern, { dot: true }) || normalizedPattern === '.';
+      if (normalizedPattern === '.') {
+        return !path.isAbsolute(targetPath);
+      }
+
+      return minimatch(targetPath, normalizedPattern, { dot: true });
     });
   }
 }

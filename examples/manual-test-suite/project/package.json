@@ -1,0 +1,9 @@
+{
+  "name": "manual-test-suite-project",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/check-math.js",
+    "test:syntax": "node --check src/broken-syntax.js"
+  }
+}

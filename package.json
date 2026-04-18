@@ -12,6 +12,7 @@
     "dev": "node --import tsx ./src/index.ts",
     "smoke:edit": "node --import tsx ./scripts/smoke-edit.ts",
     "smoke:verifier": "node --import tsx ./scripts/smoke-verifier.ts",
+    "test:examples": "node --import tsx ./scripts/test-examples.ts",
     "check:model": "node --import tsx ./scripts/check-model.ts"
   },
   "dependencies": {

@@ -135,6 +135,7 @@ node dist/index.js rollback --last
 - `npm run dev`：用 `tsx` 直接运行 CLI
 - `npm run smoke:edit`：执行一个不依赖外部 API 的本地改码 smoke test
 - `npm run smoke:verifier`：对 `examples/verifier-fixture` 运行现有 verifier 冒烟验证
+- `npm run test:examples`：运行手动触发的完整 examples 测试套件，覆盖 patch、verifier、rollback、shell 和权限检查
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
 
 ## 配置说明
@@ -185,6 +186,7 @@ node dist/index.js rollback --last
 - `src/session`：本地会话记录
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
+- `examples/manual-test-suite`：用于手动全量回归验证的 fixture 和说明文档
 - `docs/mvp-v1.md`：MVP 架构和协议说明
 
 ## Verifier Markdown

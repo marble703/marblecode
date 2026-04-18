@@ -137,6 +137,7 @@ node dist/index.js rollback --last
 - `npm run dev`: run the CLI with `tsx`
 - `npm run smoke:edit`: run a local no-network patch-application smoke test
 - `npm run smoke:verifier`: run the existing verifier against `examples/verifier-fixture`
+- `npm run test:examples`: run the full manual example suite for patch, verifier, rollback, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 
 ## Notes
@@ -194,6 +195,7 @@ node dist/index.js rollback --last
 - `src/session`: local session persistence and cleanup
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
+- `examples/manual-test-suite`: manual full-coverage fixture and documentation for release-grade checks
 - `docs/mvp-v1.md`: architecture and protocol contract
 - `README.zh-CN.md`: Chinese project overview
 

@@ -100,16 +100,28 @@ function createSearchTextTool(config: AppConfig, policy: PolicyEngine): Tool {
         type: 'object',
         properties: {
           pattern: { type: 'string' },
+          flags: { type: 'string' },
+          pathPattern: { type: 'string' },
         },
         required: ['pattern'],
       },
     },
     async execute(input) {
       try {
-        const regex = new RegExp(String(input.pattern), 'g');
+        const flags = normalizeRegexFlags(input.flags);
+        const regex = new RegExp(String(input.pattern), flags);
         const files = await walkFiles(config.workspaceRoot, config.workspaceRoot, config.context.exclude);
-        const matches: Array<{ path: string; count: number }> = [];
+        const pathPattern = typeof input.pathPattern === 'string' ? input.pathPattern : '**/*';
+        const matches: Array<{
+          path: string;
+          count: number;
+          matches: Array<{ line: number; column: number; match: string; context: string }>;
+        }> = [];
         for (const file of files) {
+          if (!minimatch(file, pathPattern, { dot: true })) {
+            continue;
+          }
+
           const targetPath = path.resolve(config.workspaceRoot, file);
           policy.assertReadable(targetPath);
           if (policy.isSensitive(targetPath)) {
@@ -117,9 +129,18 @@ function createSearchTextTool(config: AppConfig, policy: PolicyEngine): Tool {
           }
 
           const content = await readFile(targetPath, 'utf8');
-          const count = [...content.matchAll(regex)].length;
-          if (count > 0) {
-            matches.push({ path: file, count });
+          const fileMatches = [...content.matchAll(regex)].map((match) => {
+            const startIndex = match.index ?? 0;
+            const position = getLineAndColumn(content, startIndex);
+            return {
+              line: position.line,
+              column: position.column,
+              match: match[0] ?? '',
+              context: getLineText(content, startIndex),
+            };
+          });
+          if (fileMatches.length > 0) {
+            matches.push({ path: file, count: fileMatches.length, matches: fileMatches });
           }
         }
 
@@ -135,6 +156,29 @@ function createSearchTextTool(config: AppConfig, policy: PolicyEngine): Tool {
       }
     },
   };
+}
+
+function normalizeRegexFlags(input: unknown): string {
+  if (typeof input !== 'string' || input.length === 0) {
+    return 'g';
+  }
+
+  return input.includes('g') ? input : `${input}g`;
+}
+
+function getLineAndColumn(content: string, index: number): { line: number; column: number } {
+  const prefix = content.slice(0, index);
+  const lines = prefix.split('\n');
+  const line = lines.length;
+  const column = (lines.at(-1)?.length ?? 0) + 1;
+  return { line, column };
+}
+
+function getLineText(content: string, index: number): string {
+  const lineStart = content.lastIndexOf('\n', index - 1) + 1;
+  const nextBreak = content.indexOf('\n', index);
+  const lineEnd = nextBreak === -1 ? content.length : nextBreak;
+  return content.slice(lineStart, lineEnd);
 }
 
 function createRunShellTool(config: AppConfig, policy: PolicyEngine): Tool {
