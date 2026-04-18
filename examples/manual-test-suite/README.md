@@ -24,7 +24,9 @@ The suite automatically asserts all results without using AI to judge correctnes
 - `search_text` performs regex matching and returns line/column locations
 - `run_shell` executes `pwd`, `ls`, and `grep`
 - policy blocks sensitive file reads and forbidden shell commands
+- automatic context selection ranks route-related files when no `--file` is given
 - a deterministic provider generates a patch and the host applies it
+- multi-file patch application works across source and docs in one response
 - verifier runs project tests after patch application
 - patch generation can be rejected before apply
 - rollback restores files after a successful apply

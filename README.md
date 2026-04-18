@@ -165,8 +165,16 @@ node dist/index.js rollback --last
 
 - `--file path/to/file.ts`: inject an explicit file into context
 - `--paste "..."`: inject pasted code as a `[Pasted ~N lines #k]` context item
-- if `--file` is omitted, the context builder still tries keyword-based matching against workspace files
+- if `--file` is omitted, the context builder extracts query terms from the prompt and pasted snippets, scores candidate files, and auto-selects the top 3-5 likely files
+- explicit `--file` entries always stay at the front of the context list and win tie-breaks over auto-selected candidates
+- the model also receives a `Context selection summary` block listing extracted query terms and the top auto-selected files
 - recent files are also used as a fallback source
+- if the selected context is still insufficient, the model is expected to use `search_text`, `list_files`, and `read_file` before editing
+
+## Multi-file Patch
+
+- patch documents may contain multiple operations in one response when a fix spans implementation, tests, config, docs, or verifier files
+- multi-file patch previews, apply, backup, and rollback all run through the same host patch pipeline
 
 ## Rollback And Backups
 

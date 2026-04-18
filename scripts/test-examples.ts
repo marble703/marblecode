@@ -5,6 +5,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
+import { buildContext } from '../src/context/index.js';
 import { PolicyEngine } from '../src/policy/index.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { createBuiltinTools } from '../src/tools/builtins.js';
@@ -57,12 +58,37 @@ class StaticAnalysisProvider implements ModelProvider {
   }
 }
 
+class InspectingProvider implements ModelProvider {
+  public readonly id = 'stub';
+  public readonly capabilities = {
+    streaming: false,
+    toolCalling: false,
+    responseChunks: false,
+    reasoningTokens: false,
+    separateSystemPrompt: true,
+  } as const;
+
+  public constructor(private readonly inspect: (request: ModelRequest) => void) {}
+
+  public async invoke(request: ModelRequest): Promise<ModelResponse> {
+    this.inspect(request);
+    return {
+      content: JSON.stringify({
+        type: 'final',
+        message: 'inspected context request',
+      }),
+    };
+  }
+}
+
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
+    { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
+    { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
     { name: 'rollback restore', run: testRollbackRestore },
     { name: 'verifier syntax error output', run: testVerifierSyntaxErrorOutput },
@@ -88,7 +114,13 @@ async function testReadListAndSearch(): Promise<void> {
 
     const listResult = await registry.execute({ name: 'list_files', input: { path: 'src', pattern: '**/*.js' } });
     assert.equal(listResult.ok, true);
-    assert.deepEqual(listResult.data, ['src/broken-syntax.js', 'src/math.js']);
+    assert.deepEqual(listResult.data, [
+      'src/broken-syntax.js',
+      'src/math.js',
+      'src/register-routes.js',
+      'src/router.js',
+      'src/server.js',
+    ]);
 
     const searchResult = await registry.execute({
       name: 'search_text',
@@ -110,6 +142,65 @@ async function testReadListAndSearch(): Promise<void> {
   });
 }
 
+async function testAutomaticContextSelection(): Promise<void> {
+  await withWorkspace(async ({ config, policy, registry }) => {
+    const pastedSnippet = 'registerRoute(router, "/health", handler);';
+    const autoContext = await buildContext(
+      {
+        prompt: '修复路由重复注册问题',
+        explicitFiles: [],
+        pastedSnippets: [pastedSnippet],
+      },
+      config,
+      policy,
+    );
+
+    assert.ok(autoContext.queryTerms.includes('路由'));
+    assert.ok(autoContext.queryTerms.includes('router'));
+    assert.ok(autoContext.queryTerms.includes('注册'));
+    assert.ok(autoContext.queryTerms.includes('register'));
+    assert.equal(autoContext.items[0]?.path, '[Pasted ~1 lines #1]');
+    assert.ok(autoContext.items.some((item) => item.path === 'src/router.js'));
+    assert.ok(autoContext.items.some((item) => item.path === 'src/register-routes.js'));
+    assert.match(autoContext.selectionSummary, /Context selection summary:/);
+    assert.match(autoContext.selectionSummary, /src\/router\.js/);
+    assert.match(autoContext.selectionSummary, /路由, route, router/);
+
+    const explicitContext = await buildContext(
+      {
+        prompt: '修复路由重复注册问题',
+        explicitFiles: ['src/server.js'],
+        pastedSnippets: [],
+      },
+      config,
+      policy,
+    );
+    assert.equal(explicitContext.items[0]?.path, 'src/server.js');
+    assert.equal(explicitContext.items[0]?.source, 'explicit');
+
+    const providers = new Map<string, ModelProvider>([['stub', new InspectingProvider((request) => {
+      assert.match(request.systemPrompt ?? '', /search before editing/);
+      assert.match(request.systemPrompt ?? '', /multiple operations/);
+      const content = request.messages[0]?.content ?? '';
+      assert.match(content, /Context selection summary:/);
+      assert.match(content, /src\/router\.js/);
+      assert.match(content, /src\/register-routes\.js/);
+      assert.match(content, /\[Pasted ~1 lines #1\]/);
+    })]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: '修复路由重复注册问题',
+      explicitFiles: [],
+      pastedSnippets: [pastedSnippet],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(result.changedFiles.length, 0);
+  });
+}
+
 async function testShellTools(): Promise<void> {
   await withWorkspace(async ({ registry, workspaceRoot }) => {
     const pwdResult = await registry.execute({ name: 'run_shell', input: { command: 'pwd' } });
@@ -123,6 +214,34 @@ async function testShellTools(): Promise<void> {
     const grepResult = await registry.execute({ name: 'run_shell', input: { command: 'grep -n "BUG_MARKER" src/math.js' } });
     assert.equal(grepResult.ok, true);
     assert.match(grepResult.stdout ?? '', /^2:.*BUG_MARKER/m);
+  });
+}
+
+async function testMultiFilePatchApply(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMultiFileFixStep(workspaceRoot))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js and update the related notes in one change.',
+      explicitFiles: ['src/math.js', 'src/notes.txt'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.changedFiles, ['src/math.js', 'src/notes.txt']);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8'), /FIXED_NOTE/);
+
+    const patchArtifact = JSON.parse(await readFile(path.join(result.sessionDir, 'patch.json'), 'utf8')) as {
+      operations: Array<{ path: string }>;
+    };
+    assert.equal(patchArtifact.operations.length, 2);
+    assert.deepEqual(
+      patchArtifact.operations.map((operation) => operation.path),
+      ['src/math.js', 'src/notes.txt'],
+    );
   });
 }
 
@@ -346,6 +465,37 @@ async function buildMathFixStep(workspaceRoot: string): Promise<string> {
           diff: 'Replace subtraction with addition in add().',
           oldText: current,
           newText: next,
+        },
+      ],
+    },
+  });
+}
+
+async function buildMultiFileFixStep(workspaceRoot: string): Promise<string> {
+  const currentMath = await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8');
+  const nextMath = currentMath.replace('return a - b;', 'return a + b;');
+  const currentNotes = await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8');
+  const nextNotes = `${currentNotes}\nFIXED_NOTE: add now returns a + b\n`;
+  return JSON.stringify({
+    type: 'patch',
+    thought: 'Update both code and nearby documentation in one patch.',
+    patch: {
+      version: '1',
+      summary: 'Fix the add function and update notes in the manual suite fixture.',
+      operations: [
+        {
+          type: 'replace_file',
+          path: 'src/math.js',
+          diff: 'Replace subtraction with addition in add().',
+          oldText: currentMath,
+          newText: nextMath,
+        },
+        {
+          type: 'replace_file',
+          path: 'src/notes.txt',
+          diff: 'Append a note confirming the bug fix.',
+          oldText: currentNotes,
+          newText: nextNotes,
         },
       ],
     },

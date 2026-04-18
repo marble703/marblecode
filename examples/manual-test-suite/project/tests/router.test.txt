@@ -1,0 +1,2 @@
+duplicate route registration should be prevented
+registerRoute should only register each route once

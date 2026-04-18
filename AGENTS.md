@@ -15,15 +15,17 @@
 # CLI Workflows
 
 - Main coding command: `node dist/index.js run "<request>" [--file path] [--paste "code"] [--verify "npm test"] [--yes]`.
-- Prefer `--file` when you know the target file. Context fallback exists, but keyword recall is intentionally basic.
+- Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
+- If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.
 - Rollback command: `node dist/index.js rollback --last` or `node dist/index.js rollback --session <session-id-or-path>`.
 
 # Patch / Session Behavior
 
 - Replace/delete patch operations automatically back up originals into the session directory under `.agent/sessions/<timestamp>/backups/` and write `backups.json` plus `rollback.json`.
+- Multi-file patches are supported. If a fix spans implementation plus tests/config/docs, keep those edits in one patch document when practical.
 - If you change patch application or rollback logic, verify both a forward edit and `rollback --last` still work.
 - Patch rejection is a first-class flow. If you touch agent apply/approval logic, keep the “preview generated but patch not applied” path working.
 - Safe demo target for real coding runs is `examples/snippets/math.ts`; prefer it over editing core files just to test the loop.
