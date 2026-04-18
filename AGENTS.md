@@ -6,6 +6,7 @@
 - Project-shared agent settings now live under `.marblecode/`. Use `.marblecode/config.jsonc` for project overrides and `.marblecode/verifier.md` for shared verifier plans.
 - `agent.config.jsonc` is still the local runtime config. Project `.marblecode` settings override it for shared verifier/context/policy defaults.
 - The primary verification command is still `npm run build`.
+- If a repo has no explicit verifier commands or `.marblecode/verifier.md`, the verifier falls back to simple repo discovery (`package.json`, `Makefile`, `Cargo.toml`, `go.mod`, pytest signals).
 - For a no-network end-to-end check of patch application, run `npm run smoke:edit`.
 - For a no-network verifier check against a fixture project, run `npm run smoke:verifier`.
 - For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. This is intentionally manual-only for major changes and release validation, not something to run on every edit.
@@ -39,6 +40,7 @@
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
 - `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
+- `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
 - `examples/manual-test-suite`: manual full-coverage fixture for tool, patch, rollback, shell, policy, and verifier regression checks.

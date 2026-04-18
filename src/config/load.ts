@@ -107,6 +107,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
       commands: verifierCommands,
       path: verifierPath,
       autoAnalyzeFailures: projectConfig.verifier?.autoAnalyzeFailures ?? parsed.verifier?.autoAnalyzeFailures ?? true,
+      allowDiscovery: explicitVerifierEnabled !== false,
     },
     session: {
       dir: projectConfig.session?.dir ?? parsed.session?.dir ?? '.agent/sessions',

@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider } from '../provider/types.js';
+import { discoverVerifierCommands } from './discover.js';
 import { loadMarkdownVerifierSteps, selectMarkdownVerifierSteps } from './markdown.js';
 
 const exec = promisify(execCallback);
@@ -11,7 +12,7 @@ const exec = promisify(execCallback);
 export interface VerifyCommand {
   name: string;
   command: string;
-  source: 'manual' | 'config' | 'markdown';
+  source: 'manual' | 'config' | 'markdown' | 'discovered';
   description: string;
   when: string;
   paths: string[];
@@ -61,7 +62,7 @@ export async function runVerifier(
   options: RunVerifierOptions = {},
 ): Promise<VerifyResult> {
   const manualCommands = options.manualCommands ?? [];
-  if (manualCommands.length === 0 && !config.verifier.enabled) {
+  if (manualCommands.length === 0 && !config.verifier.enabled && !config.verifier.allowDiscovery) {
     return {
       success: true,
       commands: [],
@@ -162,16 +163,35 @@ async function resolveVerifierCommands(
     changedFiles,
     process.platform,
   );
-  return markdownSteps.map((step) => ({
+  if (markdownSteps.length > 0) {
+    return markdownSteps.map((step) => ({
+      name: step.name,
+      command: step.command,
+      source: 'markdown',
+      description: step.description,
+      when: step.when,
+      paths: step.paths,
+      platforms: step.platforms,
+      optional: step.optional,
+      timeoutMs: step.timeoutMs ?? config.verifier.timeoutMs,
+    }));
+  }
+
+  if (!config.verifier.allowDiscovery) {
+    return [];
+  }
+
+  const discoveredSteps = await discoverVerifierCommands(config.workspaceRoot);
+  return discoveredSteps.map((step) => ({
     name: step.name,
     command: step.command,
-    source: 'markdown',
+    source: 'discovered',
     description: step.description,
     when: step.when,
-    paths: step.paths,
-    platforms: step.platforms,
-    optional: step.optional,
-    timeoutMs: step.timeoutMs ?? config.verifier.timeoutMs,
+    paths: [],
+    platforms: [],
+    optional: false,
+    timeoutMs: config.verifier.timeoutMs,
   }));
 }
 

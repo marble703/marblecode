@@ -60,6 +60,7 @@ async function main(): Promise<void> {
       commands: [],
       path: fileURLToPath(new URL('../examples/verifier-fixture/.marblecode/verifier.md', import.meta.url)),
       autoAnalyzeFailures: false,
+      allowDiscovery: true,
     },
     session: {
       dir: '.agent/sessions',

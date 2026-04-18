@@ -145,6 +145,7 @@ node dist/index.js rollback --last
 - `.marblecode/verifier.md` 是共享 verifier 设计的推荐位置
 - 项目配置可以覆盖 `context`、`policy`、`routing`、`session`、`verifier` 等共享运行参数
 - 项目配置也可以通过 `env` 注入项目级 shell 环境变量
+- 如果没有手动 verifier、JSON verifier 命令列表或 `.marblecode/verifier.md`，verifier 会回退到基于仓库内容的自动发现
 - `agent.config.jsonc` 是本地配置文件，已经加入 `.gitignore`
 - `providers.openai.baseUrl` 填你的兼容接口地址
 - 当前 MVP 同时接受 `http://...` 和 `https://...`
@@ -207,6 +208,18 @@ node dist/index.js rollback --last
 - `- platforms: linux, darwin, win32`：按平台筛选
 - `- timeout: 120s`：覆盖默认超时
 - `- optional: true`：标记为非阻塞步骤
+
+## Verifier 自动发现
+
+当没有显式 verifier 时，host 会按下面顺序尝试从仓库推断默认命令：
+
+1. `package.json` 的精确脚本名：`verify`，否则 `test`，否则 `build`
+2. `Makefile`/`makefile` 的精确 target：`verify`，否则 `test`，否则 `build`
+3. `Cargo.toml` -> `cargo test`
+4. `go.mod` -> `go test ./...`
+5. `pytest.ini`、`tox.ini` 或带 pytest 信号的 `pyproject.toml` -> `pytest`
+
+自动发现只作为兜底机制。只要项目需要更复杂的验证策略，仍然应该把共享 verifier 计划写进 `.marblecode/verifier.md`。
 
 ## 说明
 

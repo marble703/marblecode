@@ -100,6 +100,7 @@ async function main(): Promise<void> {
         commands: [],
         path: path.join(workspaceRoot, '.marblecode/verifier.md'),
         autoAnalyzeFailures: false,
+        allowDiscovery: true,
       },
       session: {
         dir: '.agent/sessions',

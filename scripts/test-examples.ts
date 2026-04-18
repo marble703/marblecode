@@ -87,6 +87,7 @@ async function main(): Promise<void> {
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
+    { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
@@ -261,6 +262,59 @@ async function testPolicyBlocks(): Promise<void> {
   });
 }
 
+async function testVerifierAutoDiscovery(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    await rm(path.join(workspaceRoot, '.marblecode', 'verifier.md'));
+    const fixedMath = `export function add(a, b) {
+  return a + b;
+}
+
+export function multiply(a, b) {
+  return a * b;
+}
+`;
+    await writeFile(path.join(workspaceRoot, 'src/math.js'), fixedMath, 'utf8');
+
+    const config = await loadConfig(path.join(workspaceRoot, 'agent.config.jsonc'));
+    const verifyResult = await runVerifier(config, new PolicyEngine(config), {
+      changedFiles: ['src/math.js'],
+    });
+
+    assert.equal(verifyResult.success, true);
+    assert.equal(verifyResult.commands[0]?.source, 'discovered');
+    assert.equal(verifyResult.commands[0]?.command, 'npm run test');
+  });
+
+  await withCopiedFixture(fileURLToPath(new URL('../examples/verifier-fixture/', import.meta.url)), async ({ workspaceRoot }) => {
+    await rm(path.join(workspaceRoot, '.marblecode'), { recursive: true, force: true });
+    await writeFile(
+      path.join(workspaceRoot, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'discovery-build-fixture',
+          private: true,
+          type: 'module',
+          scripts: {
+            build: 'node --eval "process.stdout.write(\'build ok\\n\')"',
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    const config = await loadConfig(path.join(workspaceRoot, 'agent.config.jsonc'));
+    const verifyResult = await runVerifier(config, new PolicyEngine(config), {
+      changedFiles: ['src/index.ts'],
+    });
+
+    assert.equal(verifyResult.success, true);
+    assert.equal(verifyResult.commands[0]?.source, 'discovered');
+    assert.equal(verifyResult.commands[0]?.command, 'npm run build');
+  });
+}
+
 async function testPatchApplyAndVerifier(): Promise<void> {
   await withWorkspace(async ({ config, registry, workspaceRoot }) => {
     const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMathFixStep(workspaceRoot))]]);
@@ -364,10 +418,23 @@ async function withWorkspace(
     registry: ToolRegistry;
   }) => Promise<void>,
 ): Promise<void> {
+  await withCopiedFixture(SUITE_ROOT, run);
+}
+
+async function withCopiedFixture(
+  fixtureRoot: string,
+  run: (context: {
+    tempRoot: string;
+    workspaceRoot: string;
+    config: AppConfig;
+    policy: PolicyEngine;
+    registry: ToolRegistry;
+  }) => Promise<void>,
+): Promise<void> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'marblecode-example-suite-'));
   const workspaceRoot = path.join(tempRoot, 'workspace');
   try {
-    await cp(SUITE_ROOT, workspaceRoot, { recursive: true });
+    await cp(fixtureRoot, workspaceRoot, { recursive: true });
     await writeFile(path.join(tempRoot, 'outside.txt'), 'blocked\n', 'utf8');
     await writeFile(
       path.join(workspaceRoot, 'agent.config.jsonc'),

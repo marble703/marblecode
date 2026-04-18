@@ -155,6 +155,7 @@ node dist/index.js rollback --last
 - `.marblecode/verifier.md` is the preferred place for shared verifier plans.
 - project config may override shared runtime sections such as `context`, `policy`, `routing`, `session`, and `verifier`
 - project config may inject project-specific shell environment variables through `env`
+- if no manual verifier, JSON verifier command list, or `.marblecode/verifier.md` exists, the verifier falls back to auto-discovery from the repo
 - Fill the provider base URL in `agent.config.jsonc` at `providers.openai.baseUrl`.
   `http://...` and `https://...` are both accepted in the current MVP so local compatible endpoints can be tested.
 - Prefer storing the API key in the shell environment variable named by `providers.openai.apiKeyEnv`.
@@ -217,5 +218,17 @@ Each `##` section in `.marblecode/verifier.md` defines one verifier step.
 - `- platforms: linux, darwin, win32` limits a step by platform
 - `- timeout: 120s` overrides the default verifier timeout for that step
 - `- optional: true` marks a step as non-blocking
+
+## Verifier Discovery
+
+When no verifier is provided explicitly, the host now falls back to repo-based discovery in this order:
+
+1. `package.json` exact scripts: `verify`, then `test`, then `build`
+2. `Makefile`/`makefile` exact targets: `verify`, then `test`, then `build`
+3. `Cargo.toml` -> `cargo test`
+4. `go.mod` -> `go test ./...`
+5. `pytest.ini`, `tox.ini`, or `pyproject.toml` with pytest signals -> `pytest`
+
+Discovery is only a fallback. Shared project verifier behavior should still live in `.marblecode/verifier.md` when the project needs more than a simple default.
 
 See `docs/mvp-v1.md` for the MVP contract.

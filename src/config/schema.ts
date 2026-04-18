@@ -70,6 +70,7 @@ export interface VerifierConfig {
   commands: string[];
   path: string;
   autoAnalyzeFailures: boolean;
+  allowDiscovery: boolean;
 }
 
 export interface VerifierConfigInput {
