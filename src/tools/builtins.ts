@@ -19,6 +19,11 @@ export function createBuiltinTools(config: AppConfig, policy: PolicyEngine): Too
   ];
 }
 
+export function createPlannerTools(config: AppConfig, policy: PolicyEngine): Tool[] {
+  const allowed = new Set(['read_file', 'list_files', 'search_text', 'git_diff']);
+  return createBuiltinTools(config, policy).filter((tool) => allowed.has(tool.definition.name));
+}
+
 function createReadFileTool(config: AppConfig, policy: PolicyEngine): Tool {
   return {
     definition: {

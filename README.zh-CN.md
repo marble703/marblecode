@@ -33,6 +33,7 @@
 ## 当前能力
 
 - 以单 Agent 方式执行有限步数的编码任务
+- 以只读 planner 模式搜索代码并输出结构化计划，不直接写文件
 - 根据任务类型在 `cheap`、`code`、`strong` 模型档位之间切换
 - 从显式文件和最近修改文件中构建有限上下文
 - 支持通过 `--paste` 注入类似 `[Pasted ~3 lines #1]` 的粘贴上下文
@@ -91,6 +92,18 @@ npm run build
 
 ```bash
 node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/snippets/math.ts
+```
+
+只生成计划，不直接改文件：
+
+```bash
+node dist/index.js plan "重构路由模块并补测试"
+```
+
+带着新输入恢复 planner session：
+
+```bash
+node dist/index.js plan "保留现有导出结构" --session <session-id-or-path>
 ```
 
 跳过 Patch 确认：
@@ -162,6 +175,16 @@ node dist/index.js rollback --last
 - 模型还会收到一个 `Context selection summary` 摘要块，说明查询词和自动选中的候选文件
 - 最近修改文件也会作为兜底上下文来源
 - 如果当前上下文还不够，模型应继续用 `search_text`、`list_files`、`read_file` 搜索后再改动
+
+## Planner
+
+- `node dist/index.js plan "..."` 会进入只读 planner 循环，而不是 patch/apply 循环
+- planner 模式只开放 `read_file`、`list_files`、`search_text`、`git_diff`
+- planner 响应只允许 `plan`、`plan_update`、`tool_call`、`final`
+- planner 遇到非法模型输出会最多自动重试 3 次，之后把 session 标记为失败
+- planner session 会落盘 `plan.json`、`plan.state.json`、`plan.events.jsonl`、`planner.request.json`、`planner.context.packet.json`
+- planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
+- `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 
 ## 多文件 Patch
 

@@ -25,6 +25,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - `run_shell` executes `pwd`, `ls`, and `grep`
 - policy blocks sensitive file reads and forbidden shell commands
 - automatic context selection ranks route-related files when no `--file` is given
+- planner mode creates read-only plans, logs plan events, retries invalid patch-like output, and supports basic resume/replan
 - verifier auto-discovery falls back to package `test`/`build` scripts when `.marblecode/verifier.md` is missing
 - a deterministic provider generates a patch and the host applies it
 - multi-file patch application works across source and docs in one response

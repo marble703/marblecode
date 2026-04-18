@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
+import { runPlanner } from '../src/planner/index.js';
 import { PolicyEngine } from '../src/policy/index.js';
 import { ToolRegistry } from '../src/tools/registry.js';
-import { createBuiltinTools } from '../src/tools/builtins.js';
+import { createBuiltinTools, createPlannerTools } from '../src/tools/builtins.js';
 import { runVerifier } from '../src/verifier/index.js';
 import type { AppConfig } from '../src/config/schema.js';
 import type { ModelProvider, ModelRequest, ModelResponse } from '../src/provider/types.js';
@@ -81,10 +82,44 @@ class InspectingProvider implements ModelProvider {
   }
 }
 
+class SequenceProvider implements ModelProvider {
+  public readonly id = 'stub';
+  public readonly capabilities = {
+    streaming: false,
+    toolCalling: false,
+    responseChunks: false,
+    reasoningTokens: false,
+    separateSystemPrompt: true,
+  } as const;
+
+  private index = 0;
+
+  public constructor(
+    private readonly responses: Array<string | ((request: ModelRequest, index: number) => string | Promise<string>)>,
+    private readonly inspect?: (request: ModelRequest, index: number) => void,
+  ) {}
+
+  public async invoke(request: ModelRequest): Promise<ModelResponse> {
+    const currentIndex = this.index;
+    const response = this.responses[currentIndex];
+    if (!response) {
+      throw new Error(`Unexpected planner/model request index ${currentIndex}`);
+    }
+
+    this.inspect?.(request, currentIndex);
+    this.index += 1;
+    return {
+      content: typeof response === 'string' ? response : await response(request, currentIndex),
+    };
+  }
+}
+
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
+    { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
+    { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
@@ -215,6 +250,245 @@ async function testShellTools(): Promise<void> {
     const grepResult = await registry.execute({ name: 'run_shell', input: { command: 'grep -n "BUG_MARKER" src/math.js' } });
     assert.equal(grepResult.ok, true);
     assert.match(grepResult.stdout ?? '', /^2:.*BUG_MARKER/m);
+  });
+}
+
+async function testPlannerReadOnlyFlow(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    const registry = createPlannerRegistry(config, policy);
+    const provider = new SequenceProvider(
+      [
+        JSON.stringify({
+          type: 'plan',
+          plan: {
+            version: '1',
+            summary: 'Refactor the router module and add tests.',
+            steps: [
+              {
+                id: 'step-1',
+                title: '查找 router 相关文件',
+                status: 'PENDING',
+                kind: 'search',
+                details: '定位 router/register/export/test 相关实现和入口。',
+                dependencies: [],
+                children: [],
+              },
+              {
+                id: 'step-2',
+                title: '修改路由逻辑',
+                status: 'PENDING',
+                kind: 'code',
+                dependencies: ['step-1'],
+                children: [],
+              },
+              {
+                id: 'step-3',
+                title: '更新测试',
+                status: 'PENDING',
+                kind: 'test',
+                dependencies: ['step-2'],
+                children: [],
+              },
+              {
+                id: 'step-4',
+                title: '执行 verify',
+                status: 'PENDING',
+                kind: 'verify',
+                dependencies: ['step-3'],
+                children: [],
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: 'plan_update',
+          stepId: 'step-1',
+          status: 'SEARCHING',
+          message: 'Searching router and register files.',
+          relatedFiles: ['src/router.js', 'src/register-routes.js'],
+        }),
+        JSON.stringify({
+          type: 'tool_call',
+          tool: 'search_text',
+          input: {
+            pattern: 'registerRoute|router',
+            pathPattern: 'src/**/*.js',
+          },
+        }),
+        JSON.stringify({
+          type: 'plan_update',
+          stepId: 'step-1',
+          status: 'DONE',
+          message: 'Identified the router implementation and registration entry points.',
+          relatedFiles: ['src/router.js', 'src/register-routes.js', 'src/server.js'],
+        }),
+        JSON.stringify({
+          type: 'final',
+          outcome: 'DONE',
+          message: 'Plan captured and ready for execution.',
+          summary: '1. 查找 router 相关文件 2. 修改路由逻辑 3. 更新测试 4. 执行 verify',
+        }),
+      ],
+      (request, index) => {
+        if (index === 0) {
+          assert.match(request.systemPrompt ?? '', /read-only/i);
+          assert.doesNotMatch(request.messages[0]?.content ?? '', /run_shell/);
+          assert.match(request.messages[0]?.content ?? '', /\[Pasted ~1 lines #1\]/);
+          assert.match(request.messages[0]?.content ?? '', /Subtask context packet template:/);
+        }
+      },
+    );
+
+    const result = await runPlanner(config, new Map([['stub', provider]]), registry, {
+      prompt: '重构路由模块并补测试',
+      explicitFiles: [],
+      pastedSnippets: ['registerRoute(router, "/health", handler);'],
+    });
+
+    assert.equal(result.status, 'completed');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as {
+      revision: number;
+      summary: string;
+      steps: Array<{ id: string; status: string; relatedFiles?: string[] }>;
+    };
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as {
+      outcome: string;
+      phase: string;
+      message: string;
+    };
+    const contextPacket = JSON.parse(await readFile(path.join(result.sessionDir, 'planner.context.packet.json'), 'utf8')) as {
+      constraints: { readOnly: boolean; allowedTools: string[] };
+      queryTerms: string[];
+    };
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const toolsLog = await readFile(path.join(result.sessionDir, 'tools.jsonl'), 'utf8');
+
+    assert.equal(plan.revision, 1);
+    assert.match(plan.summary, /1\. 查找 router/);
+    assert.equal(plan.steps[0]?.status, 'DONE');
+    assert.deepEqual(plan.steps[0]?.relatedFiles, ['src/router.js', 'src/register-routes.js', 'src/server.js']);
+    assert.equal(state.outcome, 'DONE');
+    assert.equal(contextPacket.constraints.readOnly, true);
+    assert.deepEqual(contextPacket.constraints.allowedTools, ['read_file', 'list_files', 'search_text', 'git_diff']);
+    assert.ok(contextPacket.queryTerms.includes('router'));
+    assert.match(events, /planner_started/);
+    assert.match(events, /plan_step_updated/);
+    assert.match(toolsLog, /search_text/);
+    assert.equal(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), await readFile(path.join(SUITE_ROOT, 'src/math.js'), 'utf8'));
+  });
+}
+
+async function testPlannerInvalidRetryAndResume(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const registry = createPlannerRegistry(config, policy);
+    const provider = new SequenceProvider([
+      JSON.stringify({
+        type: 'patch',
+        patch: {
+          version: '1',
+          summary: 'should fail in planner mode',
+          operations: [],
+        },
+      }),
+      JSON.stringify({
+        type: 'plan',
+        plan: {
+          version: '1',
+          summary: 'Need more information before planning the route refactor.',
+          steps: [
+            {
+              id: 'step-1',
+              title: 'Clarify target API surface',
+              status: 'PENDING',
+              kind: 'search',
+              dependencies: [],
+              children: [],
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: 'final',
+        outcome: 'NEEDS_INPUT',
+        message: 'Need the target route export surface before planning the refactor.',
+      }),
+    ]);
+
+    const first = await runPlanner(config, new Map([['stub', provider]]), registry, {
+      prompt: '重构路由模块并补测试',
+      explicitFiles: [],
+      pastedSnippets: [],
+    });
+
+    assert.equal(first.status, 'needs_input');
+    const firstEvents = await readFile(path.join(first.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.match(firstEvents, /planner_invalid_output/);
+    const firstState = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.state.json'), 'utf8')) as {
+      revision: number;
+      outcome: string;
+    };
+    assert.equal(firstState.revision, 1);
+    assert.equal(firstState.outcome, 'NEEDS_INPUT');
+
+    const resumedProvider = new SequenceProvider([
+      (request) => {
+        assert.match(request.messages[0]?.content ?? '', /Current plan:/);
+        assert.match(request.messages[0]?.content ?? '', /Additional planner input:/);
+        return JSON.stringify({
+          type: 'plan',
+          plan: {
+            version: '1',
+            summary: 'Replanned route refactor with clarified export surface.',
+            steps: [
+              {
+                id: 'step-1',
+                title: '查找 router 相关文件',
+                status: 'DONE',
+                kind: 'search',
+                dependencies: [],
+                children: [],
+              },
+              {
+                id: 'step-2',
+                title: '修改路由逻辑',
+                status: 'PENDING',
+                kind: 'code',
+                dependencies: ['step-1'],
+                children: [],
+              },
+            ],
+          },
+        });
+      },
+      JSON.stringify({
+        type: 'final',
+        outcome: 'DONE',
+        message: 'Replanned with the new route export information.',
+      }),
+    ]);
+
+    const resumed = await runPlanner(config, new Map([['stub', resumedProvider]]), registry, {
+      prompt: '新的输入：还需要保留现有导出结构。',
+      explicitFiles: [],
+      pastedSnippets: [],
+      resumeSessionRef: first.sessionDir,
+    });
+
+    assert.equal(resumed.status, 'completed');
+    assert.equal(resumed.sessionDir, first.sessionDir);
+    const requestArtifact = JSON.parse(await readFile(path.join(resumed.sessionDir, 'planner.request.json'), 'utf8')) as {
+      promptHistory: string[];
+    };
+    const finalPlan = JSON.parse(await readFile(path.join(resumed.sessionDir, 'plan.json'), 'utf8')) as {
+      revision: number;
+      summary: string;
+    };
+    const finalEvents = await readFile(path.join(resumed.sessionDir, 'plan.events.jsonl'), 'utf8');
+
+    assert.deepEqual(requestArtifact.promptHistory, ['重构路由模块并补测试', '新的输入：还需要保留现有导出结构。']);
+    assert.equal(finalPlan.revision, 2);
+    assert.match(finalPlan.summary, /Replanned/);
+    assert.match(finalEvents, /planner_replanned/);
   });
 }
 
@@ -514,6 +788,14 @@ function createAgentConfig(): Record<string, unknown> {
       redactSecrets: true,
     },
   };
+}
+
+function createPlannerRegistry(config: AppConfig, policy: PolicyEngine): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const tool of createPlannerTools(config, policy)) {
+    registry.register(tool);
+  }
+  return registry;
 }
 
 async function buildMathFixStep(workspaceRoot: string): Promise<string> {

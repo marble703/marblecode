@@ -35,6 +35,7 @@ Validated in this repository:
 ## Current Capabilities
 
 - Run a single-agent coding loop with a fixed step cap
+- Run a read-only planner loop that searches and produces structured task plans without writing files
 - Route tasks between `cheap`, `code`, and `strong` model profiles
 - Collect bounded context from explicit files and recent files
 - Accept pasted snippets as first-class context items such as `[Pasted ~3 lines #1]`
@@ -93,6 +94,18 @@ npm run build
 
 ```bash
 node dist/index.js run "Fix the add function so it returns a + b" --file examples/snippets/math.ts
+```
+
+Create a read-only plan instead of editing files:
+
+```bash
+node dist/index.js plan "Refactor the router module and add tests"
+```
+
+Resume a planner session with more input:
+
+```bash
+node dist/index.js plan "Keep the current route export surface" --session <session-id-or-path>
 ```
 
 Skip patch confirmation:
@@ -171,6 +184,16 @@ node dist/index.js rollback --last
 - the model also receives a `Context selection summary` block listing extracted query terms and the top auto-selected files
 - recent files are also used as a fallback source
 - if the selected context is still insufficient, the model is expected to use `search_text`, `list_files`, and `read_file` before editing
+
+## Planner
+
+- `node dist/index.js plan "..."` runs a read-only planner loop instead of the patch/apply loop
+- planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
+- planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
+- planner mode retries invalid model output up to 3 times before failing the session
+- planner sessions persist `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.request.json`, and `planner.context.packet.json`
+- planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
+- `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 
 ## Multi-file Patch
 

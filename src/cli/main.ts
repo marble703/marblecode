@@ -6,8 +6,9 @@ import { loadConfig } from '../config/load.js';
 import { createProviders } from '../provider/index.js';
 import { PolicyEngine } from '../policy/index.js';
 import { ToolRegistry } from '../tools/registry.js';
-import { createBuiltinTools } from '../tools/builtins.js';
+import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
 import { runAgent } from '../agent/index.js';
+import { runPlanner } from '../planner/index.js';
 import { tryRollback } from '../agent/index.js';
 import { resolveSessionDir } from '../session/index.js';
 
@@ -47,6 +48,11 @@ export async function main(): Promise<void> {
   const [command, ...rest] = parsed.positionals;
   if (command === 'rollback') {
     await rollbackCommand(parsed.values.config, parsed.values.session, parsed.values.last);
+    return;
+  }
+
+  if (command === 'plan') {
+    await planCommand(parsed.values.config, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last);
     return;
   }
 
@@ -98,7 +104,40 @@ async function confirmPatch(message: string): Promise<boolean> {
 
 function printUsage(): void {
   output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
+  output.write('   or: coding-agent plan "your request" [--config path] [--file file.ts] [--paste "code"] [--session session-id-or-path | --last]\n');
   output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
+}
+
+async function planCommand(
+  configPath: string | undefined,
+  prompt: string,
+  explicitFiles: string[],
+  pastedSnippets: string[],
+  sessionRef: string | undefined,
+  useLatest: boolean,
+): Promise<void> {
+  if (!prompt && !sessionRef && !useLatest) {
+    throw new Error('A prompt is required for a new plan. Use --session/--last to resume an existing planner session.');
+  }
+
+  const config = await loadConfig(configPath);
+  const providers = createProviders(config);
+  const policy = new PolicyEngine(config);
+  const registry = new ToolRegistry();
+  for (const tool of createPlannerTools(config, policy)) {
+    registry.register(tool);
+  }
+
+  const result = await runPlanner(config, providers, registry, {
+    prompt,
+    explicitFiles,
+    pastedSnippets,
+    ...(sessionRef ? { resumeSessionRef: sessionRef } : {}),
+    ...(useLatest ? { useLatestSession: true } : {}),
+  });
+
+  output.write(`${result.status}: ${result.message}\n`);
+  output.write(`session: ${result.sessionDir}\n`);
 }
 
 async function rollbackCommand(configPath: string | undefined, sessionRef: string | undefined, useLatest: boolean): Promise<void> {

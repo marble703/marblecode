@@ -16,9 +16,11 @@
 # CLI Workflows
 
 - Main coding command: `node dist/index.js run "<request>" [--file path] [--paste "code"] [--verify "npm test"] [--yes]`.
+- Planner command: `node dist/index.js plan "<request>" [--file path] [--paste "code"] [--session session-id-or-path | --last]`.
 - Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
+- `plan` is read-only. It must never apply patches. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.context.packet.json`.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.
 - Rollback command: `node dist/index.js rollback --last` or `node dist/index.js rollback --session <session-id-or-path>`.
@@ -34,6 +36,7 @@
 # Codebase Boundaries
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
+- `src/planner`: read-only planner loop, plan state machine, resume/replan basics, and future subtask context packets.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.
