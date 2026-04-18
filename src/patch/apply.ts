@@ -48,9 +48,11 @@ export async function applyPatch(
   workspaceRoot: string,
   patch: PatchDocument,
   policy: PolicyEngine,
+  backupRoot?: string,
 ): Promise<PatchApplyResult> {
   const rollback: RollbackOperation[] = [];
   const changedFiles: string[] = [];
+  const backupFiles: string[] = [];
 
   for (const operation of patch.operations) {
     const absolutePath = path.resolve(workspaceRoot, operation.path);
@@ -73,6 +75,11 @@ export async function applyPatch(
         throw new Error(`Patch precondition failed for ${operation.path}`);
       }
 
+      const backupFile = await writeBackupFile(backupRoot, operation.path, previous);
+      if (backupFile) {
+        backupFiles.push(backupFile);
+      }
+
       rollback.unshift({
         type: 'restore_file',
         path: operation.path,
@@ -90,6 +97,11 @@ export async function applyPatch(
         throw new Error(`Patch precondition failed for ${operation.path}`);
       }
 
+      const backupFile = await writeBackupFile(backupRoot, operation.path, previous);
+      if (backupFile) {
+        backupFiles.push(backupFile);
+      }
+
       rollback.unshift({
         type: 'restore_file',
         path: operation.path,
@@ -102,6 +114,7 @@ export async function applyPatch(
 
   return {
     changedFiles,
+    backupFiles,
     rollback,
   };
 }
@@ -122,4 +135,15 @@ export async function rollbackPatch(
 
     await rm(absolutePath, { force: true });
   }
+}
+
+async function writeBackupFile(backupRoot: string | undefined, relativePath: string, content: string): Promise<string | undefined> {
+  if (!backupRoot) {
+    return undefined;
+  }
+
+  const backupPath = path.join(backupRoot, relativePath);
+  await mkdir(path.dirname(backupPath), { recursive: true });
+  await writeFile(backupPath, content, 'utf8');
+  return backupPath;
 }

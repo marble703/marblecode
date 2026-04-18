@@ -13,9 +13,10 @@ The current repository has already implemented and verified these behaviors:
 - local config loading from `agent.config.jsonc`
 - static routing between `cheap`, `code`, and `strong` model aliases
 - bounded context collection from explicit files and recent files
+- pasted snippet context items and basic keyword-based file recall
 - built-in tools for file read, file listing, text search, shell execution, and git diff
 - policy-checked shell execution inside the workspace root
-- structured patch parsing, preview, application, and rollback metadata generation
+- structured patch parsing, preview, automatic backup, application, and rollback metadata generation
 - local verifier execution with structured failure reporting
 - local session artifact persistence with cleanup by age and count
 - connectivity check script for configured model access
@@ -100,8 +101,10 @@ Sensitive files are excluded by default. If the user explicitly requests one, it
 Current implementation details:
 
 - explicit file selection is supported
+- pasted snippet context is supported and rendered as `[Pasted ~N lines #k]`
+- keyword-based file recall from the user prompt is supported as a basic fallback when explicit files are missing
 - recent-file selection is supported
-- git diff and search-based candidate expansion are documented but not yet wired into the automatic context builder
+- git diff candidate expansion is still deferred
 
 ### `tools`
 
@@ -143,6 +146,7 @@ Current implementation details:
 - `create_file`, `replace_file`, and `delete_file` operations are implemented
 - `replace_file` currently expects full-file replacement text
 - patch previews are rendered as unified diffs for review
+- original files are automatically backed up before replace/delete operations
 
 ### `policy`
 
@@ -187,7 +191,7 @@ Persists request metadata, context selection, tool activity, patch artifacts, an
 Current implementation details:
 
 - session directories are stored under `.agent/sessions`
-- request, context, model logs, tool logs, patch, rollback, and verifier outputs are persisted when available
+- request, context, model logs, tool logs, patch, rollback, backup manifests, and verifier outputs are persisted when available
 
 ## Execution loop
 
@@ -207,6 +211,7 @@ Current implementation details:
 
 - patch approval is manual by default and can be skipped with `--yes`
 - verifier failure can trigger bounded automatic repair attempts
+- rollback is available from the CLI for the latest or a chosen session
 
 ## Step protocol
 
@@ -291,6 +296,7 @@ Example shape:
 - can persist session artifacts locally and clean them by age and count
 - can complete one local smoke-tested patch-driven code edit loop
 - can perform a real provider-backed model connectivity check with `npm run check:model`
+- can roll back a prior session with the CLI
 
 ## Deferred items
 

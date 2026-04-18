@@ -13,6 +13,7 @@ import { PolicyEngine } from '../policy/index.js';
 export interface RunAgentInput {
   prompt: string;
   explicitFiles: string[];
+  pastedSnippets: string[];
   autoApprove: boolean;
   confirm: (message: string) => Promise<boolean>;
 }
@@ -62,12 +63,13 @@ export async function runAgent(
   }
 
   const context = await buildContext(
-    {
-      prompt: input.prompt,
-      explicitFiles: input.explicitFiles,
-    },
-    config,
-    policy,
+      {
+        prompt: input.prompt,
+        explicitFiles: input.explicitFiles,
+        pastedSnippets: input.pastedSnippets,
+      },
+      config,
+      policy,
   );
 
   await writeSessionArtifact(session, 'context.json', JSON.stringify(context, null, 2));
@@ -75,12 +77,13 @@ export async function runAgent(
     session,
     'request.json',
     JSON.stringify(
-      {
-        prompt: input.prompt,
-        explicitFiles: input.explicitFiles,
-        route,
-      },
-      null,
+        {
+          prompt: input.prompt,
+          explicitFiles: input.explicitFiles,
+          pastedSnippets: input.pastedSnippets.map((snippet, index) => `[Pasted #${index + 1}] ${snippet}`),
+          route,
+        },
+        null,
       2,
     ),
   );
@@ -160,8 +163,29 @@ export async function runAgent(
         };
       }
 
-      applyResult = await applyPatch(config.workspaceRoot, step.patch, policy);
+      try {
+        applyResult = await applyPatch(config.workspaceRoot, step.patch, policy, `${session.dir}/backups`);
+      } catch (error) {
+        const message = buildApplyFailureMessage(error, input.explicitFiles.length > 0, context.items.length > 0);
+        await writeSessionArtifact(
+          session,
+          'apply-error.json',
+          JSON.stringify({
+            error: error instanceof Error ? error.message : String(error),
+            explicitFiles: input.explicitFiles,
+            contextItemCount: context.items.length,
+          }, null, 2),
+        );
+
+        return {
+          status: 'needs_intervention',
+          sessionDir: session.dir,
+          changedFiles: [],
+          message,
+        };
+      }
       await writeSessionArtifact(session, 'rollback.json', JSON.stringify(applyResult.rollback, null, 2));
+      await writeSessionArtifact(session, 'backups.json', JSON.stringify(applyResult.backupFiles, null, 2));
       const verifyResult = await runVerifier(config, policy);
       await writeSessionArtifact(session, 'verify.json', JSON.stringify(verifyResult, null, 2));
 
@@ -218,7 +242,7 @@ function buildModelRequest(
   const contextText = context.items
     .map((item) => {
       const warning = item.warning ? `Warning: ${item.warning}\n` : '';
-      return `File: ${item.path}\nReason: ${item.reason}\n${warning}${item.excerpt}`;
+      return `File: ${item.path}\nSource: ${item.source}\nReason: ${item.reason}\n${warning}${item.excerpt}`;
     })
     .join('\n\n---\n\n');
   const toolText = tools
@@ -304,22 +328,94 @@ function parseAgentStep(content: string): AgentStep {
 
 function extractJsonObject(content: string): string {
   const trimmed = content.trim();
-  if (trimmed.startsWith('{')) {
-    return trimmed;
-  }
-
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
+    return extractParsableJsonObject(fencedMatch[1].trim());
   }
 
-  const firstBrace = trimmed.indexOf('{');
-  const lastBrace = trimmed.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
+  return extractParsableJsonObject(trimmed);
+}
+
+function extractParsableJsonObject(content: string): string {
+  const balanced = extractFirstBalancedJsonObject(content);
+  if (isParsableJson(balanced)) {
+    return balanced;
   }
 
-  return trimmed;
+  const start = content.indexOf('{');
+  if (start < 0) {
+    return content;
+  }
+
+  for (let index = start; index < content.length; index += 1) {
+    if (content[index] !== '}') {
+      continue;
+    }
+
+    const candidate = content.slice(start, index + 1);
+    if (isParsableJson(candidate)) {
+      return candidate;
+    }
+  }
+
+  return balanced;
+}
+
+function extractFirstBalancedJsonObject(content: string): string {
+  const start = content.indexOf('{');
+  if (start < 0) {
+    return content;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < content.length; index += 1) {
+    const char = content[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+      continue;
+    }
+
+    if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return content.slice(start, index + 1);
+      }
+    }
+  }
+
+  return content.slice(start);
+}
+
+function isParsableJson(content: string): boolean {
+  try {
+    JSON.parse(content);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function withOptionalThought<T extends AgentStep>(step: T, thought: unknown): T {
@@ -345,4 +441,21 @@ export async function tryRollback(
 ): Promise<void> {
   const policy = new PolicyEngine(config);
   await rollbackPatch(config.workspaceRoot, rollback, policy);
+}
+
+function buildApplyFailureMessage(error: unknown, hadExplicitFiles: boolean, hadContext: boolean): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  const hints: string[] = [];
+
+  if (!hadExplicitFiles) {
+    hints.push('No --file was provided. Try rerunning with --file path/to/file or --paste for a pasted snippet.');
+  }
+
+  if (!hadContext) {
+    hints.push('No useful context was selected. Try a more specific prompt or provide a file explicitly.');
+  }
+
+  hints.push('You can inspect the session artifacts and use the rollback command if needed.');
+
+  return [`Patch apply failed: ${reason}`, ...hints].join(' ');
 }

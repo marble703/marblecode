@@ -12,8 +12,10 @@
 - 底层使用传统 `POST /chat/completions`
 - 支持静态规则路由
 - 支持上下文构建
+- 支持粘贴代码片段和关键词检索上下文
 - 支持工具注册和调用
 - 支持结构化 Patch 预览、应用、回滚信息生成
+- 支持替换/删除前自动备份原文件
 - 支持路径和 Shell 策略控制
 - 支持验证器
 - 支持本地 Session 日志和自动清理
@@ -31,10 +33,14 @@
 - 以单 Agent 方式执行有限步数的编码任务
 - 根据任务类型在 `cheap`、`code`、`strong` 模型档位之间切换
 - 从显式文件和最近修改文件中构建有限上下文
+- 支持通过 `--paste` 注入类似 `[Pasted ~3 lines #1]` 的粘贴上下文
+- 在未提供 `--file` 时，支持基础关键词检索召回相关文件
 - 默认排除敏感文件
 - 提供 `read_file`、`list_files`、`search_text`、`run_shell`、`git_diff` 工具
 - 模型不直接写文件，只输出结构化 Patch
 - Patch 默认人工确认，可用 `--yes` 跳过
+- Patch 替换或删除文件前会自动备份原文件
+- 支持一键回滚最近一次或指定 session 的改动
 - Patch 应用后可执行 verifier
 - 将请求、上下文、模型输出、工具调用、Patch、验证结果记录到本地 session
 
@@ -77,16 +83,22 @@ export OPENAI_API_KEY=your_key_here
 npm run build
 ```
 
-5. 运行一次 coding 任务
+5. 对一个不在 `src` 里的简单片段运行 coding 任务
 
 ```bash
-node dist/index.js run "修复 src/router/index.ts 里的路由逻辑" --file src/router/index.ts
+node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/snippets/math.ts
 ```
 
 跳过 Patch 确认：
 
 ```bash
-node dist/index.js run "修复 src/router/index.ts 里的路由逻辑" --file src/router/index.ts --yes
+node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/snippets/math.ts --yes
+```
+
+用粘贴代码直接运行：
+
+```bash
+node dist/index.js run "修复这个函数" --paste $'function add(a, b) {\n  return a - b;\n}'
 ```
 
 6. 运行本地 smoke test
@@ -99,6 +111,12 @@ npm run smoke:edit
 
 ```bash
 npm run check:model -- --model cheap
+```
+
+8. 一键回滚最近一次 session
+
+```bash
+node dist/index.js rollback --last
 ```
 
 ## 常用脚本
@@ -117,6 +135,25 @@ npm run check:model -- --model cheap
 - 当前实现也兼容把真实 key 直接写进去做本地测试
 - 如果模型名不同，修改 `models.cheap.model`、`models.code.model`、`models.strong.model`
 
+## 上下文选择
+
+- `--file path/to/file.ts`：把指定文件加入上下文
+- `--paste "..."`：把粘贴代码作为 `[Pasted ~N lines #k]` 上下文项注入
+- 如果没有提供 `--file`，系统会做基础关键词检索，尝试召回相关文件
+- 最近修改文件也会作为兜底上下文来源
+
+## 备份与回滚
+
+- 在 `replace_file` 或 `delete_file` 前，系统会先把原文件备份到 session 目录下的 `backups/`
+- 回滚计划会保存到 `rollback.json`
+- 可用 `node dist/index.js rollback --last` 回滚最近一次 session
+- 也可用 `node dist/index.js rollback --session <session-id-or-path>` 回滚指定 session
+
+## Apply 失败提示
+
+- 如果补丁应用失败且你没有传 `--file`，CLI 会提示你改用 `--file` 或 `--paste`
+- 如果上下文过弱，失败提示也会建议你把请求写得更具体
+
 ## 仓库结构
 
 - `src/cli`：CLI 入口
@@ -129,6 +166,7 @@ npm run check:model -- --model cheap
 - `src/policy`：权限和 Shell 策略
 - `src/verifier`：补丁后的验证执行
 - `src/session`：本地会话记录
+- `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `docs/mvp-v1.md`：MVP 架构和协议说明
 
 ## 说明

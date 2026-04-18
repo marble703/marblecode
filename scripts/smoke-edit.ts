@@ -118,6 +118,7 @@ async function main(): Promise<void> {
     const result = await runAgent(config, new Map([[ 'smoke', new SmokeProvider() ]]), registry, {
       prompt: 'Modify the sample file.',
       explicitFiles: ['sample.txt'],
+      pastedSnippets: [],
       autoApprove: true,
       confirm: async () => true,
     });

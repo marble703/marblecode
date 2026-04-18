@@ -1,12 +1,15 @@
 import { parseArgs } from 'node:util';
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import { readFile } from 'node:fs/promises';
 import { loadConfig } from '../config/load.js';
 import { createProviders } from '../provider/index.js';
 import { PolicyEngine } from '../policy/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBuiltinTools } from '../tools/builtins.js';
 import { runAgent } from '../agent/index.js';
+import { tryRollback } from '../agent/index.js';
+import { resolveSessionDir } from '../session/index.js';
 
 export async function main(): Promise<void> {
   const parsed = parseArgs({
@@ -19,6 +22,17 @@ export async function main(): Promise<void> {
         type: 'string',
         multiple: true,
       },
+      paste: {
+        type: 'string',
+        multiple: true,
+      },
+      session: {
+        type: 'string',
+      },
+      last: {
+        type: 'boolean',
+        default: false,
+      },
       yes: {
         type: 'boolean',
         default: false,
@@ -27,6 +41,11 @@ export async function main(): Promise<void> {
   });
 
   const [command, ...rest] = parsed.positionals;
+  if (command === 'rollback') {
+    await rollbackCommand(parsed.values.config, parsed.values.session, parsed.values.last);
+    return;
+  }
+
   if (command !== 'run') {
     printUsage();
     process.exitCode = 1;
@@ -49,6 +68,7 @@ export async function main(): Promise<void> {
   const result = await runAgent(config, providers, registry, {
     prompt,
     explicitFiles: parsed.values.file ?? [],
+    pastedSnippets: parsed.values.paste ?? [],
     autoApprove: parsed.values.yes,
     confirm: confirmPatch,
   });
@@ -72,5 +92,14 @@ async function confirmPatch(message: string): Promise<boolean> {
 }
 
 function printUsage(): void {
-  output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--yes]\n');
+  output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--yes]\n');
+  output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
+}
+
+async function rollbackCommand(configPath: string | undefined, sessionRef: string | undefined, useLatest: boolean): Promise<void> {
+  const config = await loadConfig(configPath);
+  const sessionDir = await resolveSessionDir(config, sessionRef, useLatest);
+  const rollback = JSON.parse(await readFile(`${sessionDir}/rollback.json`, 'utf8')) as Parameters<typeof tryRollback>[1];
+  await tryRollback(config, rollback);
+  output.write(`rolled back: ${sessionDir}\n`);
 }

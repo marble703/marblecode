@@ -38,5 +38,6 @@ export type RollbackOperation =
 
 export interface PatchApplyResult {
   changedFiles: string[];
+  backupFiles: string[];
   rollback: RollbackOperation[];
 }

@@ -46,6 +46,38 @@ export async function appendSessionLog(
   await writeFile(filePath, next, 'utf8');
 }
 
+export async function resolveSessionDir(
+  config: AppConfig,
+  sessionRef?: string,
+  useLatest?: boolean,
+): Promise<string> {
+  const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
+  if (sessionRef) {
+    if (path.isAbsolute(sessionRef)) {
+      return sessionRef;
+    }
+
+    return path.join(baseDir, sessionRef);
+  }
+
+  if (!useLatest) {
+    throw new Error('A session reference is required unless --last is used');
+  }
+
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const latest = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+
+  if (!latest) {
+    throw new Error('No session directories are available for rollback');
+  }
+
+  return path.join(baseDir, latest);
+}
+
 async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays: number): Promise<void> {
   const entries = await readdir(baseDir, { withFileTypes: true });
   const now = Date.now();
