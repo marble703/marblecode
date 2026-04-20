@@ -5,7 +5,7 @@ Use this task when manually validating the serial `planner -> subagent -> verifi
 ## Prompt
 
 ```text
-为 examples/manual-test-suite/project 执行一次“修复 src/math.js 中 add 函数错误并通过 verify”的完整 planner 流程。先生成结构化计划，再按顺序执行子任务，直到 verifier 通过并正常结束。请保持修改最小，只修复这个问题。
+为 examples/manual-test-suite/project 生成一次“修复 src/math.js 中 add 函数错误并通过 verify”的结构化计划。请给出最小修复所需的检查、代码修复、测试、verify 步骤，只聚焦这个问题。
 ```
 
 ## Suggested Files
