@@ -155,6 +155,13 @@ export async function runPlanner(
         error: error instanceof Error ? error.message : String(error),
         retryAttempts: config.session.modelRetryAttempts,
       }, config.session.redactSecrets);
+      await appendPlannerStructuredLog(session, {
+        type: 'planner_terminal',
+        outcome: state.outcome,
+        message: state.message,
+        summary: plan.summary,
+        consistencyErrors: state.consistencyErrors,
+      }, config.session.redactSecrets);
       await appendPlannerEvent(session, {
         type: 'planner_failed',
         reason: state.message,
