@@ -129,22 +129,39 @@ export async function runPlanner(
   let stepCount = 0;
   while (stepCount < route.maxSteps) {
     const request = buildPlannerModelRequest(config, modelConfig.model, modelConfig.provider, combinedPrompt, context, transcript, tools.listDefinitions(), plan, state, contextPacket);
-    const response = await invokeWithRetry(config, provider, request, async (event) => {
-      await appendPlannerEvent(session, {
-        type: 'planner_model_retry',
-        attempt: event.attempt,
-        maxAttempts: event.maxAttempts,
-        delayMs: event.delayMs,
-        reason: event.reason,
-      }, config.session.redactSecrets);
+    let response;
+    try {
+      response = await invokeWithRetry(config, provider, request, async (event) => {
+        await appendPlannerEvent(session, {
+          type: 'planner_model_retry',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reason: event.reason,
+        }, config.session.redactSecrets);
+        await appendPlannerStructuredLog(session, {
+          type: 'model_retry',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          reason: event.reason,
+        }, config.session.redactSecrets);
+      });
+    } catch (error) {
+      state.outcome = 'FAILED';
+      state.message = buildPlannerProviderFailureMessage(error, config.session.modelRetryAttempts);
       await appendPlannerStructuredLog(session, {
-        type: 'model_retry',
-        attempt: event.attempt,
-        maxAttempts: event.maxAttempts,
-        delayMs: event.delayMs,
-        reason: event.reason,
+        type: 'model_failure',
+        error: error instanceof Error ? error.message : String(error),
+        retryAttempts: config.session.modelRetryAttempts,
       }, config.session.redactSecrets);
-    });
+      await appendPlannerEvent(session, {
+        type: 'planner_failed',
+        reason: state.message,
+      }, config.session.redactSecrets);
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(state, null, 2));
+      return mapPlannerResult('FAILED', session.dir, state.message);
+    }
     await appendSessionLog(
       session,
       'model.jsonl',
@@ -838,4 +855,9 @@ function withOptionalThought<T extends PlannerResponse>(step: T, thought: unknow
 
 function countSnippetLines(snippet: string): number {
   return snippet.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
+}
+
+function buildPlannerProviderFailureMessage(error: unknown, retryAttempts: number): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return `Planner model request failed after ${retryAttempts} retries. ${reason}`;
 }

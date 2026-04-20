@@ -109,20 +109,44 @@ export async function runAgent(
         transcript,
         tools.listDefinitions(),
       );
-      const response = await invokeWithRetry(config, provider, request, async (event) => {
-        await appendSessionLog(
+      let response;
+      try {
+        response = await invokeWithRetry(config, provider, request, async (event) => {
+          await appendSessionLog(
+            session,
+            'model.retries.jsonl',
+            {
+              mode: 'agent',
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              delayMs: event.delayMs,
+              reason: event.reason,
+            },
+            config.session.redactSecrets,
+          );
+        });
+      } catch (error) {
+        const message = buildProviderFailureMessage(error, config.session.modelRetryAttempts);
+        await writeSessionArtifact(
           session,
-          'model.retries.jsonl',
-          {
-            mode: 'agent',
-            attempt: event.attempt,
-            maxAttempts: event.maxAttempts,
-            delayMs: event.delayMs,
-            reason: event.reason,
-          },
-          config.session.redactSecrets,
+          'model-error.json',
+          JSON.stringify(
+            {
+              mode: 'agent',
+              error: error instanceof Error ? error.message : String(error),
+              retryAttempts: config.session.modelRetryAttempts,
+            },
+            null,
+            2,
+          ),
         );
-      });
+        return {
+          status: 'needs_intervention',
+          sessionDir: session.dir,
+          changedFiles: applyResult?.changedFiles ?? [],
+          message,
+        };
+      }
       await appendSessionLog(
         session,
         'model.jsonl',
@@ -504,4 +528,9 @@ function buildApplyFailureMessage(error: unknown, hadExplicitFiles: boolean, had
   hints.push('You can inspect the session artifacts and use the rollback command if needed.');
 
   return [`Patch apply failed: ${reason}`, ...hints].join(' ');
+}
+
+function buildProviderFailureMessage(error: unknown, retryAttempts: number): string {
+  const reason = error instanceof Error ? error.message : String(error);
+  return `Model request failed after ${retryAttempts} retries. ${reason}`;
 }

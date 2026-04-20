@@ -150,10 +150,12 @@ async function main(): Promise<void> {
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
     { name: 'planner model retry', run: testPlannerModelRetry },
+    { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
     { name: 'agent model retry', run: testAgentModelRetry },
+    { name: 'agent model retry exhaustion', run: testAgentModelRetryExhaustion },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
@@ -554,6 +556,29 @@ async function testPlannerModelRetry(): Promise<void> {
   });
 }
 
+async function testPlannerModelRetryExhaustion(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const registry = createPlannerRegistry(config, policy);
+    config.session.modelRetryAttempts = 2;
+    config.session.modelRetryDelayMs = 1;
+    const provider = new FlakyProvider(10, () => JSON.stringify({ type: 'final', outcome: 'DONE', message: 'unreachable' }));
+
+    const result = await runPlanner(config, new Map([['stub', provider]]), registry, {
+      prompt: '为路由模块生成一个简短计划',
+      explicitFiles: ['src/router.js'],
+      pastedSnippets: [],
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.match(result.message, /failed after 2 retries/i);
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; message: string };
+    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
+    assert.equal(state.outcome, 'FAILED');
+    assert.match(state.message, /429|failed after 2 retries/i);
+    assert.match(plannerLog, /"type":"model_failure"/);
+  });
+}
+
 async function testMultiFilePatchApply(): Promise<void> {
   await withWorkspace(async ({ config, registry, workspaceRoot }) => {
     const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMultiFileFixStep(workspaceRoot))]]);
@@ -692,6 +717,28 @@ async function testAgentModelRetry(): Promise<void> {
     assert.equal(result.status, 'completed');
     const retries = await readFile(path.join(result.sessionDir, 'model.retries.jsonl'), 'utf8');
     assert.match(retries, /rate limit/i);
+  });
+}
+
+async function testAgentModelRetryExhaustion(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    config.session.modelRetryAttempts = 2;
+    config.session.modelRetryDelayMs = 1;
+    const providers = new Map<string, ModelProvider>([['stub', new FlakyProvider(10, async () => buildMathFixStep(workspaceRoot))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js so add returns the correct sum.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+    });
+
+    assert.equal(result.status, 'needs_intervention');
+    assert.match(result.message, /failed after 2 retries/i);
+    const modelError = JSON.parse(await readFile(path.join(result.sessionDir, 'model-error.json'), 'utf8')) as { retryAttempts: number; error: string };
+    assert.equal(modelError.retryAttempts, 2);
+    assert.match(modelError.error, /429|rate limit/i);
   });
 }
 
