@@ -9,6 +9,7 @@ import { buildContext } from '../src/context/index.js';
 import { runPlanner } from '../src/planner/index.js';
 import { PolicyEngine } from '../src/policy/index.js';
 import { resolvePlannerSessionDir } from '../src/session/index.js';
+import { applyTuiCommand, createInitialTuiState } from '../src/tui/agent-repl.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../src/tools/builtins.js';
 import { runVerifier } from '../src/verifier/index.js';
@@ -174,6 +175,7 @@ async function main(): Promise<void> {
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
     { name: 'planner session resolution', run: testPlannerSessionResolution },
+    { name: 'interactive tui command parsing', run: testInteractiveTuiCommandParsing },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
@@ -618,6 +620,23 @@ async function testPlannerSessionResolution(): Promise<void> {
     const resolved = await resolvePlannerSessionDir(config, undefined, true);
     assert.equal(resolved, plannerSessionDir);
   });
+}
+
+async function testInteractiveTuiCommandParsing(): Promise<void> {
+  let state = createInitialTuiState();
+  state = applyTuiCommand(state, '/mode execute').state;
+  assert.equal(state.mode, 'execute');
+  state = applyTuiCommand(state, '/files src/math.js tests/check-math.js').state;
+  assert.deepEqual(state.explicitFiles, ['src/math.js', 'tests/check-math.js']);
+  state = applyTuiCommand(state, '/verify npm test').state;
+  assert.deepEqual(state.manualVerifierCommands, ['npm test']);
+  state = applyTuiCommand(state, '/yes on').state;
+  assert.equal(state.autoApprove, true);
+  state = applyTuiCommand(state, '/clear-files').state;
+  assert.deepEqual(state.explicitFiles, []);
+  state = applyTuiCommand(state, '/reset').state;
+  assert.equal(state.mode, 'run');
+  assert.equal(state.autoApprove, false);
 }
 
 async function testPlannerExecuteChain(): Promise<void> {

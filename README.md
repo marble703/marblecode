@@ -126,6 +126,12 @@ Open the lightweight live planner TUI:
 npm run tui:planner -- --last
 ```
 
+Open the interactive coding TUI for new conversations:
+
+```bash
+npm run tui
+```
+
 Skip patch confirmation:
 
 ```bash
@@ -174,6 +180,7 @@ node dist/index.js rollback --last
 - `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
 - `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
 - `npm run tui:planner -- --last`: open a lightweight live planner dashboard that polls session files and renders steps, subtasks, and timeline in-place
+- `npm run tui`: open an interactive terminal UI that can create new `run`, `plan`, or `plan --execute` conversations
 - `show:planner --last` and `tui:planner --last` now pick the most recent planner session, not the latest coder/verifier child session
 
 ## Notes
@@ -224,6 +231,15 @@ node dist/index.js rollback --last
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
 - `show:planner` now renders subtask executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
+
+## Interactive TUI
+
+- `npm run tui` opens a simple interactive terminal session for new requests
+- use `/mode run`, `/mode plan`, or `/mode execute` to switch between coding, planning, and planner execution workflows
+- use `/files path1 path2` to pin explicit files, `/verify <cmd>` to override the verifier for `run`, and `/yes on` to auto-approve patches
+- use `/paste` to enter multiline pasted context, ending with a single `.` line
+- use `/reset` to clear the current TUI state and `/quit` to exit
+- in `run` mode, if `/yes` is off, the TUI will show the patch preview and ask for confirmation before applying it
 
 ## Multi-file Patch
 

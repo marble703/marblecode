@@ -10,6 +10,7 @@ import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
 import { runAgent } from '../agent/index.js';
 import { runPlanner } from '../planner/index.js';
 import { tryRollback } from '../agent/index.js';
+import { runInteractiveTui } from '../tui/agent-repl.js';
 import { resolveSessionDir } from '../session/index.js';
 
 export async function main(): Promise<void> {
@@ -57,6 +58,11 @@ export async function main(): Promise<void> {
 
   if (command === 'plan') {
     await planCommand(parsed.values.config, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last, parsed.values.execute);
+    return;
+  }
+
+  if (command === 'tui') {
+    await tuiCommand(parsed.values.config);
     return;
   }
 
@@ -109,7 +115,14 @@ async function confirmPatch(message: string): Promise<boolean> {
 function printUsage(): void {
   output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
   output.write('   or: coding-agent plan "your request" [--config path] [--file file.ts] [--paste "code"] [--execute] [--session session-id-or-path | --last]\n');
+  output.write('   or: coding-agent tui [--config path]\n');
   output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
+}
+
+async function tuiCommand(configPath: string | undefined): Promise<void> {
+  const config = await loadConfig(configPath);
+  const providers = createProviders(config);
+  await runInteractiveTui(config, providers);
 }
 
 async function planCommand(

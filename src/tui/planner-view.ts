@@ -87,6 +87,56 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   };
 }
 
+export function formatPlannerView(view: PlannerViewModel): string {
+  const lines: string[] = [
+    `Session: ${view.sessionDir}`,
+    `Outcome: ${view.outcome}`,
+    `Phase: ${view.phase}`,
+    `Current step: ${view.currentStepId ?? '(none)'}`,
+    `Summary: ${view.summary}`,
+    '',
+    'Plan Steps:',
+  ];
+
+  for (const [index, step] of view.steps.entries()) {
+    lines.push(`${index + 1}. [${step.status}] ${step.title} (${step.kind})`);
+    if (step.details) {
+      lines.push(`   ${step.details}`);
+    }
+    if (step.relatedFiles.length > 0) {
+      lines.push(`   files: ${step.relatedFiles.join(', ')}`);
+    }
+    if (step.children.length > 0) {
+      lines.push(`   subtasks: ${step.children.join(', ')}`);
+    }
+    if (step.assignee) {
+      lines.push(`   assignee: ${step.assignee}`);
+    }
+  }
+
+  lines.push('', 'Execution Timeline:');
+  for (const event of view.events) {
+    lines.push(`- ${renderPlannerEvent(event)}`);
+  }
+
+  lines.push('', 'Subtask Results:');
+  if (view.subtaskEvents.length === 0) {
+    lines.push('- none recorded yet');
+  } else {
+    for (const event of view.subtaskEvents) {
+      lines.push(`- ${renderPlannerEvent(event)}`);
+    }
+  }
+
+  lines.push('', 'Planner Log Summary:');
+  lines.push(`- terminal: ${view.terminalSummary}`);
+  if (view.consistencyErrors.length > 0) {
+    lines.push(`- consistency errors: ${view.consistencyErrors.join('; ')}`);
+  }
+
+  return lines.join('\n');
+}
+
 export function parseJsonLines(content: string): PlannerEventRecord[] {
   return content
     .split(/\r?\n/)

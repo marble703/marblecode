@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "node --import tsx ./src/index.ts",
+    "tui": "node --import tsx ./src/index.ts tui",
     "smoke:edit": "node --import tsx ./scripts/smoke-edit.ts",
     "smoke:verifier": "node --import tsx ./scripts/smoke-verifier.ts",
     "test:examples": "node --import tsx ./scripts/test-examples.ts",

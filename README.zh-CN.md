@@ -124,6 +124,12 @@ npm run show:planner -- --last
 npm run tui:planner -- --last
 ```
 
+打开一个可交互的新对话 TUI：
+
+```bash
+npm run tui
+```
+
 跳过 Patch 确认：
 
 ```bash
@@ -172,6 +178,7 @@ node dist/index.js rollback --last
 - `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 串行链路
 - `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
 - `npm run tui:planner -- --last`：打开一个轻量实时 planner 面板，轮询 session 文件并原地渲染步骤、subtask 和时间线
+- `npm run tui`：打开一个可交互终端 UI，可直接发起新的 `run` / `plan` / `plan --execute` 对话
 - `show:planner --last` 和 `tui:planner --last` 现在会自动选择最近一个 planner session，而不是误选到 coder/verifier 子 session
 
 ## 配置说明
@@ -215,6 +222,15 @@ node dist/index.js rollback --last
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 - 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的 subtask 执行结果
 - `show:planner` 现在会显示 subtask 的 executor 身份、model alias、改动文件和子 agent session 路径，便于确认 planner -> coder 的真实调用链
+
+## 交互式 TUI
+
+- `npm run tui` 会打开一个简单的交互式终端会话，可直接输入新请求
+- 用 `/mode run`、`/mode plan`、`/mode execute` 切换编码、规划和 planner 执行模式
+- 用 `/files path1 path2` 固定显式文件，用 `/verify <cmd>` 为 `run` 模式覆盖 verifier，用 `/yes on` 开启自动确认 patch
+- 用 `/paste` 进入多行粘贴模式，以单独一行 `.` 结束
+- 用 `/reset` 清空当前 TUI 状态，用 `/quit` 退出
+- 在 `run` 模式下，如果没有开启 `/yes on`，TUI 会展示 patch preview 并询问是否应用
 
 ## 多文件 Patch
 
