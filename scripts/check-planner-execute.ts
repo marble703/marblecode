@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     workspaceRoot,
     routing: {
       ...baseConfig.routing,
-      ...(parsed.values.model ? { planningModel: parsed.values.model } : {}),
+      planningModel: parsed.values.model ?? baseConfig.routing.defaultModel,
     },
     verifier: {
       ...baseConfig.verifier,
@@ -106,6 +106,9 @@ async function main(): Promise<void> {
   }
   if (!events.includes('subtask_started') || !events.includes('subtask_completed')) {
     throw new Error('Planner execute session did not record subtask execution events');
+  }
+  if (!events.includes('"executor":"coder"') || !events.includes('"modelAlias":"code"')) {
+    throw new Error('Planner execute session did not record coder subtask execution with codeModel');
   }
   if (!verify.success) {
     throw new Error('Final verifier step was not successful');

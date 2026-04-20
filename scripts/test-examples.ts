@@ -679,6 +679,8 @@ async function testPlannerExecuteChain(): Promise<void> {
     assert.match(state.message, /verifier passed|executed all subtasks/i);
     assert.equal(verifyArtifact.success, true);
     assert.match(events, /planner_execution_started/);
+    assert.match(events, /"executor":"coder"/);
+    assert.match(events, /"modelAlias":"code"/);
     assert.match(events, /subtask_completed/);
     assert.match(events, /planner_execution_finished/);
   });

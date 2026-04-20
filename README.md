@@ -204,6 +204,7 @@ node dist/index.js rollback --last
 
 - `node dist/index.js plan "..."` runs a read-only planner loop by default
 - add `--execute` to let the host execute planner-produced code/test/verify steps serially through subagents and a final verifier pass
+- in execute mode, planner stays on `planningModel` while code/test/repair subtasks run through a coder subagent on `codeModel`
 - planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
 - planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
 - planner mode retries invalid model output up to 3 times before failing the session
@@ -214,6 +215,7 @@ node dist/index.js rollback --last
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
+- `show:planner` now renders subtask executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
 
 ## Multi-file Patch
 

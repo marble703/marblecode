@@ -18,6 +18,12 @@ export interface RunAgentInput {
   manualVerifierCommands: string[];
   autoApprove: boolean;
   confirm: (message: string) => Promise<boolean>;
+  routeOverride?: {
+    modelAlias: string;
+    intent: 'question' | 'code' | 'planning';
+    maxSteps: number;
+    maxAutoRepairAttempts: number;
+  };
 }
 
 export interface RunAgentResult {
@@ -25,6 +31,7 @@ export interface RunAgentResult {
   sessionDir: string;
   changedFiles: string[];
   message: string;
+  modelAlias: string;
 }
 
 type AgentStep =
@@ -53,7 +60,7 @@ export async function runAgent(
 ): Promise<RunAgentResult> {
   const session = await createSession(config);
   const policy = new PolicyEngine(config);
-  const route = routeTask(input.prompt, config);
+  const route = input.routeOverride ?? routeTask(input.prompt, config);
   const modelConfig = config.models[route.modelAlias];
   if (!modelConfig) {
     throw new Error(`Unknown model alias: ${route.modelAlias}`);
@@ -145,6 +152,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: applyResult?.changedFiles ?? [],
           message,
+          modelAlias: route.modelAlias,
         };
       }
       await appendSessionLog(
@@ -184,6 +192,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: [],
           message: step.message,
+          modelAlias: route.modelAlias,
         };
       }
 
@@ -202,6 +211,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: [],
           message: 'Patch preview rejected by user.',
+          modelAlias: route.modelAlias,
         };
       }
 
@@ -224,6 +234,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: [],
           message,
+          modelAlias: route.modelAlias,
         };
       }
       await writeSessionArtifact(session, 'rollback.json', JSON.stringify(applyResult.rollback, null, 2));
@@ -244,6 +255,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: applyResult.changedFiles,
           message: step.patch.summary,
+          modelAlias: route.modelAlias,
         };
       }
 
@@ -255,6 +267,7 @@ export async function runAgent(
           sessionDir: session.dir,
           changedFiles: applyResult.changedFiles,
           message: buildVerifierFailureMessage(verifyResult),
+          modelAlias: route.modelAlias,
         };
       }
 
@@ -267,6 +280,7 @@ export async function runAgent(
         sessionDir: session.dir,
         changedFiles: applyResult?.changedFiles ?? [],
         message: 'Agent reached the maximum step limit and needs user intervention.',
+        modelAlias: route.modelAlias,
       };
     }
   }
@@ -276,6 +290,7 @@ export async function runAgent(
     sessionDir: session.dir,
     changedFiles: [],
     message: 'Agent stopped before completing the task.',
+    modelAlias: route.modelAlias,
   };
 }
 

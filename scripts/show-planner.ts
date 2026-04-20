@@ -170,14 +170,18 @@ function renderEvent(event: PlannerEventRecord): string {
     return `failed: ${String(event.reason ?? '')}`;
   }
   if (type === 'subtask_started') {
-    return `${String(event.stepId ?? '')} started (${String(event.mode ?? '')})`;
+    const alias = event.modelAlias ? `/${String(event.modelAlias)}` : '';
+    return `${String(event.stepId ?? '')} started (${String(event.executor ?? '')}${alias})`;
   }
   if (type === 'subtask_completed') {
     const files = Array.isArray(event.changedFiles) && event.changedFiles.length > 0 ? ` files=${event.changedFiles.join(',')}` : '';
-    return `${String(event.stepId ?? '')} completed (${String(event.mode ?? '')})${files}`;
+    const alias = event.modelAlias ? `/${String(event.modelAlias)}` : '';
+    const sessionDir = event.sessionDir ? ` session=${String(event.sessionDir)}` : '';
+    return `${String(event.stepId ?? '')} completed (${String(event.executor ?? '')}${alias})${files}${sessionDir}`;
   }
   if (type === 'subtask_failed') {
-    return `${String(event.stepId ?? '')} failed (${String(event.mode ?? '')}): ${String(event.message ?? event.reason ?? '')}`;
+    const alias = event.modelAlias ? `/${String(event.modelAlias)}` : '';
+    return `${String(event.stepId ?? '')} failed (${String(event.executor ?? '')}${alias}): ${String(event.message ?? event.reason ?? '')}`;
   }
   if (type === 'subtask_skipped') {
     return `${String(event.stepId ?? '')} skipped: ${String(event.reason ?? '')}`;

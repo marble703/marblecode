@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runAgent } from '../agent/index.js';
@@ -90,15 +91,8 @@ export async function runPlanner(
 
   const combinedPrompt = requestArtifact.promptHistory.join('\n\nAdditional planner input:\n');
   const route = routeTask(combinedPrompt, config);
-  const modelConfig = config.models[config.routing.planningModel];
-  if (!modelConfig) {
-    throw new Error(`Unknown planning model alias: ${config.routing.planningModel}`);
-  }
-
-  const provider = providers.get(modelConfig.provider);
-  if (!provider) {
-    throw new Error(`Provider ${modelConfig.provider} is not available`);
-  }
+  const plannerModelAliases = buildPlannerModelAliasCandidates(config, route.modelAlias);
+  let plannerModelIndex = 0;
 
   const context = await buildContext(
     {
@@ -132,6 +126,19 @@ export async function runPlanner(
 
   let stepCount = 0;
   while (stepCount < route.maxSteps) {
+    const plannerModelAlias = plannerModelAliases[plannerModelIndex];
+    if (!plannerModelAlias) {
+      throw new Error('No planning model aliases are available.');
+    }
+    const modelConfig = config.models[plannerModelAlias];
+    if (!modelConfig) {
+      throw new Error(`Unknown planning model alias: ${plannerModelAlias}`);
+    }
+    const provider = providers.get(modelConfig.provider);
+    if (!provider) {
+      throw new Error(`Provider ${modelConfig.provider} is not available`);
+    }
+
     const request = buildPlannerModelRequest(
       config,
       modelConfig.model,
@@ -165,6 +172,25 @@ export async function runPlanner(
         }, config.session.redactSecrets);
       });
     } catch (error) {
+      const fallbackAlias = plannerModelAliases[plannerModelIndex + 1];
+      if (fallbackAlias && shouldFallbackPlannerModel(error)) {
+        plannerModelIndex += 1;
+        await appendPlannerEvent(session, {
+          type: 'planner_model_fallback',
+          fromModelAlias: plannerModelAlias,
+          toModelAlias: fallbackAlias,
+          reason: error instanceof Error ? error.message : String(error),
+        }, config.session.redactSecrets);
+        await appendPlannerStructuredLog(session, {
+          type: 'model_fallback',
+          fromModelAlias: plannerModelAlias,
+          toModelAlias: fallbackAlias,
+          reason: error instanceof Error ? error.message : String(error),
+        }, config.session.redactSecrets);
+        transcript.push(`host_notice:planner model fallback from ${plannerModelAlias} to ${fallbackAlias}`);
+        continue;
+      }
+
       state.outcome = 'FAILED';
       state.message = buildPlannerProviderFailureMessage(error, config.session.modelRetryAttempts);
       await appendPlannerStructuredLog(session, {
@@ -259,7 +285,7 @@ export async function runPlanner(
     }
 
     if (step.type === 'plan') {
-      plan = normalizePlannerPlan(step.plan, nextRevision);
+      plan = normalizePlannerPlan(step.plan, nextRevision, config.workspaceRoot);
       state.revision = plan.revision;
       state.message = plan.summary;
       state.phase = 'PENDING';
@@ -507,9 +533,9 @@ function parsePlannerResponse(content: string): PlannerResponse {
   throw new Error('Planner response did not contain a valid planner step.');
 }
 
-function normalizePlannerPlan(input: PlannerPlanPayload, revision: number): PlannerPlan {
+function normalizePlannerPlan(input: PlannerPlanPayload, revision: number, workspaceRoot: string): PlannerPlan {
   const stepsInput = Array.isArray(input.steps) ? input.steps : [];
-  const steps = stepsInput.map((step: unknown, index: number) => normalizePlannerStep(step, index));
+  const steps = stepsInput.map((step: unknown, index: number) => normalizePlannerStep(step, index, workspaceRoot));
   const plan: PlannerPlan = {
     version: '1',
     revision: typeof input.revision === 'number' ? input.revision : revision,
@@ -523,7 +549,7 @@ function normalizePlannerPlan(input: PlannerPlanPayload, revision: number): Plan
   return plan;
 }
 
-function normalizePlannerStep(step: unknown, index: number): PlannerStep {
+function normalizePlannerStep(step: unknown, index: number, workspaceRoot: string): PlannerStep {
   const record = (step && typeof step === 'object' ? step : {}) as Record<string, unknown>;
   return {
     id: String(record.id ?? `step-${index + 1}`),
@@ -532,7 +558,7 @@ function normalizePlannerStep(step: unknown, index: number): PlannerStep {
     kind: normalizeStepKind(record.kind),
     ...(typeof record.details === 'string' ? { details: record.details } : {}),
     ...(Array.isArray(record.relatedFiles)
-      ? { relatedFiles: record.relatedFiles.filter((item): item is string => typeof item === 'string') }
+      ? { relatedFiles: record.relatedFiles.filter((item): item is string => typeof item === 'string').map((item) => normalizePlannerFilePath(workspaceRoot, item)) }
       : {}),
     dependencies: Array.isArray(record.dependencies)
       ? record.dependencies.filter((item): item is string => typeof item === 'string')
@@ -853,7 +879,7 @@ async function executePlannerPlan(
       nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'VERIFYING' });
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await appendPlannerEvent(session, { type: 'subtask_started', stepId: step.id, mode: 'verify', title: step.title }, config.session.redactSecrets);
+      await appendPlannerEvent(session, { type: 'subtask_started', stepId: step.id, executor: 'verifier', title: step.title }, config.session.redactSecrets);
 
       const verifyResult = await runVerifier(config, new PolicyEngine(config), {
         changedFiles: [...accumulatedChangedFiles],
@@ -866,7 +892,7 @@ async function executePlannerPlan(
         await appendPlannerEvent(session, {
           type: 'subtask_completed',
           stepId: step.id,
-          mode: 'verify',
+          executor: 'verifier',
           success: true,
           changedFiles: [...accumulatedChangedFiles],
         }, config.session.redactSecrets);
@@ -876,6 +902,7 @@ async function executePlannerPlan(
       await appendPlannerEvent(session, {
         type: 'subtask_verify_failed',
         stepId: step.id,
+        executor: 'verifier',
         failures: verifyResult.failures.map((failure) => ({ command: failure.command, stderr: failure.stderr })),
       }, config.session.redactSecrets);
 
@@ -885,7 +912,8 @@ async function executePlannerPlan(
       await appendPlannerEvent(session, {
         type: repairResult.status === 'completed' ? 'subtask_completed' : 'subtask_failed',
         stepId: step.id,
-        mode: 'repair',
+        executor: 'coder',
+        modelAlias: repairResult.modelAlias,
         sessionDir: repairResult.sessionDir,
         changedFiles: repairResult.changedFiles,
         message: repairResult.message,
@@ -928,7 +956,8 @@ async function executePlannerPlan(
     await appendPlannerEvent(session, {
       type: 'subtask_started',
       stepId: step.id,
-      mode: 'agent',
+      executor: 'coder',
+      modelAlias: config.routing.codeModel,
       title: step.title,
       explicitFiles: step.relatedFiles ?? requestArtifact.explicitFiles,
     }, config.session.redactSecrets);
@@ -939,7 +968,8 @@ async function executePlannerPlan(
     await appendPlannerEvent(session, {
       type: subtaskResult.status === 'completed' ? 'subtask_completed' : 'subtask_failed',
       stepId: step.id,
-      mode: 'agent',
+      executor: 'coder',
+      modelAlias: subtaskResult.modelAlias,
       sessionDir: subtaskResult.sessionDir,
       changedFiles: subtaskResult.changedFiles,
       message: subtaskResult.message,
@@ -988,17 +1018,10 @@ async function executeSubtaskAgent(
   explicitFiles: string[],
   enableVerifier: boolean,
 ): Promise<Awaited<ReturnType<typeof runAgent>>> {
-  const subtaskBaseConfig = {
+  const subtaskConfig = enableVerifier ? config : {
     ...config,
-    routing: {
-      ...config.routing,
-      codeModel: config.routing.planningModel,
-    },
-  };
-  const subtaskConfig = enableVerifier ? subtaskBaseConfig : {
-    ...subtaskBaseConfig,
     verifier: {
-      ...subtaskBaseConfig.verifier,
+      ...config.verifier,
       enabled: false,
       allowDiscovery: false,
       commands: [],
@@ -1017,6 +1040,12 @@ async function executeSubtaskAgent(
     manualVerifierCommands: [],
     autoApprove: true,
     confirm: async () => true,
+    routeOverride: {
+      modelAlias: config.routing.codeModel,
+      intent: 'code',
+      maxSteps: config.routing.maxSteps,
+      maxAutoRepairAttempts: enableVerifier ? config.routing.maxAutoRepairAttempts : 0,
+    },
   });
 }
 
@@ -1118,6 +1147,38 @@ function extractWordsForStep(step: PlannerStep): string[] {
 
 function mergeStringLists(left: string[], right: string[]): string[] {
   return [...new Set([...left, ...right])];
+}
+
+function normalizePlannerFilePath(workspaceRoot: string, filePath: string): string {
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+  const directCandidate = path.resolve(workspaceRoot, normalized);
+  if (existsSync(directCandidate)) {
+    return normalized;
+  }
+
+  const anchors = ['src/', 'tests/', '.marblecode/', 'package.json'];
+  for (const anchor of anchors) {
+    const index = normalized.indexOf(anchor);
+    if (index < 0) {
+      continue;
+    }
+
+    const suffix = normalized.slice(index);
+    if (existsSync(path.resolve(workspaceRoot, suffix))) {
+      return suffix;
+    }
+  }
+
+  return normalized;
+}
+
+function buildPlannerModelAliasCandidates(config: AppConfig, primaryAlias: string): string[] {
+  return [...new Set([primaryAlias, config.routing.defaultModel])].filter(Boolean);
+}
+
+function shouldFallbackPlannerModel(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return /access forbidden|forbidden|model not found|unsupported model|permission|not authorized|upstream_error/.test(message);
 }
 
 function extractJsonObject(content: string): string {
