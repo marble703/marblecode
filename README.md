@@ -108,6 +108,12 @@ Resume a planner session with more input:
 node dist/index.js plan "Keep the current route export surface" --session <session-id-or-path>
 ```
 
+Show the latest planner result in the terminal:
+
+```bash
+npm run show:planner -- --last
+```
+
 Skip patch confirmation:
 
 ```bash
@@ -152,6 +158,8 @@ node dist/index.js rollback --last
 - `npm run smoke:verifier`: run the existing verifier against `examples/verifier-fixture`
 - `npm run test:examples`: run the full manual example suite for patch, verifier, rollback, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
+- `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
+- `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
 
 ## Notes
 
@@ -192,8 +200,10 @@ node dist/index.js rollback --last
 - planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
 - planner mode retries invalid model output up to 3 times before failing the session
 - planner sessions persist `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.request.json`, and `planner.context.packet.json`
+- planner also writes `planner.log.jsonl` with structured plan snapshots, invalid-output retries, and terminal summaries
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
+- use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and any recorded subtask execution results
 
 ## Multi-file Patch
 

@@ -106,6 +106,12 @@ node dist/index.js plan "重构路由模块并补测试"
 node dist/index.js plan "保留现有导出结构" --session <session-id-or-path>
 ```
 
+在终端里查看最近一次 planner 结果：
+
+```bash
+npm run show:planner -- --last
+```
+
 跳过 Patch 确认：
 
 ```bash
@@ -150,6 +156,8 @@ node dist/index.js rollback --last
 - `npm run smoke:verifier`：对 `examples/verifier-fixture` 运行现有 verifier 冒烟验证
 - `npm run test:examples`：运行手动触发的完整 examples 测试套件，覆盖 patch、verifier、rollback、shell 和权限检查
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
+- `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
+- `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
 
 ## 配置说明
 
@@ -183,8 +191,10 @@ node dist/index.js rollback --last
 - planner 响应只允许 `plan`、`plan_update`、`tool_call`、`final`
 - planner 遇到非法模型输出会最多自动重试 3 次，之后把 session 标记为失败
 - planner session 会落盘 `plan.json`、`plan.state.json`、`plan.events.jsonl`、`planner.request.json`、`planner.context.packet.json`
+- planner 还会写出 `planner.log.jsonl`，记录结构化 plan snapshot、非法输出重试和终态摘要
 - planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
+- 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的子任务执行结果
 
 ## 多文件 Patch
 

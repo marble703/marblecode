@@ -8,6 +8,18 @@ Run it manually with:
 npm run test:examples
 ```
 
+Run the real-model planner check with:
+
+```bash
+npm run check:planner
+```
+
+Inspect the latest planner session in the terminal with:
+
+```bash
+npm run show:planner -- --workspace examples/manual-test-suite/project --last
+```
+
 Do not run this suite as part of the default verifier on every change. It is intended for:
 
 - major agent-loop changes
@@ -26,6 +38,8 @@ The suite automatically asserts all results without using AI to judge correctnes
 - policy blocks sensitive file reads and forbidden shell commands
 - automatic context selection ranks route-related files when no `--file` is given
 - planner mode creates read-only plans, logs plan events, retries invalid patch-like output, and supports basic resume/replan
+- planner mode also writes `planner.log.jsonl`, and the repo includes `planner-task.md` for real-model planner validation
+- `show:planner` renders the stored plan, event timeline, and any future subtask execution events without needing a TUI
 - verifier auto-discovery falls back to package `test`/`build` scripts when `.marblecode/verifier.md` is missing
 - a deterministic provider generates a patch and the host applies it
 - multi-file patch application works across source and docs in one response

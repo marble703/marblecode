@@ -361,6 +361,7 @@ async function testPlannerReadOnlyFlow(): Promise<void> {
       queryTerms: string[];
     };
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
     const toolsLog = await readFile(path.join(result.sessionDir, 'tools.jsonl'), 'utf8');
 
     assert.equal(plan.revision, 1);
@@ -373,6 +374,8 @@ async function testPlannerReadOnlyFlow(): Promise<void> {
     assert.ok(contextPacket.queryTerms.includes('router'));
     assert.match(events, /planner_started/);
     assert.match(events, /plan_step_updated/);
+    assert.match(plannerLog, /"type":"plan_snapshot"/);
+    assert.match(plannerLog, /"type":"planner_terminal"/);
     assert.match(toolsLog, /search_text/);
     assert.equal(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), await readFile(path.join(SUITE_ROOT, 'src/math.js'), 'utf8'));
   });
@@ -422,7 +425,9 @@ async function testPlannerInvalidRetryAndResume(): Promise<void> {
 
     assert.equal(first.status, 'needs_input');
     const firstEvents = await readFile(path.join(first.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const firstPlannerLog = await readFile(path.join(first.sessionDir, 'planner.log.jsonl'), 'utf8');
     assert.match(firstEvents, /planner_invalid_output/);
+    assert.match(firstPlannerLog, /"type":"invalid_response"/);
     const firstState = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.state.json'), 'utf8')) as {
       revision: number;
       outcome: string;

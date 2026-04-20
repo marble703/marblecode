@@ -11,6 +11,8 @@
 - For a no-network verifier check against a fixture project, run `npm run smoke:verifier`.
 - For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. This is intentionally manual-only for major changes and release validation, not something to run on every edit.
 - For a real provider connectivity check, run `npm run check:model -- --model cheap`.
+- For a real planner check against the manual suite task, run `npm run check:planner`.
+- To inspect a planner session in the terminal, run `npm run show:planner -- --last` or pass `--session <session-id-or-path>`.
 - If you add or change local TypeScript runner scripts, use `node --import tsx ...`, not `--loader`; Node 22 rejects the old form and the repo already standardizes on `--import` in `package.json`.
 
 # CLI Workflows
@@ -20,7 +22,8 @@
 - Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
-- `plan` is read-only. It must never apply patches. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.context.packet.json`.
+- `plan` is read-only. It must never apply patches. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.context.packet.json`, and `planner.log.jsonl`.
+- `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.
 - Rollback command: `node dist/index.js rollback --last` or `node dist/index.js rollback --session <session-id-or-path>`.
@@ -47,6 +50,7 @@
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
 - `examples/manual-test-suite`: manual full-coverage fixture for tool, patch, rollback, shell, policy, and verifier regression checks.
+- `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
 
 # TypeScript Gotchas
 

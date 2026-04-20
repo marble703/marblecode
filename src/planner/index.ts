@@ -145,10 +145,16 @@ export async function runPlanner(
     try {
       step = parsePlannerResponse(response.content);
       state.invalidResponseAttempts = 0;
+      await appendPlannerStructuredLog(session, step, config.session.redactSecrets);
     } catch (error) {
       state.invalidResponseAttempts += 1;
       state.outcome = 'RUNNING';
       state.message = error instanceof Error ? error.message : String(error);
+      await appendPlannerStructuredLog(session, {
+        type: 'invalid_response',
+        error: state.message,
+        attempts: state.invalidResponseAttempts,
+      }, config.session.redactSecrets);
       await appendPlannerEvent(session, {
         type: 'planner_invalid_output',
         attempt: state.invalidResponseAttempts,
@@ -204,6 +210,12 @@ export async function runPlanner(
       state.consistencyErrors = runPlanConsistencyChecks(plan);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(plan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(state, null, 2));
+      await appendPlannerStructuredLog(session, {
+        type: 'plan_snapshot',
+        revision: plan.revision,
+        summary: plan.summary,
+        steps: plan.steps,
+      }, config.session.redactSecrets);
       await appendPlannerEvent(session, {
         type: 'plan_set',
         revision: plan.revision,
@@ -223,6 +235,12 @@ export async function runPlanner(
       }
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(plan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(state, null, 2));
+      await appendPlannerStructuredLog(session, {
+        type: 'plan_snapshot',
+        revision: plan.revision,
+        summary: plan.summary,
+        steps: plan.steps,
+      }, config.session.redactSecrets);
       await appendPlannerEvent(session, {
         type: 'plan_step_updated',
         stepId: step.stepId,
@@ -248,6 +266,13 @@ export async function runPlanner(
     }
 
     await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(state, null, 2));
+    await appendPlannerStructuredLog(session, {
+      type: 'planner_terminal',
+      outcome: state.outcome,
+      message: state.message,
+      summary: plan.summary,
+      consistencyErrors: state.consistencyErrors,
+    }, config.session.redactSecrets);
     await appendPlannerEvent(session, {
       type: 'planner_finished',
       outcome: state.outcome,
@@ -626,6 +651,14 @@ async function appendPlannerEvent(
   redactSecrets: boolean,
 ): Promise<void> {
   await appendSessionLog(session, 'plan.events.jsonl', event, redactSecrets);
+}
+
+async function appendPlannerStructuredLog(
+  session: SessionRecord,
+  record: Record<string, unknown>,
+  redactSecrets: boolean,
+): Promise<void> {
+  await appendSessionLog(session, 'planner.log.jsonl', record, redactSecrets);
 }
 
 async function resumePlannerSession(

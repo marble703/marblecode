@@ -13,7 +13,9 @@
     "smoke:edit": "node --import tsx ./scripts/smoke-edit.ts",
     "smoke:verifier": "node --import tsx ./scripts/smoke-verifier.ts",
     "test:examples": "node --import tsx ./scripts/test-examples.ts",
-    "check:model": "node --import tsx ./scripts/check-model.ts"
+    "check:model": "node --import tsx ./scripts/check-model.ts",
+    "check:planner": "node --import tsx ./scripts/check-planner.ts",
+    "show:planner": "node --import tsx ./scripts/show-planner.ts"
   },
   "dependencies": {
     "diff": "^5.2.0",
