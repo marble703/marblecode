@@ -23,6 +23,7 @@
 
 - Main coding command: `node dist/index.js run "<request>" [--file path] [--paste "code"] [--verify "npm test"] [--yes]`.
 - Planner command: `node dist/index.js plan "<request>" [--file path] [--paste "code"] [--execute] [--session session-id-or-path | --last]`.
+- `run`, `plan`, `tui`, and `rollback` should all accept `--workspace /path/to/project` to override the active session workspace.
 - Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
@@ -48,6 +49,7 @@
 - `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
+- `context.autoDeny` is the gitignore-like list for files excluded from automatic context/search; explicit `--file`/`/files` grants should still allow read access, and workspace-internal grants may allow writes.
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.

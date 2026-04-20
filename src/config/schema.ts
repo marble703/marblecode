@@ -34,6 +34,7 @@ export interface ContextConfig {
   recentFileCount: number;
   exclude: string[];
   sensitive: string[];
+  autoDeny: string[];
 }
 
 export interface PathPolicyConfig {

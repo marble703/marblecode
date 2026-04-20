@@ -80,7 +80,7 @@ function createListFilesTool(config: AppConfig, policy: PolicyEngine): Tool {
       try {
         const targetDir = path.resolve(config.workspaceRoot, String(input.path ?? '.'));
         policy.assertReadable(targetDir);
-        const files = await walkFiles(config.workspaceRoot, targetDir, config.context.exclude);
+        const files = await walkFiles(config.workspaceRoot, targetDir, [...config.context.exclude, ...config.context.autoDeny]);
         const pattern = typeof input.pattern === 'string' ? input.pattern : '**/*';
         return {
           ok: true,
@@ -115,7 +115,7 @@ function createSearchTextTool(config: AppConfig, policy: PolicyEngine): Tool {
       try {
         const flags = normalizeRegexFlags(input.flags);
         const regex = new RegExp(String(input.pattern), flags);
-        const files = await walkFiles(config.workspaceRoot, config.workspaceRoot, config.context.exclude);
+        const files = await walkFiles(config.workspaceRoot, config.workspaceRoot, [...config.context.exclude, ...config.context.autoDeny]);
         const pathPattern = typeof input.pathPattern === 'string' ? input.pathPattern : '**/*';
         const matches: Array<{
           path: string;

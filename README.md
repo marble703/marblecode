@@ -132,6 +132,12 @@ Open the interactive coding TUI for new conversations:
 npm run tui
 ```
 
+Open the TUI against another workspace:
+
+```bash
+node dist/index.js tui --workspace /path/to/project
+```
+
 Skip patch confirmation:
 
 ```bash
@@ -199,6 +205,9 @@ node dist/index.js rollback --last
 - project config may override shared runtime sections such as `context`, `policy`, `routing`, `session`, and `verifier`
 - project config may inject project-specific shell environment variables through `env`
 - if no manual verifier, JSON verifier command list, or `.marblecode/verifier.md` exists, the verifier falls back to auto-discovery from the repo
+- use `--workspace /path/to/project` on `run`, `plan`, `tui`, or `rollback` to set the session working directory without moving your main config file
+- `context.autoDeny` is a gitignore-like list for files that should not be auto-read during context selection, search, or normal tool browsing
+- files in `context.autoDeny`, or read-only requests outside the workspace, can still be granted explicitly with `--file` or `/files`
 - Fill the provider base URL in `agent.config.jsonc` at `providers.openai.baseUrl`.
   `http://...` and `https://...` are both accepted in the current MVP so local compatible endpoints can be tested.
 - Prefer storing the API key in the shell environment variable named by `providers.openai.apiKeyEnv`.
@@ -235,9 +244,11 @@ node dist/index.js rollback --last
 ## Interactive TUI
 
 - `npm run tui` opens a simple interactive terminal session for new requests
+- add `--workspace` when launching the TUI, or use `/workspace <path>` inside it, to switch the active session working directory
 - use `/mode run`, `/mode plan`, or `/mode execute` to switch between coding, planning, and planner execution workflows
 - use `/files path1 path2` to pin explicit files, `/verify <cmd>` to override the verifier for `run`, and `/yes on` to auto-approve patches
 - use `/paste` to enter multiline pasted context, ending with a single `.` line
+- files listed with `/files` are also treated as explicit read/write grants for otherwise auto-denied files inside the workspace, and as explicit read-only grants for files outside the workspace
 - use `/reset` to clear the current TUI state and `/quit` to exit
 - in `run` mode, if `/yes` is off, the TUI will show the patch preview and ask for confirmation before applying it
 

@@ -176,6 +176,7 @@ async function main(): Promise<void> {
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
     { name: 'planner session resolution', run: testPlannerSessionResolution },
     { name: 'interactive tui command parsing', run: testInteractiveTuiCommandParsing },
+    { name: 'auto deny with explicit grant', run: testAutoDenyWithExplicitGrant },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
@@ -626,6 +627,8 @@ async function testInteractiveTuiCommandParsing(): Promise<void> {
   let state = createInitialTuiState();
   state = applyTuiCommand(state, '/mode execute').state;
   assert.equal(state.mode, 'execute');
+  state = applyTuiCommand(state, '/workspace /tmp/example-workspace').state;
+  assert.equal(state.workspaceRoot, '/tmp/example-workspace');
   state = applyTuiCommand(state, '/files src/math.js tests/check-math.js').state;
   assert.deepEqual(state.explicitFiles, ['src/math.js', 'tests/check-math.js']);
   state = applyTuiCommand(state, '/verify npm test').state;
@@ -637,6 +640,62 @@ async function testInteractiveTuiCommandParsing(): Promise<void> {
   state = applyTuiCommand(state, '/reset').state;
   assert.equal(state.mode, 'run');
   assert.equal(state.autoApprove, false);
+}
+
+async function testAutoDenyWithExplicitGrant(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot, tempRoot }) => {
+    config.context.autoDeny = ['src/notes.txt'];
+    const blockedPolicy = new PolicyEngine(config);
+    const blockedRegistry = new ToolRegistry();
+    for (const tool of createBuiltinTools(config, blockedPolicy)) {
+      blockedRegistry.register(tool);
+    }
+
+    const blockedRead = await blockedRegistry.execute({ name: 'read_file', input: { path: 'src/notes.txt' } });
+    assert.equal(blockedRead.ok, false);
+    assert.match(blockedRead.error ?? '', /Auto read access blocked/);
+
+    const explicitPolicy = new PolicyEngine(config, {
+      grantedReadPaths: ['src/notes.txt', '../outside.txt'],
+      grantedWritePaths: ['src/notes.txt', '../outside.txt'],
+    });
+    const explicitRegistry = new ToolRegistry();
+    for (const tool of createBuiltinTools(config, explicitPolicy)) {
+      explicitRegistry.register(tool);
+    }
+
+    const explicitRead = await explicitRegistry.execute({ name: 'read_file', input: { path: 'src/notes.txt' } });
+    assert.equal(explicitRead.ok, true);
+
+    const outsideRead = await explicitRegistry.execute({ name: 'read_file', input: { path: '../outside.txt' } });
+    assert.equal(outsideRead.ok, true);
+    assert.match(String((outsideRead.data as { content: string }).content), /blocked/);
+
+    const autoContext = await buildContext(
+      {
+        prompt: 'FIX_ME_42',
+        explicitFiles: [],
+        pastedSnippets: [],
+      },
+      config,
+      blockedPolicy,
+    );
+    assert.ok(!autoContext.items.some((item) => item.path === 'src/notes.txt'));
+
+    const explicitContext = await buildContext(
+      {
+        prompt: 'FIX_ME_42',
+        explicitFiles: ['src/notes.txt', '../outside.txt'],
+        pastedSnippets: [],
+      },
+      config,
+      explicitPolicy,
+    );
+    assert.ok(explicitContext.items.some((item) => item.path === 'src/notes.txt'));
+    assert.ok(explicitContext.items.some((item) => item.path === '../outside.txt'));
+
+    assert.throws(() => new PolicyEngine(config, { grantedWritePaths: ['../outside.txt'] }).assertWritable(path.join(tempRoot, 'outside.txt')));
+  });
 }
 
 async function testPlannerExecuteChain(): Promise<void> {

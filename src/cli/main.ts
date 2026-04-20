@@ -47,22 +47,25 @@ export async function main(): Promise<void> {
         type: 'boolean',
         default: false,
       },
+      workspace: {
+        type: 'string',
+      },
     },
   });
 
   const [command, ...rest] = parsed.positionals;
   if (command === 'rollback') {
-    await rollbackCommand(parsed.values.config, parsed.values.session, parsed.values.last);
+    await rollbackCommand(parsed.values.config, parsed.values.workspace, parsed.values.session, parsed.values.last);
     return;
   }
 
   if (command === 'plan') {
-    await planCommand(parsed.values.config, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last, parsed.values.execute);
+    await planCommand(parsed.values.config, parsed.values.workspace, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last, parsed.values.execute);
     return;
   }
 
   if (command === 'tui') {
-    await tuiCommand(parsed.values.config);
+    await tuiCommand(parsed.values.config, parsed.values.workspace);
     return;
   }
 
@@ -77,7 +80,7 @@ export async function main(): Promise<void> {
     throw new Error('A prompt is required. Example: coding-agent run "fix failing tests"');
   }
 
-  const config = await loadConfig(parsed.values.config);
+  const config = await loadConfig(parsed.values.config, parsed.values.workspace);
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
@@ -113,20 +116,20 @@ async function confirmPatch(message: string): Promise<boolean> {
 }
 
 function printUsage(): void {
-  output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
-  output.write('   or: coding-agent plan "your request" [--config path] [--file file.ts] [--paste "code"] [--execute] [--session session-id-or-path | --last]\n');
-  output.write('   or: coding-agent tui [--config path]\n');
-  output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
+  output.write('Usage: coding-agent run "your request" [--config path] [--workspace path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
+  output.write('   or: coding-agent plan "your request" [--config path] [--workspace path] [--file file.ts] [--paste "code"] [--execute] [--session session-id-or-path | --last]\n');
+  output.write('   or: coding-agent tui [--config path] [--workspace path]\n');
+  output.write('   or: coding-agent rollback [--config path] [--workspace path] [--session session-id-or-path | --last]\n');
 }
 
-async function tuiCommand(configPath: string | undefined): Promise<void> {
-  const config = await loadConfig(configPath);
-  const providers = createProviders(config);
-  await runInteractiveTui(config, providers);
+async function tuiCommand(configPath: string | undefined, workspacePath: string | undefined): Promise<void> {
+  const config = await loadConfig(configPath, workspacePath);
+  await runInteractiveTui(configPath, config);
 }
 
 async function planCommand(
   configPath: string | undefined,
+  workspacePath: string | undefined,
   prompt: string,
   explicitFiles: string[],
   pastedSnippets: string[],
@@ -138,7 +141,7 @@ async function planCommand(
     throw new Error('A prompt is required for a new plan. Use --session/--last to resume an existing planner session.');
   }
 
-  const config = await loadConfig(configPath);
+  const config = await loadConfig(configPath, workspacePath);
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
@@ -159,8 +162,8 @@ async function planCommand(
   output.write(`session: ${result.sessionDir}\n`);
 }
 
-async function rollbackCommand(configPath: string | undefined, sessionRef: string | undefined, useLatest: boolean): Promise<void> {
-  const config = await loadConfig(configPath);
+async function rollbackCommand(configPath: string | undefined, workspacePath: string | undefined, sessionRef: string | undefined, useLatest: boolean): Promise<void> {
+  const config = await loadConfig(configPath, workspacePath);
   const sessionDir = await resolveSessionDir(config, sessionRef, useLatest);
   const rollback = JSON.parse(await readFile(`${sessionDir}/rollback.json`, 'utf8')) as Parameters<typeof tryRollback>[1];
   await tryRollback(config, rollback);

@@ -130,6 +130,12 @@ npm run tui:planner -- --last
 npm run tui
 ```
 
+在另一个工作目录里打开 TUI：
+
+```bash
+node dist/index.js tui --workspace /path/to/project
+```
+
 跳过 Patch 确认：
 
 ```bash
@@ -189,6 +195,9 @@ node dist/index.js rollback --last
 - 项目配置可以覆盖 `context`、`policy`、`routing`、`session`、`verifier` 等共享运行参数
 - 项目配置也可以通过 `env` 注入项目级 shell 环境变量
 - 如果没有手动 verifier、JSON verifier 命令列表或 `.marblecode/verifier.md`，verifier 会回退到基于仓库内容的自动发现
+- 可以在 `run`、`plan`、`tui`、`rollback` 上加 `--workspace /path/to/project`，把 session 工作目录切到别的项目而不必移动主配置文件
+- `context.autoDeny` 是一个类似 gitignore 的名单，用来禁止自动上下文选择、搜索或普通工具浏览去读这些文件
+- 对于 `context.autoDeny` 里的文件，或工作目录外的只读文件，可以通过 `--file` 或 `/files` 显式授予访问
 - `agent.config.jsonc` 是本地配置文件，已经加入 `.gitignore`
 - `providers.openai.baseUrl` 填你的兼容接口地址
 - 当前 MVP 同时接受 `http://...` 和 `https://...`
@@ -226,9 +235,11 @@ node dist/index.js rollback --last
 ## 交互式 TUI
 
 - `npm run tui` 会打开一个简单的交互式终端会话，可直接输入新请求
+- 启动时可加 `--workspace`，或在 TUI 里用 `/workspace <path>` 切换当前 session 工作目录
 - 用 `/mode run`、`/mode plan`、`/mode execute` 切换编码、规划和 planner 执行模式
 - 用 `/files path1 path2` 固定显式文件，用 `/verify <cmd>` 为 `run` 模式覆盖 verifier，用 `/yes on` 开启自动确认 patch
 - 用 `/paste` 进入多行粘贴模式，以单独一行 `.` 结束
+- `/files` 中的路径也会被视为显式授权：工作目录内的 autoDeny 文件可读写，工作目录外文件仅允许读取
 - 用 `/reset` 清空当前 TUI 状态，用 `/quit` 退出
 - 在 `run` 模式下，如果没有开启 `/yes on`，TUI 会展示 patch preview 并询问是否应用
 

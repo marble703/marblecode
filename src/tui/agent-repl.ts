@@ -2,9 +2,11 @@ import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
+import { loadConfig } from '../config/load.js';
 import { runAgent } from '../agent/index.js';
 import { runPlanner } from '../planner/index.js';
 import { PolicyEngine } from '../policy/index.js';
+import { createProviders } from '../provider/index.js';
 import type { ModelProvider } from '../provider/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
@@ -14,6 +16,7 @@ export type TuiMode = 'run' | 'plan' | 'execute';
 
 export interface TuiState {
   mode: TuiMode;
+  workspaceRoot: string;
   explicitFiles: string[];
   pastedSnippets: string[];
   manualVerifierCommands: string[];
@@ -28,9 +31,10 @@ export interface TuiCommandResult {
   enterPaste: boolean;
 }
 
-export function createInitialTuiState(): TuiState {
+export function createInitialTuiState(workspaceRoot = process.cwd()): TuiState {
   return {
     mode: 'run',
+    workspaceRoot,
     explicitFiles: [],
     pastedSnippets: [],
     manualVerifierCommands: [],
@@ -56,7 +60,8 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
           lastOutput: [
             'Commands:',
             '/mode run|plan|execute',
-            '/files path1 path2',
+          '/workspace <path>',
+          '/files path1 path2',
             '/clear-files',
             '/paste (enter multiline paste mode, finish with a single . line)',
             '/clear-paste',
@@ -76,6 +81,10 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
         return { state: { ...state, lastOutput: `Unknown mode: ${args}` }, quit: false, enterPaste: false };
       }
       return { state: { ...state, mode, lastOutput: `Mode set to ${mode}` }, quit: false, enterPaste: false };
+    }
+    case 'workspace': {
+      const nextWorkspace = args ? path.resolve(args) : state.workspaceRoot;
+      return { state: { ...state, workspaceRoot: nextWorkspace, lastOutput: `Workspace set to ${nextWorkspace}` }, quit: false, enterPaste: false };
     }
     case 'files': {
       const files = args.split(/\s+/).filter(Boolean);
@@ -97,7 +106,7 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
       return { state: { ...state, autoApprove, lastOutput: `Auto-approve set to ${autoApprove}` }, quit: false, enterPaste: false };
     }
     case 'reset':
-      return { state: { ...createInitialTuiState(), lastOutput: 'TUI state reset.' }, quit: false, enterPaste: false };
+      return { state: { ...createInitialTuiState(state.workspaceRoot), lastOutput: 'TUI state reset.' }, quit: false, enterPaste: false };
     case 'quit':
     case 'exit':
       return { state, quit: true, enterPaste: false };
@@ -107,11 +116,11 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
 }
 
 export async function runInteractiveTui(
-  config: AppConfig,
-  providers: Map<string, ModelProvider>,
+  configPath: string | undefined,
+  initialConfig: AppConfig,
 ): Promise<void> {
   const rl = readline.createInterface({ input, output });
-  let state = createInitialTuiState();
+  let state = createInitialTuiState(initialConfig.workspaceRoot);
 
   try {
     while (true) {
@@ -143,7 +152,7 @@ export async function runInteractiveTui(
       renderTuiScreen(state);
 
       try {
-        state = await executeTuiPrompt(config, providers, state, prompt, rl);
+        state = await executeTuiPrompt(configPath, initialConfig, state, prompt, rl);
       } catch (error) {
         state = {
           ...state,
@@ -157,12 +166,14 @@ export async function runInteractiveTui(
 }
 
 async function executeTuiPrompt(
-  config: AppConfig,
-  providers: Map<string, ModelProvider>,
+  configPath: string | undefined,
+  initialConfig: AppConfig,
   state: TuiState,
   prompt: string,
   rl: readline.Interface,
 ): Promise<TuiState> {
+  const config = await loadConfig(configPath, state.workspaceRoot);
+  const providers = createProviders(config);
   if (state.mode === 'run') {
     const policy = new PolicyEngine(config);
     const registry = new ToolRegistry();
@@ -247,7 +258,7 @@ async function collectPastedSnippet(rl: readline.Interface, state: TuiState): Pr
 function renderTuiScreen(state: TuiState): void {
   output.write('\u001bc');
   output.write('Coding Agent TUI\n');
-  output.write(`mode=${state.mode} autoApprove=${state.autoApprove} files=${state.explicitFiles.length} pasted=${state.pastedSnippets.length} verify=${state.manualVerifierCommands.length > 0 ? 'on' : 'off'}\n`);
+  output.write(`mode=${state.mode} workspace=${state.workspaceRoot} autoApprove=${state.autoApprove} files=${state.explicitFiles.length} pasted=${state.pastedSnippets.length} verify=${state.manualVerifierCommands.length > 0 ? 'on' : 'off'}\n`);
   output.write(`lastSession=${state.lastSessionDir ?? '(none)'}\n\n`);
   output.write(`${state.lastOutput}\n\n`);
   output.write('Tips: type a prompt to run it, /help for commands.\n');

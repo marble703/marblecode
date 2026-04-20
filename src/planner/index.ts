@@ -101,7 +101,10 @@ export async function runPlanner(
       pastedSnippets: requestArtifact.pastedSnippets,
     },
     config,
-    new PolicyEngine(config),
+    new PolicyEngine(config, {
+      grantedReadPaths: requestArtifact.explicitFiles,
+      grantedWritePaths: requestArtifact.explicitFiles,
+    }),
   );
 
   const nextRevision = determineNextRevision(input.prompt, prior);
