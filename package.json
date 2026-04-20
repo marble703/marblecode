@@ -16,7 +16,8 @@
     "check:model": "node --import tsx ./scripts/check-model.ts",
     "check:planner": "node --import tsx ./scripts/check-planner.ts",
     "check:planner:execute": "node --import tsx ./scripts/check-planner-execute.ts",
-    "show:planner": "node --import tsx ./scripts/show-planner.ts"
+    "show:planner": "node --import tsx ./scripts/show-planner.ts",
+    "tui:planner": "node --import tsx ./scripts/tui-planner.ts"
   },
   "dependencies": {
     "diff": "^5.2.0",

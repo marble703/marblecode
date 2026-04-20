@@ -1,4 +1,5 @@
 import path from 'node:path';
+import readline from 'node:readline';
 import { parseArgs } from 'node:util';
 import { loadConfig } from '../src/config/load.js';
 import { resolvePlannerSessionDir } from '../src/session/index.js';
@@ -20,6 +21,9 @@ async function main(): Promise<void> {
       workspace: {
         type: 'string',
       },
+      pollMs: {
+        type: 'string',
+      },
     },
   });
 
@@ -34,58 +38,70 @@ async function main(): Promise<void> {
       configPath: baseConfig.project.configPath ? path.join(workspaceRoot, '.marblecode/config.jsonc') : null,
     },
   };
-
   const sessionDir = await resolvePlannerSessionDir(config, parsed.values.session, parsed.values.last);
-  const view = await loadPlannerView(sessionDir);
+  const pollMs = Math.max(250, Number(parsed.values.pollMs ?? '1000'));
 
+  process.stdin.setRawMode?.(true);
+  process.stdin.resume();
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    if (chunk === 'q' || chunk === '\u0003') {
+      cleanupAndExit();
+    }
+  });
+
+  const timer = setInterval(async () => {
+    const view = await loadPlannerView(sessionDir);
+    render(view, pollMs);
+  }, pollMs);
+
+  const initial = await loadPlannerView(sessionDir);
+  render(initial, pollMs);
+
+  function cleanupAndExit(): void {
+    clearInterval(timer);
+    readline.cursorTo(process.stdout, 0, 0);
+    readline.clearScreenDown(process.stdout);
+    process.stdin.setRawMode?.(false);
+    process.stdin.pause();
+    process.exit(0);
+  }
+}
+
+function render(view: Awaited<ReturnType<typeof loadPlannerView>>, pollMs: number): void {
+  readline.cursorTo(process.stdout, 0, 0);
+  readline.clearScreenDown(process.stdout);
+
+  process.stdout.write(`Planner TUI  q=quit  refresh=${pollMs}ms\n\n`);
   process.stdout.write(`Session: ${view.sessionDir}\n`);
-  process.stdout.write(`Outcome: ${view.outcome}\n`);
-  process.stdout.write(`Phase: ${view.phase}\n`);
-  process.stdout.write(`Current step: ${view.currentStepId ?? '(none)'}\n`);
+  process.stdout.write(`Outcome: ${view.outcome}    Phase: ${view.phase}    Current: ${view.currentStepId ?? '(none)'}\n`);
   process.stdout.write(`Summary: ${view.summary}\n\n`);
 
-  process.stdout.write('Plan Steps:\n');
+  process.stdout.write('Plan Steps\n');
   for (const [index, step] of view.steps.entries()) {
     process.stdout.write(`${index + 1}. [${step.status}] ${step.title} (${step.kind})\n`);
-    if (step.details) {
-      process.stdout.write(`   ${step.details}\n`);
-    }
     if (step.relatedFiles.length > 0) {
       process.stdout.write(`   files: ${step.relatedFiles.join(', ')}\n`);
     }
-    if (step.children.length > 0) {
-      process.stdout.write(`   subtasks: ${step.children.join(', ')}\n`);
-    }
-    if (step.assignee) {
-      process.stdout.write(`   assignee: ${step.assignee}\n`);
-    }
   }
 
-  process.stdout.write('\nExecution Timeline:\n');
-  for (const event of view.events) {
-    process.stdout.write(`- ${renderPlannerEvent(event)}\n`);
-  }
-
-  process.stdout.write('\nSubtask Results:\n');
+  process.stdout.write('\nSubtasks\n');
   if (view.subtaskEvents.length === 0) {
-    const childSteps = view.steps.filter((step) => step.children.length > 0 || step.assignee || step.kind === 'note');
-    if (childSteps.length === 0) {
-      process.stdout.write('- none recorded yet\n');
-    } else {
-      for (const step of childSteps) {
-        process.stdout.write(`- ${step.id}: waiting on future subtask execution support\n`);
-      }
-    }
+    process.stdout.write('- none recorded yet\n');
   } else {
-    for (const event of view.subtaskEvents) {
+    for (const event of view.subtaskEvents.slice(-12)) {
       process.stdout.write(`- ${renderPlannerEvent(event)}\n`);
     }
   }
 
-  process.stdout.write('\nPlanner Log Summary:\n');
-  process.stdout.write(`- terminal: ${view.terminalSummary}\n`);
+  process.stdout.write('\nTimeline\n');
+  for (const event of view.events.slice(-12)) {
+    process.stdout.write(`- ${renderPlannerEvent(event)}\n`);
+  }
+
+  process.stdout.write(`\nTerminal: ${view.terminalSummary}\n`);
   if (view.consistencyErrors.length > 0) {
-    process.stdout.write(`- consistency errors: ${view.consistencyErrors.join('; ')}\n`);
+    process.stdout.write(`Consistency: ${view.consistencyErrors.join('; ')}\n`);
   }
 }
 

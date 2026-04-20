@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
 import { runPlanner } from '../src/planner/index.js';
 import { PolicyEngine } from '../src/policy/index.js';
+import { resolvePlannerSessionDir } from '../src/session/index.js';
 import { ToolRegistry } from '../src/tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../src/tools/builtins.js';
 import { runVerifier } from '../src/verifier/index.js';
@@ -172,6 +173,7 @@ async function main(): Promise<void> {
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
+    { name: 'planner session resolution', run: testPlannerSessionResolution },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
@@ -598,6 +600,23 @@ async function testPlannerModelRetryExhaustion(): Promise<void> {
     assert.equal(state.outcome, 'FAILED');
     assert.match(state.message, /429|failed after 2 retries/i);
     assert.match(plannerLog, /"type":"model_failure"/);
+  });
+}
+
+async function testPlannerSessionResolution(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
+    const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-00-000Z');
+    const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-01-000Z');
+    await mkdir(childSessionDir, { recursive: true });
+    await mkdir(plannerSessionDir, { recursive: true });
+    await writeFile(path.join(childSessionDir, 'request.json'), '{}', 'utf8');
+    await writeFile(path.join(plannerSessionDir, 'plan.json'), JSON.stringify({ summary: '', steps: [] }), 'utf8');
+    await writeFile(path.join(plannerSessionDir, 'plan.state.json'), JSON.stringify({ outcome: 'DONE', phase: 'PENDING', currentStepId: null, consistencyErrors: [] }), 'utf8');
+    await writeFile(path.join(plannerSessionDir, 'plan.events.jsonl'), JSON.stringify({ type: 'planner_finished' }) + '\n', 'utf8');
+
+    const resolved = await resolvePlannerSessionDir(config, undefined, true);
+    assert.equal(resolved, plannerSessionDir);
   });
 }
 

@@ -120,6 +120,12 @@ Show the latest planner result in the terminal:
 npm run show:planner -- --last
 ```
 
+Open the lightweight live planner TUI:
+
+```bash
+npm run tui:planner -- --last
+```
+
 Skip patch confirmation:
 
 ```bash
@@ -167,6 +173,8 @@ node dist/index.js rollback --last
 - `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
 - `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
 - `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
+- `npm run tui:planner -- --last`: open a lightweight live planner dashboard that polls session files and renders steps, subtasks, and timeline in-place
+- `show:planner --last` and `tui:planner --last` now pick the most recent planner session, not the latest coder/verifier child session
 
 ## Notes
 

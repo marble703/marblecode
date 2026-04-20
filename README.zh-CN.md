@@ -118,6 +118,12 @@ node dist/index.js plan "保留现有导出结构" --session <session-id-or-path
 npm run show:planner -- --last
 ```
 
+打开一个轻量的实时 planner TUI：
+
+```bash
+npm run tui:planner -- --last
+```
+
 跳过 Patch 确认：
 
 ```bash
@@ -165,6 +171,8 @@ node dist/index.js rollback --last
 - `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
 - `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 串行链路
 - `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
+- `npm run tui:planner -- --last`：打开一个轻量实时 planner 面板，轮询 session 文件并原地渲染步骤、subtask 和时间线
+- `show:planner --last` 和 `tui:planner --last` 现在会自动选择最近一个 planner session，而不是误选到 coder/verifier 子 session
 
 ## 配置说明
 

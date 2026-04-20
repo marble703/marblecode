@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
 import { redactRecord } from '../shared/redact.js';
@@ -78,6 +78,39 @@ export async function resolveSessionDir(
   return path.join(baseDir, latest);
 }
 
+export async function resolvePlannerSessionDir(
+  config: AppConfig,
+  sessionRef?: string,
+  useLatest?: boolean,
+): Promise<string> {
+  const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
+  if (sessionRef) {
+    const sessionDir = path.isAbsolute(sessionRef) ? sessionRef : path.join(baseDir, sessionRef);
+    await assertPlannerSessionDir(sessionDir);
+    return sessionDir;
+  }
+
+  if (!useLatest) {
+    throw new Error('A planner session reference is required unless --last is used');
+  }
+
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const sorted = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const name of sorted) {
+    const candidate = path.join(baseDir, name);
+    if (await isPlannerSessionDir(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error('No planner session directories are available');
+}
+
 async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays: number): Promise<void> {
   const entries = await readdir(baseDir, { withFileTypes: true });
   const now = Date.now();
@@ -103,5 +136,22 @@ async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays:
     if (!keep.has(entry.name)) {
       await rm(path.join(baseDir, entry.name), { recursive: true, force: true });
     }
+  }
+}
+
+async function isPlannerSessionDir(sessionDir: string): Promise<boolean> {
+  try {
+    await access(path.join(sessionDir, 'plan.json'));
+    await access(path.join(sessionDir, 'plan.state.json'));
+    await access(path.join(sessionDir, 'plan.events.jsonl'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertPlannerSessionDir(sessionDir: string): Promise<void> {
+  if (!(await isPlannerSessionDir(sessionDir))) {
+    throw new Error(`Session is not a planner session: ${sessionDir}`);
   }
 }

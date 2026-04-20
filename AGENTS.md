@@ -14,6 +14,8 @@
 - For a real planner check against the manual suite task, run `npm run check:planner`.
 - For a real planner execution chain check on a temp fixture, run `npm run check:planner:execute`.
 - To inspect a planner session in the terminal, run `npm run show:planner -- --last` or pass `--session <session-id-or-path>`.
+- For a lightweight live planner dashboard, run `npm run tui:planner -- --last`.
+- `--last` for planner viewers should resolve the latest planner session with `plan.json`, not the newest child coder session.
 - If you add or change local TypeScript runner scripts, use `node --import tsx ...`, not `--loader`; Node 22 rejects the old form and the repo already standardizes on `--import` in `package.json`.
 
 # CLI Workflows
