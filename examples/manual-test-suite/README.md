@@ -14,6 +14,12 @@ Run the real-model planner check with:
 npm run check:planner
 ```
 
+Run the real-model planner execution chain with:
+
+```bash
+npm run check:planner:execute
+```
+
 Inspect the latest planner session in the terminal with:
 
 ```bash
@@ -39,7 +45,8 @@ The suite automatically asserts all results without using AI to judge correctnes
 - automatic context selection ranks route-related files when no `--file` is given
 - planner mode creates read-only plans, logs plan events, retries invalid patch-like output, and supports basic resume/replan
 - planner mode also writes `planner.log.jsonl`, and the repo includes `planner-task.md` for real-model planner validation
-- `show:planner` renders the stored plan, event timeline, and any future subtask execution events without needing a TUI
+- planner execution mode is covered by `planner-exec-task.md`, which validates serial subtask execution until verifier success
+- `show:planner` renders the stored plan, event timeline, and subtask execution events without needing a TUI
 - verifier auto-discovery falls back to package `test`/`build` scripts when `.marblecode/verifier.md` is missing
 - a deterministic provider generates a patch and the host applies it
 - multi-file patch application works across source and docs in one response

@@ -42,6 +42,10 @@ export async function main(): Promise<void> {
         type: 'boolean',
         default: false,
       },
+      execute: {
+        type: 'boolean',
+        default: false,
+      },
     },
   });
 
@@ -52,7 +56,7 @@ export async function main(): Promise<void> {
   }
 
   if (command === 'plan') {
-    await planCommand(parsed.values.config, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last);
+    await planCommand(parsed.values.config, rest.join(' ').trim(), parsed.values.file ?? [], parsed.values.paste ?? [], parsed.values.session, parsed.values.last, parsed.values.execute);
     return;
   }
 
@@ -104,7 +108,7 @@ async function confirmPatch(message: string): Promise<boolean> {
 
 function printUsage(): void {
   output.write('Usage: coding-agent run "your request" [--config path] [--file file.ts] [--paste "code"] [--verify "npm run build"] [--yes]\n');
-  output.write('   or: coding-agent plan "your request" [--config path] [--file file.ts] [--paste "code"] [--session session-id-or-path | --last]\n');
+  output.write('   or: coding-agent plan "your request" [--config path] [--file file.ts] [--paste "code"] [--execute] [--session session-id-or-path | --last]\n');
   output.write('   or: coding-agent rollback [--config path] [--session session-id-or-path | --last]\n');
 }
 
@@ -115,6 +119,7 @@ async function planCommand(
   pastedSnippets: string[],
   sessionRef: string | undefined,
   useLatest: boolean,
+  execute: boolean,
 ): Promise<void> {
   if (!prompt && !sessionRef && !useLatest) {
     throw new Error('A prompt is required for a new plan. Use --session/--last to resume an existing planner session.');
@@ -132,6 +137,7 @@ async function planCommand(
     prompt,
     explicitFiles,
     pastedSnippets,
+    ...(execute ? { executeSubtasks: true } : {}),
     ...(sessionRef ? { resumeSessionRef: sessionRef } : {}),
     ...(useLatest ? { useLatestSession: true } : {}),
   });

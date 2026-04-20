@@ -102,6 +102,12 @@ Create a read-only plan instead of editing files:
 node dist/index.js plan "Refactor the router module and add tests"
 ```
 
+Plan first, then execute subtasks serially until verifier passes:
+
+```bash
+node dist/index.js plan "Fix src/math.js so add returns a + b" --execute
+```
+
 Resume a planner session with more input:
 
 ```bash
@@ -159,6 +165,7 @@ node dist/index.js rollback --last
 - `npm run test:examples`: run the full manual example suite for patch, verifier, rollback, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 - `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
+- `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
 - `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
 
 ## Notes
@@ -195,7 +202,8 @@ node dist/index.js rollback --last
 
 ## Planner
 
-- `node dist/index.js plan "..."` runs a read-only planner loop instead of the patch/apply loop
+- `node dist/index.js plan "..."` runs a read-only planner loop by default
+- add `--execute` to let the host execute planner-produced code/test/verify steps serially through subagents and a final verifier pass
 - planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
 - planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
 - planner mode retries invalid model output up to 3 times before failing the session
@@ -205,7 +213,7 @@ node dist/index.js rollback --last
 - retry settings live under `session.modelRetryAttempts` and `session.modelRetryDelayMs`; defaults are 3 retries with a 3s base delay
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
-- use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and any recorded subtask execution results
+- use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
 
 ## Multi-file Patch
 

@@ -143,6 +143,27 @@ class FlakyProvider implements ModelProvider {
   }
 }
 
+class BranchingProvider implements ModelProvider {
+  public readonly id = 'stub';
+  public readonly capabilities = {
+    streaming: false,
+    toolCalling: false,
+    responseChunks: false,
+    reasoningTokens: false,
+    separateSystemPrompt: true,
+  } as const;
+
+  public constructor(
+    private readonly handler: (request: ModelRequest) => Promise<string> | string,
+  ) {}
+
+  public async invoke(request: ModelRequest): Promise<ModelResponse> {
+    return {
+      content: await this.handler(request),
+    };
+  }
+}
+
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
@@ -151,6 +172,7 @@ async function main(): Promise<void> {
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
+    { name: 'planner execute chain', run: testPlannerExecuteChain },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
@@ -576,6 +598,89 @@ async function testPlannerModelRetryExhaustion(): Promise<void> {
     assert.equal(state.outcome, 'FAILED');
     assert.match(state.message, /429|failed after 2 retries/i);
     assert.match(plannerLog, /"type":"model_failure"/);
+  });
+}
+
+async function testPlannerExecuteChain(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Fix the add bug and run final verify.',
+              steps: [
+                {
+                  id: 'step-1',
+                  title: 'Inspect math bug',
+                  status: 'PENDING',
+                  kind: 'search',
+                  details: 'Review src/math.js and tests/check-math.js.',
+                  relatedFiles: ['src/math.js', 'tests/check-math.js'],
+                  dependencies: [],
+                  children: [],
+                },
+                {
+                  id: 'step-2',
+                  title: 'Fix the add implementation',
+                  status: 'PENDING',
+                  kind: 'code',
+                  details: 'Change add so it returns a + b.',
+                  relatedFiles: ['src/math.js'],
+                  dependencies: ['step-1'],
+                  children: [],
+                },
+                {
+                  id: 'step-3',
+                  title: 'Run final verify',
+                  status: 'PENDING',
+                  kind: 'verify',
+                  details: 'Run the project verifier.',
+                  dependencies: ['step-2'],
+                  children: [],
+                },
+              ],
+            },
+          });
+        }
+
+        return JSON.stringify({
+          type: 'final',
+          outcome: 'DONE',
+          message: 'Plan complete',
+          summary: 'Fix the add bug and run final verify.',
+        });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; message: string };
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const verifyArtifact = JSON.parse(await readFile(path.join(result.sessionDir, 'subtask.step-3.verify.json'), 'utf8')) as { success: boolean };
+    assert.equal(state.outcome, 'DONE');
+    assert.match(state.message, /verifier passed|executed all subtasks/i);
+    assert.equal(verifyArtifact.success, true);
+    assert.match(events, /planner_execution_started/);
+    assert.match(events, /subtask_completed/);
+    assert.match(events, /planner_execution_finished/);
   });
 }
 

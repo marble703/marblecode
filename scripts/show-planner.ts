@@ -100,7 +100,10 @@ async function main(): Promise<void> {
     process.stdout.write(`- ${renderEvent(event)}\n`);
   }
 
-  const subtaskEvents = events.filter((event) => String(event.type ?? '').startsWith('subtask'));
+  const subtaskEvents = events.filter((event) => {
+    const type = String(event.type ?? '');
+    return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
+  });
   process.stdout.write('\nSubtask Results:\n');
   if (subtaskEvents.length === 0) {
     const childSteps = plan.steps.filter((step) => step.children.length > 0 || step.assignee || step.kind === 'note');
@@ -157,8 +160,30 @@ function renderEvent(event: PlannerEventRecord): string {
   if (type === 'planner_finished') {
     return `finished ${String(event.outcome ?? '')}: ${String(event.message ?? '')}`;
   }
+  if (type === 'planner_execution_started') {
+    return 'subtask execution started';
+  }
+  if (type === 'planner_execution_finished') {
+    return `subtask execution finished: ${String(event.outcome ?? '')}`;
+  }
   if (type === 'planner_failed') {
     return `failed: ${String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_started') {
+    return `${String(event.stepId ?? '')} started (${String(event.mode ?? '')})`;
+  }
+  if (type === 'subtask_completed') {
+    const files = Array.isArray(event.changedFiles) && event.changedFiles.length > 0 ? ` files=${event.changedFiles.join(',')}` : '';
+    return `${String(event.stepId ?? '')} completed (${String(event.mode ?? '')})${files}`;
+  }
+  if (type === 'subtask_failed') {
+    return `${String(event.stepId ?? '')} failed (${String(event.mode ?? '')}): ${String(event.message ?? event.reason ?? '')}`;
+  }
+  if (type === 'subtask_skipped') {
+    return `${String(event.stepId ?? '')} skipped: ${String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_verify_failed') {
+    return `${String(event.stepId ?? '')} verify failed`;
   }
   if (type === 'planner_started' || type === 'planner_resumed' || type === 'planner_replanned') {
     return `${type}: ${String(event.prompt ?? '')}`;

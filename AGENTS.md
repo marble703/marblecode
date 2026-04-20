@@ -12,17 +12,18 @@
 - For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. This is intentionally manual-only for major changes and release validation, not something to run on every edit.
 - For a real provider connectivity check, run `npm run check:model -- --model cheap`.
 - For a real planner check against the manual suite task, run `npm run check:planner`.
+- For a real planner execution chain check on a temp fixture, run `npm run check:planner:execute`.
 - To inspect a planner session in the terminal, run `npm run show:planner -- --last` or pass `--session <session-id-or-path>`.
 - If you add or change local TypeScript runner scripts, use `node --import tsx ...`, not `--loader`; Node 22 rejects the old form and the repo already standardizes on `--import` in `package.json`.
 
 # CLI Workflows
 
 - Main coding command: `node dist/index.js run "<request>" [--file path] [--paste "code"] [--verify "npm test"] [--yes]`.
-- Planner command: `node dist/index.js plan "<request>" [--file path] [--paste "code"] [--session session-id-or-path | --last]`.
+- Planner command: `node dist/index.js plan "<request>" [--file path] [--paste "code"] [--execute] [--session session-id-or-path | --last]`.
 - Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
-- `plan` is read-only. It must never apply patches. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.context.packet.json`, and `planner.log.jsonl`.
+- `plan` is read-only by default. With `--execute`, the host serially runs planner-produced code/test/verify steps through subagents and a final verifier pass. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.context.packet.json`, and `planner.log.jsonl`.
 - Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
@@ -40,7 +41,8 @@
 # Codebase Boundaries
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
-- `src/planner`: read-only planner loop, plan state machine, resume/replan basics, and future subtask context packets.
+- `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
+- `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.

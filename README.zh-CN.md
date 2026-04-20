@@ -100,6 +100,12 @@ node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/
 node dist/index.js plan "重构路由模块并补测试"
 ```
 
+先规划，再串行执行 subtask，直到 verifier 通过：
+
+```bash
+node dist/index.js plan "修复 src/math.js 中的 add 错误并通过 verify" --execute
+```
+
 带着新输入恢复 planner session：
 
 ```bash
@@ -157,6 +163,7 @@ node dist/index.js rollback --last
 - `npm run test:examples`：运行手动触发的完整 examples 测试套件，覆盖 patch、verifier、rollback、shell 和权限检查
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
 - `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
+- `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 串行链路
 - `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
 
 ## 配置说明
@@ -186,7 +193,8 @@ node dist/index.js rollback --last
 
 ## Planner
 
-- `node dist/index.js plan "..."` 会进入只读 planner 循环，而不是 patch/apply 循环
+- `node dist/index.js plan "..."` 默认进入只读 planner 循环
+- 加上 `--execute` 后，host 会在 planner 产出有效计划后按顺序执行 code/test/verify 步骤
 - planner 模式只开放 `read_file`、`list_files`、`search_text`、`git_diff`
 - planner 响应只允许 `plan`、`plan_update`、`tool_call`、`final`
 - planner 遇到非法模型输出会最多自动重试 3 次，之后把 session 标记为失败
@@ -196,7 +204,7 @@ node dist/index.js rollback --last
 - 重试参数可放在 `session.modelRetryAttempts` 和 `session.modelRetryDelayMs`，默认是重试 3 次、基础等待 3 秒
 - planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
-- 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的子任务执行结果
+- 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的 subtask 执行结果
 
 ## 多文件 Patch
 

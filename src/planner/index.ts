@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { runAgent } from '../agent/index.js';
 import { buildContext } from '../context/index.js';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
@@ -7,7 +8,9 @@ import type { ModelProvider, ModelRequest } from '../provider/types.js';
 import { invokeWithRetry } from '../provider/retry.js';
 import { routeTask } from '../router/index.js';
 import { appendSessionLog, createSession, resolveSessionDir, writeSessionArtifact, type SessionRecord } from '../session/index.js';
+import { createBuiltinTools } from '../tools/builtins.js';
 import { ToolRegistry } from '../tools/registry.js';
+import { runVerifier } from '../verifier/index.js';
 import type { PlannerContextPacket, PlannerOutcome, PlannerPhase, PlannerPlan, PlannerState, PlannerStep, PlannerStepStatus } from './types.js';
 
 const MAX_INVALID_RESPONSE_RETRIES = 3;
@@ -16,6 +19,7 @@ export interface RunPlannerInput {
   prompt: string;
   explicitFiles: string[];
   pastedSnippets: string[];
+  executeSubtasks?: boolean;
   resumeSessionRef?: string;
   useLatestSession?: boolean;
 }
@@ -128,7 +132,20 @@ export async function runPlanner(
 
   let stepCount = 0;
   while (stepCount < route.maxSteps) {
-    const request = buildPlannerModelRequest(config, modelConfig.model, modelConfig.provider, combinedPrompt, context, transcript, tools.listDefinitions(), plan, state, contextPacket);
+    const request = buildPlannerModelRequest(
+      config,
+      modelConfig.model,
+      modelConfig.provider,
+      combinedPrompt,
+      context,
+      transcript,
+      tools.listDefinitions(),
+      plan,
+      state,
+      contextPacket,
+      Boolean(input.executeSubtasks),
+    );
+
     let response;
     try {
       response = await invokeWithRetry(config, provider, request, async (event) => {
@@ -305,6 +322,19 @@ export async function runPlanner(
       state.message = step.message;
     }
 
+    if (state.outcome === 'DONE' && input.executeSubtasks) {
+      if (plan.steps.length === 0) {
+        state.outcome = 'FAILED';
+        state.message = 'Planner did not produce a structured plan with executable steps.';
+      }
+    }
+
+    if (state.outcome === 'DONE' && input.executeSubtasks) {
+      const executionResult = await executePlannerPlan(config, providers, session, requestArtifact, plan, state);
+      plan = executionResult.plan;
+      state = executionResult.state;
+    }
+
     await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(state, null, 2));
     await appendPlannerStructuredLog(session, {
       type: 'planner_terminal',
@@ -319,6 +349,10 @@ export async function runPlanner(
       message: state.message,
       consistencyErrors: state.consistencyErrors,
     }, config.session.redactSecrets);
+    if (state.outcome === 'RUNNING') {
+      state.outcome = 'FAILED';
+      state.message = 'Planner ended without a terminal outcome.';
+    }
     return mapPlannerResult(state.outcome, session.dir, state.message);
   }
 
@@ -340,6 +374,7 @@ function buildPlannerModelRequest(
   plan: PlannerPlan,
   state: PlannerState,
   contextPacket: PlannerContextPacket,
+  executeSubtasks: boolean,
 ): ModelRequest {
   const contextText = context.items
     .map((item) => {
@@ -354,12 +389,15 @@ function buildPlannerModelRequest(
   return {
     providerId,
     model,
-    systemPrompt: buildPlannerSystemPrompt(config.routing.maxSteps),
+    systemPrompt: buildPlannerSystemPrompt(config.routing.maxSteps, executeSubtasks),
     messages: [
       {
         role: 'user',
         content: [
           `Planning request:\n${prompt}`,
+          executeSubtasks
+            ? 'Execution mode: the host will execute code/test/verify steps after you return a valid plan. Return a structured plan first, then a final summary. Do not claim you cannot execute because the host handles execution.'
+            : 'Execution mode: read-only planning only.',
           `Available tools:\n${toolText || '(none)'}`,
           context.selectionSummary,
           `Current plan state:\n${JSON.stringify(state, null, 2)}`,
@@ -378,7 +416,7 @@ function buildPlannerModelRequest(
   };
 }
 
-function buildPlannerSystemPrompt(maxSteps: number): string {
+function buildPlannerSystemPrompt(maxSteps: number, executeSubtasks: boolean): string {
   return [
     'You are a planning agent operating inside a secure local host.',
     `You may take at most ${maxSteps} steps before the host will stop you.`,
@@ -388,7 +426,11 @@ function buildPlannerSystemPrompt(maxSteps: number): string {
     'Use read_file, list_files, search_text, and git_diff when you need more information before updating the plan.',
     'Treat pasted snippets such as [Pasted ~6 lines #1] as first-class search clues.',
     'Plan steps must use statuses from: PENDING, SEARCHING, PATCHING, VERIFYING, FAILED, DONE.',
+    'Prefer step kinds search, code, test, and verify when they apply, and include relatedFiles whenever you can identify them.',
     'When the user asks for a plan, produce a structured plan with ordered steps, then optionally update step statuses as you search.',
+    executeSubtasks
+      ? 'The host will execute your code, test, and verify steps after you provide the plan. You must return a real plan object with non-empty steps before the final summary.'
+      : 'The host will not execute steps in this mode; produce a read-only plan only.',
     'When you need the user to clarify something, return final with outcome NEEDS_INPUT.',
     'Never return type patch in planner mode.',
     'Plan responses must follow this schema:',
@@ -563,6 +605,9 @@ function runPlanConsistencyChecks(plan: PlannerPlan): string[] {
       }
     }
     for (const child of step.children) {
+      if (child.startsWith('subtask-')) {
+        continue;
+      }
       if (!ids.has(child)) {
         errors.push(`Unknown child ${child} referenced by ${step.id}`);
       }
@@ -755,6 +800,324 @@ function mapPlannerResult(outcome: Exclude<PlannerOutcome, 'RUNNING'>, sessionDi
     return { status: 'cancelled', sessionDir, message };
   }
   return { status: 'failed', sessionDir, message };
+}
+
+async function executePlannerPlan(
+  config: AppConfig,
+  providers: Map<string, ModelProvider>,
+  session: SessionRecord,
+  requestArtifact: PlannerRequestArtifact,
+  plan: PlannerPlan,
+  state: PlannerState,
+): Promise<{ plan: PlannerPlan; state: PlannerState }> {
+  const accumulatedChangedFiles = new Set<string>();
+  let nextPlan = plan;
+  let nextState = {
+    ...state,
+    message: 'Planner finished planning. Starting serial subtask execution.',
+  };
+
+  await appendPlannerEvent(session, { type: 'planner_execution_started', revision: nextPlan.revision }, config.session.redactSecrets);
+  await appendPlannerStructuredLog(session, { type: 'execution_started', revision: nextPlan.revision }, config.session.redactSecrets);
+
+  for (const step of nextPlan.steps) {
+    if (step.dependencies.some((dependency) => nextPlan.steps.find((candidate) => candidate.id === dependency)?.status !== 'DONE')) {
+      nextPlan = updatePlannerStep(nextPlan, step.id, {
+        status: 'FAILED',
+        details: `Blocked by unmet dependencies: ${step.dependencies.join(', ')}`,
+      });
+      nextState = {
+        ...nextState,
+        outcome: 'FAILED',
+        currentStepId: step.id,
+        message: `Planner execution blocked by unmet dependencies for ${step.id}.`,
+      };
+      await appendPlannerEvent(session, { type: 'subtask_failed', stepId: step.id, reason: nextState.message }, config.session.redactSecrets);
+      return { plan: nextPlan, state: nextState };
+    }
+
+    const executionMode = classifyPlannerStep(step);
+    if (executionMode === 'skip') {
+      nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'DONE' });
+      await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: step.id, kind: step.kind, reason: 'Planning-only step' }, config.session.redactSecrets);
+      continue;
+    }
+
+    if (executionMode === 'verify') {
+      nextState = {
+        ...nextState,
+        phase: 'VERIFYING',
+        currentStepId: step.id,
+        message: `Running final verifier for ${step.title}`,
+      };
+      nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'VERIFYING' });
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+      await appendPlannerEvent(session, { type: 'subtask_started', stepId: step.id, mode: 'verify', title: step.title }, config.session.redactSecrets);
+
+      const verifyResult = await runVerifier(config, new PolicyEngine(config), {
+        changedFiles: [...accumulatedChangedFiles],
+        providers,
+      });
+      await writeSessionArtifact(session, `subtask.${step.id}.verify.json`, JSON.stringify(verifyResult, null, 2));
+
+      if (verifyResult.success) {
+        nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'DONE' });
+        await appendPlannerEvent(session, {
+          type: 'subtask_completed',
+          stepId: step.id,
+          mode: 'verify',
+          success: true,
+          changedFiles: [...accumulatedChangedFiles],
+        }, config.session.redactSecrets);
+        continue;
+      }
+
+      await appendPlannerEvent(session, {
+        type: 'subtask_verify_failed',
+        stepId: step.id,
+        failures: verifyResult.failures.map((failure) => ({ command: failure.command, stderr: failure.stderr })),
+      }, config.session.redactSecrets);
+
+      const repairPrompt = buildVerifyRepairPrompt(requestArtifact, nextPlan, verifyResult);
+      const repairResult = await executeSubtaskAgent(config, providers, repairPrompt, [...accumulatedChangedFiles], true);
+      await writeSessionArtifact(session, `subtask.${step.id}.repair.json`, JSON.stringify(repairResult, null, 2));
+      await appendPlannerEvent(session, {
+        type: repairResult.status === 'completed' ? 'subtask_completed' : 'subtask_failed',
+        stepId: step.id,
+        mode: 'repair',
+        sessionDir: repairResult.sessionDir,
+        changedFiles: repairResult.changedFiles,
+        message: repairResult.message,
+      }, config.session.redactSecrets);
+
+      if (repairResult.status !== 'completed') {
+        nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'FAILED', details: repairResult.message });
+        nextState = {
+          ...nextState,
+          outcome: 'FAILED',
+          message: repairResult.message,
+          currentStepId: step.id,
+        };
+        return { plan: nextPlan, state: nextState };
+      }
+
+      for (const file of repairResult.changedFiles) {
+        accumulatedChangedFiles.add(file);
+      }
+
+      nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'DONE', relatedFiles: [...accumulatedChangedFiles] });
+      continue;
+    }
+
+    nextState = {
+      ...nextState,
+      phase: 'PATCHING',
+      currentStepId: step.id,
+      message: `Executing subtask ${step.title}`,
+    };
+    const subtaskId = `subtask-${step.id}`;
+    nextPlan = updatePlannerStep(nextPlan, step.id, {
+      status: 'PATCHING',
+      assignee: 'subagent',
+      children: step.children.includes(subtaskId) ? step.children : [...step.children, subtaskId],
+      subtaskContext: buildStepContextPacket(requestArtifact, nextPlan, step),
+    });
+    await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+    await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+    await appendPlannerEvent(session, {
+      type: 'subtask_started',
+      stepId: step.id,
+      mode: 'agent',
+      title: step.title,
+      explicitFiles: step.relatedFiles ?? requestArtifact.explicitFiles,
+    }, config.session.redactSecrets);
+
+    const subtaskPrompt = buildSubtaskPrompt(requestArtifact, nextPlan, step);
+    const subtaskResult = await executeSubtaskAgent(config, providers, subtaskPrompt, step.relatedFiles ?? requestArtifact.explicitFiles, false);
+    await writeSessionArtifact(session, `subtask.${step.id}.json`, JSON.stringify(subtaskResult, null, 2));
+    await appendPlannerEvent(session, {
+      type: subtaskResult.status === 'completed' ? 'subtask_completed' : 'subtask_failed',
+      stepId: step.id,
+      mode: 'agent',
+      sessionDir: subtaskResult.sessionDir,
+      changedFiles: subtaskResult.changedFiles,
+      message: subtaskResult.message,
+    }, config.session.redactSecrets);
+
+    if (subtaskResult.status !== 'completed') {
+      nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'FAILED', details: subtaskResult.message });
+      nextState = {
+        ...nextState,
+        outcome: 'FAILED',
+        currentStepId: step.id,
+        message: subtaskResult.message,
+      };
+      return { plan: nextPlan, state: nextState };
+    }
+
+    for (const file of subtaskResult.changedFiles) {
+      accumulatedChangedFiles.add(file);
+    }
+
+    nextPlan = updatePlannerStep(nextPlan, step.id, {
+      status: 'DONE',
+      relatedFiles: mergeStringLists(step.relatedFiles ?? [], subtaskResult.changedFiles),
+    });
+  }
+
+  nextState = {
+    ...nextState,
+    phase: 'PENDING',
+    outcome: 'DONE',
+    currentStepId: null,
+    message: 'Planner executed all subtasks and verifier passed.',
+    consistencyErrors: runPlanConsistencyChecks(nextPlan),
+  };
+
+  await appendPlannerEvent(session, { type: 'planner_execution_finished', outcome: nextState.outcome }, config.session.redactSecrets);
+  await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+  await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+  return { plan: nextPlan, state: nextState };
+}
+
+async function executeSubtaskAgent(
+  config: AppConfig,
+  providers: Map<string, ModelProvider>,
+  prompt: string,
+  explicitFiles: string[],
+  enableVerifier: boolean,
+): Promise<Awaited<ReturnType<typeof runAgent>>> {
+  const subtaskBaseConfig = {
+    ...config,
+    routing: {
+      ...config.routing,
+      codeModel: config.routing.planningModel,
+    },
+  };
+  const subtaskConfig = enableVerifier ? subtaskBaseConfig : {
+    ...subtaskBaseConfig,
+    verifier: {
+      ...subtaskBaseConfig.verifier,
+      enabled: false,
+      allowDiscovery: false,
+      commands: [],
+    },
+  };
+  const policy = new PolicyEngine(subtaskConfig);
+  const registry = new ToolRegistry();
+  for (const tool of createBuiltinTools(subtaskConfig, policy)) {
+    registry.register(tool);
+  }
+
+  return runAgent(subtaskConfig, providers, registry, {
+    prompt,
+    explicitFiles,
+    pastedSnippets: [],
+    manualVerifierCommands: [],
+    autoApprove: true,
+    confirm: async () => true,
+  });
+}
+
+function classifyPlannerStep(step: PlannerStep): 'skip' | 'subagent' | 'verify' {
+  const text = `${step.title} ${step.details ?? ''}`.toLowerCase();
+  if (step.kind === 'verify') {
+    return 'verify';
+  }
+
+  if (step.kind === 'search') {
+    return 'skip';
+  }
+
+  if (/\bverify\b/.test(text)) {
+    return 'verify';
+  }
+
+  if (step.kind === 'code' || step.kind === 'test' || step.kind === 'docs') {
+    return 'subagent';
+  }
+
+  if (/修复|修改|重构|更新|补充|测试|fix|modify|refactor|update|test|implement/.test(text)) {
+    return 'subagent';
+  }
+
+  return 'skip';
+}
+
+function updatePlannerStep(
+  plan: PlannerPlan,
+  stepId: string,
+  updates: Partial<PlannerStep>,
+): PlannerPlan {
+  return {
+    ...plan,
+    steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
+  };
+}
+
+function buildSubtaskPrompt(
+  requestArtifact: PlannerRequestArtifact,
+  plan: PlannerPlan,
+  step: PlannerStep,
+): string {
+  return [
+    `Original objective: ${requestArtifact.promptHistory[0] ?? ''}`,
+    `Planner summary: ${plan.summary}`,
+    `Execute planner step: ${step.title}`,
+    step.details ? `Step details: ${step.details}` : '',
+    step.relatedFiles && step.relatedFiles.length > 0 ? `Target files: ${step.relatedFiles.join(', ')}` : '',
+    'Make the required code, test, or docs changes for this step only. Keep the change minimal and concrete.',
+  ].filter(Boolean).join('\n');
+}
+
+function buildVerifyRepairPrompt(
+  requestArtifact: PlannerRequestArtifact,
+  plan: PlannerPlan,
+  verifyResult: Awaited<ReturnType<typeof runVerifier>>,
+): string {
+  return [
+    `Original objective: ${requestArtifact.promptHistory[0] ?? ''}`,
+    `Planner summary: ${plan.summary}`,
+    'Fix the remaining issues so verification passes.',
+    `Verifier failures: ${JSON.stringify(verifyResult.failures, null, 2)}`,
+    verifyResult.analysis ? `Verifier analysis: ${JSON.stringify(verifyResult.analysis, null, 2)}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildStepContextPacket(
+  requestArtifact: PlannerRequestArtifact,
+  plan: PlannerPlan,
+  step: PlannerStep,
+): PlannerContextPacket {
+  return {
+    version: '1',
+    objective: step.title,
+    request: requestArtifact.promptHistory.at(-1) ?? requestArtifact.promptHistory[0] ?? step.title,
+    explicitFiles: step.relatedFiles ?? requestArtifact.explicitFiles,
+    pastedSnippets: requestArtifact.pastedSnippets.map((snippet, index) => `[Pasted ~${countSnippetLines(snippet)} lines #${index + 1}] ${snippet}`),
+    queryTerms: extractWordsForStep(step),
+    contextItems: (step.relatedFiles ?? requestArtifact.explicitFiles).map((file) => ({
+      path: file,
+      source: 'planner-step',
+      reason: step.title,
+    })),
+    constraints: {
+      readOnly: false,
+      allowedTools: ['read_file', 'list_files', 'search_text', 'run_shell', 'git_diff'],
+      maxSteps: plan.steps.length + 4,
+    },
+    planRevision: plan.revision,
+    parentStepId: step.id,
+  };
+}
+
+function extractWordsForStep(step: PlannerStep): string[] {
+  return [...new Set(`${step.title} ${step.details ?? ''}`.match(/[a-zA-Z0-9_\u4e00-\u9fff]{2,}/g) ?? [])].slice(0, 12);
+}
+
+function mergeStringLists(left: string[], right: string[]): string[] {
+  return [...new Set([...left, ...right])];
 }
 
 function extractJsonObject(content: string): string {
