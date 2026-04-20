@@ -190,8 +190,10 @@ node dist/index.js rollback --last
 - planner 模式只开放 `read_file`、`list_files`、`search_text`、`git_diff`
 - planner 响应只允许 `plan`、`plan_update`、`tool_call`、`final`
 - planner 遇到非法模型输出会最多自动重试 3 次，之后把 session 标记为失败
+- planner 和 agent 的模型调用也会对 `429 rate limit`、超时、短暂 `5xx` 这类瞬时错误做退避重试
 - planner session 会落盘 `plan.json`、`plan.state.json`、`plan.events.jsonl`、`planner.request.json`、`planner.context.packet.json`
 - planner 还会写出 `planner.log.jsonl`，记录结构化 plan snapshot、非法输出重试和终态摘要
+- 重试参数可放在 `session.modelRetryAttempts` 和 `session.modelRetryDelayMs`，默认是重试 3 次、基础等待 3 秒
 - planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 - 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的子任务执行结果

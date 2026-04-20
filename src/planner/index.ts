@@ -4,6 +4,7 @@ import { buildContext } from '../context/index.js';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider, ModelRequest } from '../provider/types.js';
+import { invokeWithRetry } from '../provider/retry.js';
 import { routeTask } from '../router/index.js';
 import { appendSessionLog, createSession, resolveSessionDir, writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -128,7 +129,22 @@ export async function runPlanner(
   let stepCount = 0;
   while (stepCount < route.maxSteps) {
     const request = buildPlannerModelRequest(config, modelConfig.model, modelConfig.provider, combinedPrompt, context, transcript, tools.listDefinitions(), plan, state, contextPacket);
-    const response = await provider.invoke(request);
+    const response = await invokeWithRetry(config, provider, request, async (event) => {
+      await appendPlannerEvent(session, {
+        type: 'planner_model_retry',
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        reason: event.reason,
+      }, config.session.redactSecrets);
+      await appendPlannerStructuredLog(session, {
+        type: 'model_retry',
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        reason: event.reason,
+      }, config.session.redactSecrets);
+    });
     await appendSessionLog(
       session,
       'model.jsonl',

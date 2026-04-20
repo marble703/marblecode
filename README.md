@@ -199,8 +199,10 @@ node dist/index.js rollback --last
 - planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
 - planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
 - planner mode retries invalid model output up to 3 times before failing the session
+- planner and agent model calls also retry transient provider failures such as `429 rate limit`, timeouts, and short-lived `5xx` responses with backoff
 - planner sessions persist `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.request.json`, and `planner.context.packet.json`
 - planner also writes `planner.log.jsonl` with structured plan snapshots, invalid-output retries, and terminal summaries
+- retry settings live under `session.modelRetryAttempts` and `session.modelRetryDelayMs`; defaults are 3 retries with a 3s base delay
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and any recorded subtask execution results

@@ -151,6 +151,9 @@ function renderEvent(event: PlannerEventRecord): string {
   if (type === 'planner_invalid_output') {
     return `invalid output retry ${String(event.attempt ?? '')}/${String(event.maxAttempts ?? '')}: ${String(event.error ?? '')}`;
   }
+  if (type === 'planner_model_retry') {
+    return `model retry ${String(event.attempt ?? '')}/${String(event.maxAttempts ?? '')} after ${String(event.delayMs ?? '')}ms: ${String(event.reason ?? '')}`;
+  }
   if (type === 'planner_finished') {
     return `finished ${String(event.outcome ?? '')}: ${String(event.message ?? '')}`;
   }

@@ -88,6 +88,8 @@ export interface SessionConfig {
   logPromptBodies: boolean;
   logToolBodies: boolean;
   redactSecrets: boolean;
+  modelRetryAttempts: number;
+  modelRetryDelayMs: number;
 }
 
 export interface ProjectConfigInput {

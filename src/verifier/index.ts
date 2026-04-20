@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider } from '../provider/types.js';
+import { invokeWithRetry } from '../provider/retry.js';
 import { discoverVerifierCommands } from './discover.js';
 import { loadMarkdownVerifierSteps, selectMarkdownVerifierSteps } from './markdown.js';
 
@@ -221,7 +222,7 @@ async function analyzeVerifyFailures(
   }
 
   try {
-    const response = await provider.invoke({
+    const response = await invokeWithRetry(config, provider, {
       providerId: modelConfig.provider,
       model: modelConfig.model,
       systemPrompt: [

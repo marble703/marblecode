@@ -23,6 +23,7 @@
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
 - `plan` is read-only. It must never apply patches. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.context.packet.json`, and `planner.log.jsonl`.
+- Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.

@@ -109,6 +109,8 @@ async function main(): Promise<void> {
         logPromptBodies: false,
         logToolBodies: false,
         redactSecrets: true,
+        modelRetryAttempts: 3,
+        modelRetryDelayMs: 100,
       },
       project: {
         dir: path.join(workspaceRoot, '.marblecode'),

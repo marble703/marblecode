@@ -4,6 +4,7 @@ import { previewPatch, applyPatch, rollbackPatch } from '../patch/apply.js';
 import { parsePatchDocument } from '../patch/codec.js';
 import type { PatchApplyResult, PatchDocument } from '../patch/types.js';
 import type { ModelProvider, ModelRequest } from '../provider/types.js';
+import { invokeWithRetry } from '../provider/retry.js';
 import { routeTask } from '../router/index.js';
 import { appendSessionLog, createSession, writeSessionArtifact } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -108,7 +109,20 @@ export async function runAgent(
         transcript,
         tools.listDefinitions(),
       );
-      const response = await provider.invoke(request);
+      const response = await invokeWithRetry(config, provider, request, async (event) => {
+        await appendSessionLog(
+          session,
+          'model.retries.jsonl',
+          {
+            mode: 'agent',
+            attempt: event.attempt,
+            maxAttempts: event.maxAttempts,
+            delayMs: event.delayMs,
+            reason: event.reason,
+          },
+          config.session.redactSecrets,
+        );
+      });
       await appendSessionLog(
         session,
         'model.jsonl',

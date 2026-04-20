@@ -114,15 +114,46 @@ class SequenceProvider implements ModelProvider {
   }
 }
 
+class FlakyProvider implements ModelProvider {
+  public readonly id = 'stub';
+  public readonly capabilities = {
+    streaming: false,
+    toolCalling: false,
+    responseChunks: false,
+    reasoningTokens: false,
+    separateSystemPrompt: true,
+  } as const;
+
+  private attempts = 0;
+
+  public constructor(
+    private readonly failuresBeforeSuccess: number,
+    private readonly successFactory: (request: ModelRequest, attempt: number) => Promise<string> | string,
+  ) {}
+
+  public async invoke(request: ModelRequest): Promise<ModelResponse> {
+    this.attempts += 1;
+    if (this.attempts <= this.failuresBeforeSuccess) {
+      throw new Error('Provider request failed with status 429: {"error":{"message":"Upstream rate limit exceeded, please retry later"}}');
+    }
+
+    return {
+      content: await this.successFactory(request, this.attempts),
+    };
+  }
+}
+
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
+    { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
+    { name: 'agent model retry', run: testAgentModelRetry },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
@@ -497,6 +528,32 @@ async function testPlannerInvalidRetryAndResume(): Promise<void> {
   });
 }
 
+async function testPlannerModelRetry(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const registry = createPlannerRegistry(config, policy);
+    config.session.modelRetryAttempts = 3;
+    config.session.modelRetryDelayMs = 1;
+    const provider = new FlakyProvider(2, () => JSON.stringify({
+      type: 'final',
+      outcome: 'DONE',
+      message: 'Planner completed after retrying transient rate limits.',
+      summary: 'retry ok',
+    }));
+
+    const result = await runPlanner(config, new Map([['stub', provider]]), registry, {
+      prompt: '为路由模块生成一个简短计划',
+      explicitFiles: ['src/router.js'],
+      pastedSnippets: [],
+    });
+
+    assert.equal(result.status, 'completed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
+    assert.match(events, /planner_model_retry/);
+    assert.match(plannerLog, /"type":"model_retry"/);
+  });
+}
+
 async function testMultiFilePatchApply(): Promise<void> {
   await withWorkspace(async ({ config, registry, workspaceRoot }) => {
     const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMultiFileFixStep(workspaceRoot))]]);
@@ -615,6 +672,26 @@ async function testPatchApplyAndVerifier(): Promise<void> {
     assert.match(patchArtifact.summary, /Fix the add function/);
     assert.equal(verifyArtifact.success, true);
     assert.equal(verifyArtifact.commands[0]?.command, 'npm test');
+  });
+}
+
+async function testAgentModelRetry(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    config.session.modelRetryAttempts = 3;
+    config.session.modelRetryDelayMs = 1;
+    const providers = new Map<string, ModelProvider>([['stub', new FlakyProvider(2, async () => buildMathFixStep(workspaceRoot))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js so add returns the correct sum.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const retries = await readFile(path.join(result.sessionDir, 'model.retries.jsonl'), 'utf8');
+    assert.match(retries, /rate limit/i);
   });
 }
 
@@ -791,6 +868,8 @@ function createAgentConfig(): Record<string, unknown> {
       logPromptBodies: false,
       logToolBodies: false,
       redactSecrets: true,
+      modelRetryAttempts: 3,
+      modelRetryDelayMs: 1,
     },
   };
 }

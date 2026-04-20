@@ -116,6 +116,8 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
       logPromptBodies: projectConfig.session?.logPromptBodies ?? parsed.session?.logPromptBodies ?? false,
       logToolBodies: projectConfig.session?.logToolBodies ?? parsed.session?.logToolBodies ?? false,
       redactSecrets: projectConfig.session?.redactSecrets ?? parsed.session?.redactSecrets ?? true,
+      modelRetryAttempts: projectConfig.session?.modelRetryAttempts ?? parsed.session?.modelRetryAttempts ?? 3,
+      modelRetryDelayMs: projectConfig.session?.modelRetryDelayMs ?? parsed.session?.modelRetryDelayMs ?? 3000,
     },
     project: {
       dir: projectDir,

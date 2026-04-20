@@ -69,6 +69,8 @@ async function main(): Promise<void> {
       logPromptBodies: false,
       logToolBodies: false,
       redactSecrets: true,
+      modelRetryAttempts: 3,
+      modelRetryDelayMs: 100,
     },
     project: {
       dir: fileURLToPath(new URL('../examples/verifier-fixture/.marblecode/', import.meta.url)),
