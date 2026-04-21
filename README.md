@@ -309,7 +309,7 @@ node dist/index.js rollback --last
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
-- `docs/mvp-v1.md`: architecture and protocol contract
+- `docs/architecture.md`: current architecture overview and runtime module map
 - `docs/repo-refactor-plan.md`: planned split of oversized runtime and test modules
 - `README.zh-CN.md`: Chinese project overview
 
@@ -342,4 +342,4 @@ When no verifier is provided explicitly, the host now falls back to repo-based d
 
 Discovery is only a fallback. Shared project verifier behavior should still live in `.marblecode/verifier.md` when the project needs more than a simple default.
 
-See `docs/mvp-v1.md` for the MVP contract.
+See `docs/architecture.md` for the current architecture overview.

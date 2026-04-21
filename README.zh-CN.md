@@ -300,7 +300,7 @@ node dist/index.js rollback --last
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
 - `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
-- `docs/mvp-v1.md`：MVP 架构和协议说明
+- `docs/architecture.md`：当前架构总览和运行时模块关系
 - `docs/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
 - `docs/repo-refactor-plan.md`：当前仓库拆分路线、已完成项和后续清理计划
 - `README.zh-CN.md`：中文说明文档
@@ -339,4 +339,4 @@ node dist/index.js rollback --last
 - Shell 执行默认限制在当前工作区内
 - 默认禁止高风险命令、联网命令和后台常驻模式
 - 模型通过结构化 Patch 改码，不直接控制文件写入
-- 更完整的架构和协议说明见 `docs/mvp-v1.md`
+- 当前整体架构总览见 `docs/architecture.md`
