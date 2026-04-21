@@ -239,8 +239,10 @@ node dist/index.js rollback --last
 - planner also writes `planner.log.jsonl` with structured plan snapshots, invalid-output retries, and terminal summaries
 - retry settings live under `session.modelRetryAttempts` and `session.modelRetryDelayMs`; defaults are 3 retries with a 3s base delay
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
+- planner execution now runs through execution waves derived from the execution graph; with `maxConcurrentSubtasks > 1`, write steps in the same wave may run concurrently when their file scopes do not conflict
 - planner execution still defaults to one subtask at a time, but it now builds an execution graph, tracks ready/active/failed/blocked step sets, manages file lock ownership, retries failed code/test/docs nodes, can fall back to a configured model alias, and may locally replan a failed node before giving up
-- routing now supports `maxConcurrentSubtasks`, `subtaskMaxAttempts`, `subtaskFallbackModel`, `subtaskReplanOnFailure`, and `subtaskConflictPolicy` so the execution model can grow toward safe concurrency without changing the default serial behavior
+- routing now supports `maxConcurrentSubtasks`, `subtaskMaxAttempts`, `subtaskFallbackModel`, `subtaskReplanOnFailure`, and `subtaskConflictPolicy` so the execution model can scale from conservative serial execution to safe conflict-aware concurrency
+- `subtaskConflictPolicy=serial` keeps conflicting write steps in later waves; `subtaskConflictPolicy=fail` stops execution as soon as the host detects a pending conflict edge
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
 - `show:planner` now renders step attempts, recovery state, execution waves, file lock ownership, executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation

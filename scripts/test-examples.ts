@@ -186,6 +186,8 @@ async function main(): Promise<void> {
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
     { name: 'auto deny with explicit grant', run: testAutoDenyWithExplicitGrant },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
+    { name: 'planner execute concurrent wave', run: testPlannerExecuteConcurrentWave },
+    { name: 'planner execute conflict policy fail', run: testPlannerExecuteConflictPolicyFail },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
@@ -946,6 +948,117 @@ async function testPlannerExecuteChain(): Promise<void> {
   });
 }
 
+async function testPlannerExecuteConcurrentWave(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.maxConcurrentSubtasks = 2;
+    let activeSubtasks = 0;
+    let maxActiveSubtasks = 0;
+
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Fix math and notes in one execution wave, then verify.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Update notes', status: 'PENDING', kind: 'docs', details: 'Append a note confirming the fix.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', dependencies: [], children: [] },
+                { id: 'step-3', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after both write steps complete.', dependencies: ['step-1', 'step-2'], children: [] },
+              ],
+            },
+          });
+        }
+
+        return JSON.stringify({
+          type: 'final',
+          outcome: 'DONE',
+          message: 'Plan complete',
+          summary: 'Fix math and notes in one execution wave, then verify.',
+        });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        activeSubtasks += 1;
+        maxActiveSubtasks = Math.max(maxActiveSubtasks, activeSubtasks);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        try {
+          const content = request.messages[0]?.content ?? '';
+          if (content.includes('Update notes')) {
+            return buildNotesOnlyStep(workspaceRoot);
+          }
+          return buildMathFixStep(workspaceRoot);
+        } finally {
+          activeSubtasks -= 1;
+        }
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js、更新 src/notes.txt 并通过 verify',
+      explicitFiles: ['src/math.js', 'src/notes.txt', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.ok(maxActiveSubtasks >= 2);
+    const executionGraph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { waves: Array<{ stepIds: string[] }> };
+    const executionLocks = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string }> };
+    assert.deepEqual(executionGraph.waves[0]?.stepIds, ['step-1', 'step-2']);
+    assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read'), true);
+    assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/notes.txt' && entry.mode === 'guarded_read'), true);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8'), /FIXED_NOTE/);
+  });
+}
+
+async function testPlannerExecuteConflictPolicyFail(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.routing.maxConcurrentSubtasks = 2;
+    config.routing.subtaskConflictPolicy = 'fail';
+
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Two conflicting writes should fail under strict conflict policy.',
+              steps: [
+                { id: 'step-1', title: 'Edit math once', status: 'PENDING', kind: 'code', details: 'First edit.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Edit math again', status: 'PENDING', kind: 'docs', details: 'Second conflicting edit.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Two conflicting writes should fail under strict conflict policy.' });
+      }
+
+      throw new Error('Subtask should not start when conflict policy is fail');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '对同一个文件做两次冲突写入',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.match(result.message, /conflict detected/i);
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.match(events, /subtask_conflict_detected/);
+  });
+}
+
 async function testPlannerExecuteRetryRecovery(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     config.routing.subtaskMaxAttempts = 2;
@@ -1535,6 +1648,28 @@ async function buildMultiFileFixStep(workspaceRoot: string): Promise<string> {
           type: 'replace_file',
           path: 'src/notes.txt',
           diff: 'Append a note confirming the bug fix.',
+          oldText: currentNotes,
+          newText: nextNotes,
+        },
+      ],
+    },
+  });
+}
+
+async function buildNotesOnlyStep(workspaceRoot: string): Promise<string> {
+  const currentNotes = await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8');
+  const nextNotes = `${currentNotes}\nFIXED_NOTE: notes updated in a concurrent wave\n`;
+  return JSON.stringify({
+    type: 'patch',
+    thought: 'Update fixture notes only.',
+    patch: {
+      version: '1',
+      summary: 'Update the notes file in the manual suite fixture.',
+      operations: [
+        {
+          type: 'replace_file',
+          path: 'src/notes.txt',
+          diff: 'Append a note confirming the wave execution update.',
           oldText: currentNotes,
           newText: nextNotes,
         },

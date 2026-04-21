@@ -230,8 +230,10 @@ node dist/index.js rollback --last
 - planner 还会写出 `planner.log.jsonl`，记录结构化 plan snapshot、非法输出重试和终态摘要
 - 重试参数可放在 `session.modelRetryAttempts` 和 `session.modelRetryDelayMs`，默认是重试 3 次、基础等待 3 秒
 - planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
+- planner execute 现在会先根据 execution graph 划分执行波次；当 `maxConcurrentSubtasks > 1` 时，同一波次内 file scope 不冲突的写步骤可以并发执行
 - planner execute 仍默认一次只跑一个 subtask，但现在会构建 execution graph、跟踪 ready/active/failed/blocked step 集合、管理文件锁，对失败的 code/test/docs 节点做重试，可切换到 fallback model，并在彻底失败前尝试局部 replan
-- `routing` 现在支持 `maxConcurrentSubtasks`、`subtaskMaxAttempts`、`subtaskFallbackModel`、`subtaskReplanOnFailure`、`subtaskConflictPolicy`，为后续安全并发打基础，同时保持默认串行行为不变
+- `routing` 现在支持 `maxConcurrentSubtasks`、`subtaskMaxAttempts`、`subtaskFallbackModel`、`subtaskReplanOnFailure`、`subtaskConflictPolicy`，让执行模型可以从保守串行扩展到安全的冲突感知并发
+- `subtaskConflictPolicy=serial` 会把冲突写步骤延后到后续 wave；`subtaskConflictPolicy=fail` 会在 host 检测到 pending conflict edge 时直接终止执行
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 - 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的 subtask 执行结果
 - `show:planner` 现在会显示 step attempts、恢复状态、execution waves、文件锁、subtask 的 executor 身份、model alias、改动文件和子 agent session 路径，便于确认 planner -> coder 的真实调用链

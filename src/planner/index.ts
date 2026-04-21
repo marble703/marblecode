@@ -1267,6 +1267,21 @@ async function executePlannerPlan(
   while (true) {
     executionGraph = buildPlannerExecutionGraph(nextPlan, config.routing.subtaskConflictPolicy);
     nextState = refreshPlannerStateFromPlan(nextPlan, nextState);
+    if (config.routing.subtaskConflictPolicy === 'fail') {
+      const conflictError = detectPendingConflictFailure(nextPlan, executionGraph);
+      if (conflictError) {
+        nextState = {
+          ...nextState,
+          outcome: 'FAILED',
+          phase: 'BLOCKED',
+          message: conflictError,
+        };
+        await appendPlannerEvent(session, { type: 'subtask_conflict_detected', reason: conflictError }, config.session.redactSecrets);
+        await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
+        return { plan: nextPlan, state: nextState };
+      }
+    }
+
     const readySteps = getReadyStepIds(nextPlan, nextState, executionGraph)
       .map((stepId) => nextPlan.steps.find((step) => step.id === stepId))
       .filter((step): step is PlannerStep => Boolean(step));
@@ -1298,22 +1313,27 @@ async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    const step = readySteps[0];
-    if (!step) {
+    const selectedWave = selectExecutionWave(nextPlan, readySteps, executionGraph, config.routing.maxConcurrentSubtasks);
+    if (selectedWave.length === 0) {
       break;
     }
-    const executionMode = classifyPlannerStep(step);
-    if (executionMode === 'skip') {
-      nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'DONE', executionState: 'done' });
+    const skippable = selectedWave.filter((step) => classifyPlannerStep(step) === 'skip');
+    if (skippable.length === selectedWave.length) {
+      for (const step of skippable) {
+        nextPlan = updatePlannerStep(nextPlan, step.id, { status: 'DONE', executionState: 'done' });
+        await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: step.id, kind: step.kind, reason: 'Planning-only step' }, config.session.redactSecrets);
+      }
       nextState = refreshPlannerStateFromPlan(nextPlan, nextState);
-      await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: step.id, kind: step.kind, reason: 'Planning-only step' }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       continue;
     }
-
-    if (executionMode === 'verify') {
+    if (selectedWave.length === 1 && classifyPlannerStep(selectedWave[0] ?? nextPlan.steps[0] ?? { kind: 'note', title: '', details: '' } as PlannerStep) === 'verify') {
+      const step = selectedWave[0];
+      if (!step) {
+        break;
+      }
       const verifyResult = await executePlannerVerifyStep(config, providers, session, requestArtifact, nextPlan, nextState, step, [...accumulatedChangedFiles], lockTable);
       nextPlan = verifyResult.plan;
       nextState = verifyResult.state;
@@ -1328,32 +1348,27 @@ async function executePlannerPlan(
       continue;
     }
 
-    const subtaskPrompt = buildSubtaskPrompt(requestArtifact, nextPlan, step);
-    const subtaskResult = await executePlannerSubtaskWithRecovery(
+    const waveResult = await executePlannerWave(
       config,
       providers,
       session,
       requestArtifact,
       nextPlan,
       nextState,
-      step,
-      subtaskPrompt,
-      derivePlannerFileScope(step).length > 0 ? derivePlannerFileScope(step) : (step.relatedFiles ?? requestArtifact.explicitFiles),
-      false,
-      true,
+      selectedWave,
       lockTable,
     );
-    nextPlan = subtaskResult.plan;
-    nextState = subtaskResult.state;
-    lockTable = subtaskResult.lockTable;
-    if (subtaskResult.replanned) {
+    nextPlan = waveResult.plan;
+    nextState = waveResult.state;
+    lockTable = waveResult.lockTable;
+    for (const file of waveResult.changedFiles) {
+      accumulatedChangedFiles.add(file);
+    }
+    if (waveResult.replanned) {
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       continue;
     }
-    for (const file of subtaskResult.changedFiles) {
-      accumulatedChangedFiles.add(file);
-    }
-    if (subtaskResult.stop) {
+    if (waveResult.stop) {
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       return { plan: nextPlan, state: nextState };
     }
@@ -1374,6 +1389,173 @@ async function executePlannerPlan(
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
   return { plan: nextPlan, state: nextState };
+}
+
+async function executePlannerWave(
+  config: AppConfig,
+  providers: Map<string, ModelProvider>,
+  session: SessionRecord,
+  requestArtifact: PlannerRequestArtifact,
+  plan: PlannerPlan,
+  state: PlannerState,
+  wave: PlannerStep[],
+  lockTable: ExecutionLockTable,
+): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; lockTable: ExecutionLockTable }> {
+  let nextPlan = plan;
+  let nextState = state;
+  let nextLockTable = lockTable;
+  const changedFiles = new Set<string>();
+  const concurrent = wave.length > 1;
+
+  for (const step of wave) {
+    const fileScope = derivePlannerFileScope(step).length > 0 ? derivePlannerFileScope(step) : (step.relatedFiles ?? requestArtifact.explicitFiles);
+    nextLockTable = prepareLockTableForStep(nextLockTable, nextPlan, step, fileScope);
+  }
+
+  await appendPlannerEvent(session, {
+    type: 'planner_wave_started',
+    wave: wave.map((step) => step.id),
+    concurrent,
+  }, config.session.redactSecrets);
+
+  const results = await Promise.allSettled(
+    wave.map(async (step) => {
+      const fileScope = derivePlannerFileScope(step).length > 0 ? derivePlannerFileScope(step) : (step.relatedFiles ?? requestArtifact.explicitFiles);
+      const subtaskPrompt = buildSubtaskPrompt(requestArtifact, nextPlan, step);
+      return executePlannerSubtaskWithRecovery(
+        config,
+        providers,
+        session,
+        requestArtifact,
+        nextPlan,
+        nextState,
+        step,
+        subtaskPrompt,
+        fileScope,
+        false,
+        wave.length === 1,
+        nextLockTable,
+        false,
+      );
+    }),
+  );
+
+  let stop = false;
+  let replanned = false;
+  for (let index = 0; index < results.length; index += 1) {
+    const settled = results[index];
+    const step = wave[index];
+    if (!step) {
+      continue;
+    }
+    if (!settled || settled.status === 'rejected') {
+      const message = settled?.status === 'rejected'
+        ? (settled.reason instanceof Error ? settled.reason.message : String(settled.reason))
+        : `Planner wave failed for ${step.id}`;
+      nextPlan = updatePlannerStep(nextPlan, step.id, {
+        status: 'FAILED',
+        executionState: 'failed',
+        failureKind: 'model',
+        lastError: message,
+        details: message,
+      });
+      nextState = refreshPlannerStateFromPlan(nextPlan, {
+        ...nextState,
+        outcome: 'FAILED',
+        currentStepId: step.id,
+        message,
+      });
+      stop = true;
+      continue;
+    }
+
+    const value = settled.value;
+    nextPlan = mergePlannerStepResult(nextPlan, value.plan, step.id);
+    nextState = refreshPlannerStateFromPlan(nextPlan, {
+      ...nextState,
+      phase: value.state.phase,
+      currentStepId: value.state.currentStepId,
+      message: value.state.message,
+      outcome: value.state.outcome,
+      consistencyErrors: value.state.consistencyErrors,
+      ...(value.state.lastReplanReason ? { lastReplanReason: value.state.lastReplanReason } : {}),
+    });
+    const lockedFiles = value.changedFiles.length > 0 ? value.changedFiles : derivePlannerFileScope(step);
+    if (!value.stop && !value.replanned && lockedFiles.length > 0) {
+      nextLockTable = downgradeToGuardedRead(nextLockTable, step.id, lockedFiles, nextPlan.revision);
+    }
+    for (const file of value.changedFiles) {
+      changedFiles.add(file);
+    }
+    stop ||= value.stop;
+    replanned ||= value.replanned;
+  }
+
+  await appendPlannerEvent(session, {
+    type: 'planner_wave_finished',
+    wave: wave.map((step) => step.id),
+    concurrent,
+    stop,
+    replanned,
+  }, config.session.redactSecrets);
+
+  return {
+    plan: nextPlan,
+    state: nextState,
+    changedFiles: [...changedFiles],
+    stop,
+    replanned,
+    lockTable: nextLockTable,
+  };
+}
+
+function selectExecutionWave(
+  plan: PlannerPlan,
+  readySteps: PlannerStep[],
+  graph: PlannerExecutionGraph,
+  maxConcurrentSubtasks: number,
+): PlannerStep[] {
+  const readyById = new Map(readySteps.map((step) => [step.id, step]));
+  for (const wave of graph.waves) {
+    const candidates = wave.stepIds
+      .map((stepId) => readyById.get(stepId))
+      .filter((step): step is PlannerStep => Boolean(step));
+    if (candidates.length === 0) {
+      continue;
+    }
+    const verify = candidates.find((step) => classifyPlannerStep(step) === 'verify');
+    if (verify) {
+      return [verify];
+    }
+    if (maxConcurrentSubtasks <= 1) {
+      return [candidates[0]].filter((step): step is PlannerStep => Boolean(step));
+    }
+    const restricted = candidates.filter((step) => derivePlannerAccessMode(step) === 'write' && derivePlannerFileScope(step).length === 0);
+    if (restricted.length > 0) {
+      return [restricted[0]].filter((step): step is PlannerStep => Boolean(step));
+    }
+    return candidates.slice(0, maxConcurrentSubtasks);
+  }
+
+  return readySteps.length > 0 ? [readySteps[0]].filter((step): step is PlannerStep => Boolean(step)) : [];
+}
+
+function detectPendingConflictFailure(plan: PlannerPlan, graph: PlannerExecutionGraph): string | null {
+  const pending = new Set(plan.steps.filter((step) => step.status !== 'DONE' && step.status !== 'FAILED').map((step) => step.id));
+  const edge = graph.edges.find((candidate) => candidate.type === 'conflict' && pending.has(candidate.from) && pending.has(candidate.to));
+  if (!edge) {
+    return null;
+  }
+
+  return `Planner execution conflict detected between ${edge.from} and ${edge.to}.`;
+}
+
+function mergePlannerStepResult(basePlan: PlannerPlan, updatedPlan: PlannerPlan, stepId: string): PlannerPlan {
+  const updatedStep = updatedPlan.steps.find((step) => step.id === stepId);
+  if (!updatedStep) {
+    return basePlan;
+  }
+  return updatePlannerStep(basePlan, stepId, updatedStep);
 }
 
 async function executePlannerVerifyStep(
@@ -1448,6 +1630,7 @@ async function executePlannerVerifyStep(
     true,
     false,
     lockTable,
+    true,
   );
   nextPlan = repair.plan;
   nextState = repair.state;
@@ -1481,6 +1664,7 @@ async function executePlannerSubtaskWithRecovery(
   enableVerifier: boolean,
   allowReplan: boolean,
   lockTable: ExecutionLockTable,
+  manageLocksInternally: boolean,
 ): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; lockTable: ExecutionLockTable }> {
   let nextPlan = plan;
   let nextState = state;
@@ -1494,7 +1678,9 @@ async function executePlannerSubtaskWithRecovery(
     const label = attempt > 1 ? `Retrying subtask ${step.title}` : `Executing subtask ${step.title}`;
     const update = preparePlannerSubtaskAttempt(nextPlan, requestArtifact, step.id, attempt, executionState, explicitFiles);
     nextPlan = update.plan;
-    lockTable = prepareLockTableForStep(lockTable, nextPlan, step, effectiveFileScope);
+    if (manageLocksInternally) {
+      lockTable = prepareLockTableForStep(lockTable, nextPlan, step, effectiveFileScope);
+    }
     nextState = refreshPlannerStateFromPlan(nextPlan, {
       ...nextState,
       phase,
@@ -1512,7 +1698,7 @@ async function executePlannerSubtaskWithRecovery(
       title: step.title,
       explicitFiles: effectiveFileScope,
     }, config.session.redactSecrets);
-    if (effectiveFileScope.length > 0) {
+    if (manageLocksInternally && effectiveFileScope.length > 0) {
       await appendPlannerEvent(session, {
         type: 'subtask_lock_acquired',
         stepId: step.id,
@@ -1525,7 +1711,9 @@ async function executePlannerSubtaskWithRecovery(
     await writeSessionArtifact(session, `subtask.${step.id}.json`, JSON.stringify(outcome.result, null, 2));
     if (outcome.result.status === 'completed') {
       const lockedFiles = outcome.result.changedFiles.length > 0 ? outcome.result.changedFiles : effectiveFileScope;
-      lockTable = downgradeToGuardedRead(lockTable, step.id, lockedFiles, nextPlan.revision);
+      if (manageLocksInternally) {
+        lockTable = downgradeToGuardedRead(lockTable, step.id, lockedFiles, nextPlan.revision);
+      }
       nextPlan = updatePlannerStep(nextPlan, step.id, {
         status: 'DONE',
         attempts: attempt,
@@ -1546,7 +1734,7 @@ async function executePlannerSubtaskWithRecovery(
         message: outcome.result.message,
         attempt,
       }, config.session.redactSecrets);
-      if (lockedFiles.length > 0) {
+      if (manageLocksInternally && lockedFiles.length > 0) {
         await appendPlannerEvent(session, {
           type: 'subtask_lock_downgraded',
           stepId: step.id,
@@ -1588,7 +1776,9 @@ async function executePlannerSubtaskWithRecovery(
 
   const fallbackModel = resolveSubtaskFallbackModel(config, config.routing.codeModel);
   if (fallbackModel && latestFailure) {
-    lockTable = prepareLockTableForStep(lockTable, nextPlan, step, effectiveFileScope);
+    if (manageLocksInternally) {
+      lockTable = prepareLockTableForStep(lockTable, nextPlan, step, effectiveFileScope);
+    }
     nextPlan = preparePlannerSubtaskAttempt(nextPlan, requestArtifact, step.id, step.attempts + maxAttempts + 1, 'fallback', explicitFiles).plan;
     nextState = refreshPlannerStateFromPlan(nextPlan, {
       ...nextState,
@@ -1605,7 +1795,7 @@ async function executePlannerSubtaskWithRecovery(
       toModelAlias: fallbackModel,
       reason: latestFailure.result.message,
     }, config.session.redactSecrets);
-    if (effectiveFileScope.length > 0) {
+    if (manageLocksInternally && effectiveFileScope.length > 0) {
       await appendPlannerEvent(session, {
         type: 'subtask_lock_transferred',
         stepId: step.id,
@@ -1618,7 +1808,9 @@ async function executePlannerSubtaskWithRecovery(
     await writeSessionArtifact(session, `subtask.${step.id}.fallback.json`, JSON.stringify(fallbackOutcome.result, null, 2));
     if (fallbackOutcome.result.status === 'completed') {
       const lockedFiles = fallbackOutcome.result.changedFiles.length > 0 ? fallbackOutcome.result.changedFiles : effectiveFileScope;
-      lockTable = downgradeToGuardedRead(lockTable, step.id, lockedFiles, nextPlan.revision);
+      if (manageLocksInternally) {
+        lockTable = downgradeToGuardedRead(lockTable, step.id, lockedFiles, nextPlan.revision);
+      }
       nextPlan = updatePlannerStep(nextPlan, step.id, {
         status: 'DONE',
         attempts: step.attempts + maxAttempts + 1,
@@ -1638,7 +1830,7 @@ async function executePlannerSubtaskWithRecovery(
         message: fallbackOutcome.result.message,
         attempt: step.attempts + maxAttempts + 1,
       }, config.session.redactSecrets);
-      if (lockedFiles.length > 0) {
+      if (manageLocksInternally && lockedFiles.length > 0) {
         await appendPlannerEvent(session, {
           type: 'subtask_lock_downgraded',
           stepId: step.id,

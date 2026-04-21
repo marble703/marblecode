@@ -42,7 +42,6 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
     mustRunAfter: step.mustRunAfter ?? [],
     order: index,
   }));
-  const nodeById = new Map(nodes.map((node) => [node.stepId, node]));
   const edges: PlannerExecutionEdge[] = [];
 
   for (const node of nodes) {
@@ -71,7 +70,7 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
       const from = explicitRight ? right.stepId : left.stepId;
       const to = explicitRight ? left.stepId : right.stepId;
       const key = `${from}->${to}`;
-      if (!seenConflictEdges.has(key) && conflictPolicy === 'serial') {
+      if (!seenConflictEdges.has(key)) {
         edges.push({ from, to, type: 'conflict' });
         seenConflictEdges.add(key);
       }

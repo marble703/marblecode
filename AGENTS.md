@@ -33,6 +33,7 @@
 - Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
 - Planner execute still runs one node at a time by default, but node-level retry, fallback model selection, and local replanning are now part of the execution foundation.
 - Planner execute also builds `execution.graph.json` and `execution.locks.json`, so future concurrency work can rely on explicit waves, conflicts, and file ownership rather than implicit step order.
+- Planner execute now uses those wave/conflict/lock artifacts directly; with `maxConcurrentSubtasks > 1`, same-wave write steps may run concurrently when their file scopes do not overlap.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.

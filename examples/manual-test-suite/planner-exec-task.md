@@ -26,6 +26,7 @@ This real-model execution check asserts:
 - planner finishes with `DONE`
 - at least one subtask agent run is recorded
 - execution graph and lock artifacts are written for the resulting planner session
+- the resulting planner session records execution waves that `show:planner` can render
 - final verifier step succeeds
 - `src/math.js` is repaired to `return a + b;`
 - `show:planner` can render the resulting session
