@@ -71,6 +71,15 @@ The suite automatically asserts all results without using AI to judge correctnes
 - `npm run check:planner:execute`: real-model serial `planner -> subagent -> verifier` validation against `planner-exec-task.md`
 - `npm run show:planner -- --workspace examples/manual-test-suite/project --last`: inspect a recorded planner session in the terminal; this command is a manual viewer and is not executed by `npm run test:examples`
 
+## Refactor Safety Nets
+
+Use this suite as the regression map when splitting large runtime files.
+
+- planner graph, lock, retry, fallback, local replan, and execute-wave refactors should keep the planner-execute scenarios green
+- TUI command or planner-view refactors should keep the interactive command parsing and recent-session scenarios green
+- agent, patch, rollback, or verifier refactors should keep the deterministic patch-apply, rollback, verifier-output, and verifier-analysis scenarios green
+- the repository split plan in `docs/repo-refactor-plan.md` references this suite as the main deterministic safety net for structural cleanup
+
 ## Fixture Layout
 
 - `project/`: copied into a temporary workspace for each scenario

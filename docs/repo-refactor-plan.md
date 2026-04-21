@@ -1,0 +1,125 @@
+# Repository Refactor Plan
+
+This document captures the next cleanup pass for the repository structure. The repo already has sensible top-level module boundaries, but a few core files now combine too many responsibilities and should be split before more planner and TUI work lands.
+
+## Goals
+
+- keep behavior stable while reducing file-level complexity
+- move repeated parsing and filesystem helpers into `src/shared`
+- make planner, TUI, agent, and verifier changes easier to review in isolation
+- preserve current manual-suite coverage while refactoring
+
+## Non-Goals
+
+- no feature changes as part of the initial split
+- no rewrites of the planner protocol or session artifact formats
+- no movement of generated output under `dist/`
+
+## Current Hotspots
+
+The current repository layout is directionally good, but these files are carrying multiple sub-systems at once:
+
+- `src/planner/index.ts`: planner loop, request building, response parsing, plan normalization, artifact writing, execution orchestration, wave scheduling, verify execution, retry/fallback/replan recovery, prompt building, and JSON extraction helpers
+- `src/tui/agent-repl.ts`: slash-command parsing, REPL loop, run/plan/execute dispatch, live refresh, rendering, planner inspection, and child-session navigation
+- `src/agent/index.ts`: agent loop, request building, patch preview/apply flow, verifier integration, rollback helper, and JSON extraction helpers
+- `src/verifier/index.ts`: command resolution, verifier execution, LLM-based verifier-failure analysis, and JSON extraction helpers
+- `scripts/test-examples.ts`: provider stubs, case registry, most fixture scenarios, and suite helpers all live in one file
+
+There are also smaller shared-utility candidates that are currently duplicated:
+
+- JSON object extraction logic appears in planner, agent, and verifier flows
+- recursive file walking and exclude handling appear in both `src/context/index.ts` and `src/tools/builtins.ts`
+
+## Target Shape
+
+### Shared utilities first
+
+Move repeated helpers into `src/shared` before splitting the large orchestrators.
+
+- `src/shared/json-response.ts`: fenced-JSON extraction, balanced-object extraction, parseability checks
+- `src/shared/file-walk.ts`: recursive file walking with shared exclude-pattern handling
+
+This keeps later planner/agent/verifier/TUI splits smaller and reduces copy-paste drift.
+
+### Planner split
+
+Keep `src/planner/index.ts` as the public entrypoint for `runPlanner()`, but move most implementation details out.
+
+Suggested internal layout:
+
+- `src/planner/loop.ts`: top-level planning loop and result mapping
+- `src/planner/model.ts`: planner request building and system prompt construction
+- `src/planner/parse.ts`: planner response parsing and plan/step normalization
+- `src/planner/artifacts.ts`: planner session load/write helpers, event/log appenders, context packet creation
+- `src/planner/execute.ts`: execution loop, wave selection, verify-step handling
+- `src/planner/recovery.ts`: retry/fallback/local-replan logic for failed subtasks
+- `src/planner/prompts.ts`: subtask, verify-repair, and node-replan prompts
+
+The existing `graph.ts`, `locks.ts`, and `types.ts` should remain as stable focused modules.
+
+### TUI split
+
+Keep a thin top-level launcher, but separate command and rendering concerns.
+
+Suggested internal layout:
+
+- `src/tui/commands.ts`: `applyTuiCommand()` and command-target resolution
+- `src/tui/session-actions.ts`: planner resume/follow/inspect/open-child actions
+- `src/tui/run-prompt.ts`: run/plan/execute dispatch
+- `src/tui/render.ts`: screen rendering and summaries
+- `src/tui/paste.ts`: multiline paste collection and patch confirmation helpers
+
+`planner-view.ts` and `planner-live.ts` already point in the right direction and should stay separate.
+
+### Agent and verifier follow-up split
+
+Once shared JSON parsing exists, split the agent and verifier along the same lines.
+
+- `src/agent/model.ts`: agent request/system prompt
+- `src/agent/parse.ts`: model-step parsing
+- `src/agent/runtime.ts`: patch/apply/verify loop
+- `src/verifier/commands.ts`: command resolution
+- `src/verifier/analysis.ts`: verifier-failure prompt building and response parsing
+
+This phase is lower priority than planner and TUI because the files are smaller, but the shared-helper extraction should happen early.
+
+### Manual suite split
+
+Leave `scripts/test-examples.ts` for last so production refactors land first. When it is time, split by domain instead of by assertion style.
+
+- `scripts/test-examples.ts`: suite entrypoint and case registration only
+- `scripts/manual-suite/providers.ts`: stub providers and test doubles
+- `scripts/manual-suite/planner.ts`: planner and planner-execute scenarios
+- `scripts/manual-suite/agent.ts`: agent and patch-flow scenarios
+- `scripts/manual-suite/verifier.ts`: verifier and discovery scenarios
+- `scripts/manual-suite/tui.ts`: TUI parsing and session inspection scenarios
+- `scripts/manual-suite/helpers.ts`: fixture copy helpers and config factories
+
+## Rollout Order
+
+1. Extract shared JSON parsing helpers and recursive file-walk helpers.
+2. Split planner internals while keeping `runPlanner()` exported from `src/planner/index.ts`.
+3. Split TUI command, action, and render layers.
+4. Split agent and verifier helpers onto the new shared primitives.
+5. Split the manual suite after production modules are stable.
+
+This order keeps the highest-risk runtime path first, but avoids changing planner and TUI before their shared dependencies are ready.
+
+## Verification By Phase
+
+Use the existing suite as the guardrail for each phase.
+
+- any shared-helper, agent, or context/tool split: `npm run build` and `npm run smoke:edit`
+- verifier-related split: `npm run build` and `npm run smoke:verifier`
+- planner, TUI, session, or execution-flow split: `npm run build` and `npm run test:examples`
+- large planner-execute changes or release validation: `npm run check:planner:execute` when a real model is available
+
+`examples/manual-test-suite/README.md` documents which deterministic scenarios cover planner graphs, locks, retry/fallback, TUI command parsing, verifier discovery, rollback, and patch behavior. Use it as the checklist when moving files around.
+
+## Success Criteria
+
+- `src/planner/index.ts` becomes a thin entrypoint instead of the full planner subsystem
+- `src/tui/agent-repl.ts` stops owning command parsing, rendering, and planner inspection at the same time
+- agent, planner, and verifier all use one shared JSON-response parser
+- context-building and tool file walking share one implementation
+- the manual suite still covers planner execute, TUI, verifier, patch, rollback, and policy behavior after each phase

@@ -71,6 +71,7 @@
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
 - `examples/manual-test-suite`: deterministic regression fixture for tool, context, planner, patch, rollback, shell, policy, verifier, and retry checks.
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
+- `docs/repo-refactor-plan.md`: current split plan for oversized runtime and test files; consult it before moving planner, TUI, agent, verifier, or manual-suite code.
 
 # TypeScript Gotchas
 

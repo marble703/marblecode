@@ -307,7 +307,13 @@ node dist/index.js rollback --last
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
 - `docs/mvp-v1.md`: architecture and protocol contract
+- `docs/repo-refactor-plan.md`: planned split of oversized runtime and test modules
 - `README.zh-CN.md`: Chinese project overview
+
+## Refactor Notes
+
+- the current top-level module boundaries are still sound, but `src/planner/index.ts`, `src/tui/agent-repl.ts`, `src/agent/index.ts`, `src/verifier/index.ts`, and `scripts/test-examples.ts` are the main file-size and mixed-responsibility hotspots
+- `docs/repo-refactor-plan.md` defines the intended split order, target module layout, and which existing verification commands should protect each phase
 
 ## Verifier Markdown
 
