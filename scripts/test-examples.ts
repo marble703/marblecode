@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
+import { buildExecutionGraph } from '../src/planner/graph.js';
 import { runPlanner } from '../src/planner/index.js';
+import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../src/planner/locks.js';
 import { PolicyEngine } from '../src/policy/index.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../src/session/index.js';
 import { applyTuiCommand, createInitialTuiState } from '../src/tui/agent-repl.js';
@@ -170,6 +172,8 @@ class BranchingProvider implements ModelProvider {
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
+    { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
+    { name: 'planner execution locks', run: testPlannerExecutionLocks },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
@@ -191,6 +195,7 @@ async function main(): Promise<void> {
     { name: 'agent model retry', run: testAgentModelRetry },
     { name: 'agent model retry exhaustion', run: testAgentModelRetryExhaustion },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
+    { name: 'restricted write scope blocks extra file', run: testRestrictedWriteScopeBlocksExtraFile },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
     { name: 'rollback restore', run: testRollbackRestore },
@@ -243,6 +248,32 @@ async function testReadListAndSearch(): Promise<void> {
     assert.match(matches[0]?.matches[0]?.context ?? '', /BUG_MARKER/);
     assert.equal(matches[0]?.matches[1]?.line, 5);
   });
+}
+
+async function testPlannerGraphAndWaves(): Promise<void> {
+  const graph = buildExecutionGraph({
+    version: '1',
+    revision: 1,
+    summary: 'graph fixture',
+    steps: [
+      { id: 'step-1', title: 'Update math', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+      { id: 'step-2', title: 'Update notes', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+      { id: 'step-3', title: 'Retouch math docs', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+    ],
+  });
+
+  assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.from === 'step-1' && edge.to === 'step-3'), true);
+  assert.deepEqual(graph.waves.map((wave) => wave.stepIds), [['step-1', 'step-2'], ['step-3']]);
+}
+
+async function testPlannerExecutionLocks(): Promise<void> {
+  let locks = createExecutionLockTable(1);
+  locks = acquireWriteLocks(locks, 'step-1', ['src/math.js'], 1);
+  assert.doesNotThrow(() => assertStepCanWrite(locks, 'step-1', 'src/math.js'));
+  locks = downgradeToGuardedRead(locks, 'step-1', ['src/math.js'], 1);
+  assert.throws(() => assertStepCanWrite(locks, 'step-1', 'src/math.js'));
+  locks = transferWriteOwnership(locks, 'step-1', 'step-2', ['src/math.js'], 1);
+  assert.doesNotThrow(() => assertStepCanWrite(locks, 'step-2', 'src/math.js'));
 }
 
 async function testAutomaticContextSelection(): Promise<void> {
@@ -899,6 +930,8 @@ async function testPlannerExecuteChain(): Promise<void> {
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; message: string };
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const executionGraph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { waves: Array<{ stepIds: string[] }> };
+    const executionLocks = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string }> };
     const verifyArtifact = JSON.parse(await readFile(path.join(result.sessionDir, 'subtask.step-3.verify.json'), 'utf8')) as { success: boolean };
     assert.equal(state.outcome, 'DONE');
     assert.match(state.message, /verifier passed|executed all subtasks/i);
@@ -908,6 +941,8 @@ async function testPlannerExecuteChain(): Promise<void> {
     assert.match(events, /"modelAlias":"code"/);
     assert.match(events, /subtask_completed/);
     assert.match(events, /planner_execution_finished/);
+    assert.equal(executionGraph.waves.length >= 1, true);
+    assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read'), true);
   });
 }
 
@@ -1201,6 +1236,28 @@ async function testPatchApplyAndVerifier(): Promise<void> {
     assert.match(patchArtifact.summary, /Fix the add function/);
     assert.equal(verifyArtifact.success, true);
     assert.equal(verifyArtifact.commands[0]?.command, 'npm test');
+  });
+}
+
+async function testRestrictedWriteScopeBlocksExtraFile(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMultiFileFixStep(workspaceRoot))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js but do not touch any other file.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+      policyOptions: {
+        grantedReadPaths: ['src/math.js'],
+        grantedWritePaths: ['src/math.js'],
+        restrictWritePaths: true,
+      },
+    });
+
+    assert.equal(result.status, 'needs_intervention');
+    assert.match(result.message, /write access denied/i);
   });
 }
 

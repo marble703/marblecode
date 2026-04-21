@@ -16,6 +16,8 @@ export interface PlannerViewModel {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
+  executionWaves: Array<{ index: number; stepIds: string[] }>;
+  lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
   summary: string;
   steps: Array<{
     id: string;
@@ -38,11 +40,13 @@ export interface PlannerViewModel {
 }
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
-  const [planRaw, stateRaw, eventsRaw, plannerLogRaw] = await Promise.all([
+  const [planRaw, stateRaw, eventsRaw, plannerLogRaw, executionGraphRaw, executionLocksRaw] = await Promise.all([
     readTextIfExists(path.join(sessionDir, 'plan.json')),
     readTextIfExists(path.join(sessionDir, 'plan.state.json')),
     readTextIfExists(path.join(sessionDir, 'plan.events.jsonl')),
     readTextIfExists(path.join(sessionDir, 'planner.log.jsonl')),
+    readTextIfExists(path.join(sessionDir, 'execution.graph.json')),
+    readTextIfExists(path.join(sessionDir, 'execution.locks.json')),
   ]);
 
   const plan = parseJsonWithFallback(planRaw, {
@@ -90,6 +94,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   };
   const events = parseJsonLines(eventsRaw);
   const plannerLog = parseJsonLines(plannerLogRaw);
+  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [] }) as { waves?: Array<{ index: number; stepIds: string[] }> };
+  const executionLocks = parseJsonWithFallback(executionLocksRaw, { entries: [] }) as { entries?: Array<{ path: string; mode: string; ownerStepId: string }> };
   const subtaskEvents = events.filter((event) => {
     const type = String(event.type ?? '');
     return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
@@ -106,6 +112,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds: state.completedStepIds ?? [],
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
+    executionWaves: executionGraph.waves ?? [],
+    lockEntries: executionLocks.entries ?? [],
     summary: plan.summary || state.message,
     steps: plan.steps.map((step) => ({
       id: step.id,
@@ -138,6 +146,8 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
     `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
     `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
+    `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
+    `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
     `Summary: ${view.summary}`,
     '',
     'Plan Steps:',

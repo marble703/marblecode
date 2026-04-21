@@ -87,6 +87,12 @@ async function main(): Promise<void> {
     outcome: string;
     message: string;
   };
+  const executionGraph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as {
+    waves: Array<{ stepIds: string[] }>;
+  };
+  const executionLocks = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.locks.json'), 'utf8')) as {
+    entries: Array<{ path: string; mode: string }>;
+  };
   const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as {
     steps: Array<{ id: string; kind: string; title: string }>;
   };
@@ -109,6 +115,12 @@ async function main(): Promise<void> {
   }
   if (!events.includes('"executor":"coder"') || !events.includes('"modelAlias":"code"')) {
     throw new Error('Planner execute session did not record coder subtask execution with codeModel');
+  }
+  if (executionGraph.waves.length === 0) {
+    throw new Error('Planner execute session did not record execution waves');
+  }
+  if (!executionLocks.entries.some((entry) => entry.path === 'src/math.js')) {
+    throw new Error('Planner execute session did not record file lock ownership for src/math.js');
   }
   if (!verify.success) {
     throw new Error('Final verifier step was not successful');

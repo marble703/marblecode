@@ -5,11 +5,15 @@ import type { AppConfig } from '../config/schema.js';
 interface PolicyEngineOptions {
   grantedReadPaths?: string[];
   grantedWritePaths?: string[];
+  restrictWritePaths?: boolean;
+  writePathValidator?: (targetPath: string) => void;
 }
 
 export class PolicyEngine {
   private readonly grantedReadPaths: string[];
   private readonly grantedWritePaths: string[];
+  private readonly restrictWritePaths: boolean;
+  private readonly writePathValidator: ((targetPath: string) => void) | null;
 
   public constructor(
     private readonly config: AppConfig,
@@ -19,6 +23,8 @@ export class PolicyEngine {
     this.grantedWritePaths = (options.grantedWritePaths ?? [])
       .map((entry) => path.resolve(this.config.workspaceRoot, entry))
       .filter((entry) => this.isWithinWorkspace(entry));
+    this.restrictWritePaths = options.restrictWritePaths ?? false;
+    this.writePathValidator = options.writePathValidator ?? null;
   }
 
   public assertReadable(targetPath: string): void {
@@ -91,6 +97,7 @@ export class PolicyEngine {
     }
 
     if (requireWrite && this.isGranted(absolutePath, this.grantedWritePaths)) {
+      this.writePathValidator?.(absolutePath);
       return;
     }
 
@@ -107,9 +114,13 @@ export class PolicyEngine {
     }
 
     if (requireWrite) {
+      if (this.restrictWritePaths) {
+        throw new Error(`Write access denied for ${relativePath}. This task is restricted to explicitly granted paths.`);
+      }
       if (!this.matchesAny(relativePath, this.config.policy.path.readWrite)) {
         throw new Error(`Write access denied for ${relativePath}`);
       }
+      this.writePathValidator?.(absolutePath);
       return;
     }
 

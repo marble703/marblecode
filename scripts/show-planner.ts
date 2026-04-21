@@ -46,6 +46,8 @@ async function main(): Promise<void> {
   process.stdout.write(`Ready steps: ${view.readyStepIds.join(', ') || '(none)'}\n`);
   process.stdout.write(`Failed steps: ${view.failedStepIds.join(', ') || '(none)'}\n`);
   process.stdout.write(`Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}\n`);
+  process.stdout.write(`Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}\n`);
+  process.stdout.write(`Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}\n`);
   process.stdout.write(`Summary: ${view.summary}\n\n`);
 
   process.stdout.write('Plan Steps:\n');

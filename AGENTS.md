@@ -32,6 +32,7 @@
 - In execute mode, planner itself stays on `planningModel`; coder subtasks run through `runAgent()` with `codeModel`, and `show:planner` should make that visible via executor/modelAlias/sessionDir fields.
 - Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
 - Planner execute still runs one node at a time by default, but node-level retry, fallback model selection, and local replanning are now part of the execution foundation.
+- Planner execute also builds `execution.graph.json` and `execution.locks.json`, so future concurrency work can rely on explicit waves, conflicts, and file ownership rather than implicit step order.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.
@@ -51,6 +52,8 @@
 - `src/config`: config schema defaults and project/local config loading.
 - `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
 - `src/planner`: planner loop, execution graph helpers, node-level retry/fallback/local-replan recovery, and serial subtask orchestration.
+- `src/planner/graph.ts`: execution graph helpers, conflict detection, and execution wave calculation.
+- `src/planner/locks.ts`: file lock ownership helpers used by planner execute and future concurrency work.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
 - `context.autoDeny` is the gitignore-like list for files excluded from automatic context/search; explicit `--file`/`/files` grants should still allow read access, and workspace-internal grants may allow writes.

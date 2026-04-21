@@ -235,14 +235,15 @@ node dist/index.js rollback --last
 - planner mode retries invalid model output up to 3 times before failing the session
 - planner and agent model calls also retry transient provider failures such as `429 rate limit`, timeouts, and short-lived `5xx` responses with backoff
 - planner sessions persist `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.request.json`, and `planner.context.packet.json`
+- planner execution also records `execution.graph.json`, `execution.state.json`, and `execution.locks.json` so the host and TUI can explain waves, blocked steps, and file ownership
 - planner also writes `planner.log.jsonl` with structured plan snapshots, invalid-output retries, and terminal summaries
 - retry settings live under `session.modelRetryAttempts` and `session.modelRetryDelayMs`; defaults are 3 retries with a 3s base delay
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
-- planner execution still defaults to one subtask at a time, but it now tracks ready/active/failed step sets, retries failed code/test/docs nodes, can fall back to a configured model alias, and may locally replan a failed node before giving up
-- routing now supports `maxConcurrentSubtasks`, `subtaskMaxAttempts`, `subtaskFallbackModel`, and `subtaskReplanOnFailure` so the execution model can grow toward safe concurrency without changing the default serial behavior
+- planner execution still defaults to one subtask at a time, but it now builds an execution graph, tracks ready/active/failed/blocked step sets, manages file lock ownership, retries failed code/test/docs nodes, can fall back to a configured model alias, and may locally replan a failed node before giving up
+- routing now supports `maxConcurrentSubtasks`, `subtaskMaxAttempts`, `subtaskFallbackModel`, `subtaskReplanOnFailure`, and `subtaskConflictPolicy` so the execution model can grow toward safe concurrency without changing the default serial behavior
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
-- `show:planner` now renders step attempts, recovery state, executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
+- `show:planner` now renders step attempts, recovery state, execution waves, file lock ownership, executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
 
 ## Interactive TUI
 
@@ -287,6 +288,8 @@ node dist/index.js rollback --last
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
 - `src/planner`: read-only planning loop and serial planner execution flow
+- `src/planner/graph.ts`: execution graph, conflict edges, and execution wave helpers
+- `src/planner/locks.ts`: file lock ownership helpers used by planner execute
 - `src/provider`: model abstraction and OpenAI-compatible provider
 - `src/router`: static model routing
 - `src/context`: bounded context construction

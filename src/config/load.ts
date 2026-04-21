@@ -75,6 +75,7 @@ export async function loadConfig(configPath?: string, workspaceOverride?: string
       maxConcurrentSubtasks: projectConfig.routing?.maxConcurrentSubtasks ?? parsed.routing?.maxConcurrentSubtasks ?? 1,
       subtaskMaxAttempts: projectConfig.routing?.subtaskMaxAttempts ?? parsed.routing?.subtaskMaxAttempts ?? 2,
       subtaskReplanOnFailure: projectConfig.routing?.subtaskReplanOnFailure ?? parsed.routing?.subtaskReplanOnFailure ?? true,
+      subtaskConflictPolicy: projectConfig.routing?.subtaskConflictPolicy ?? parsed.routing?.subtaskConflictPolicy ?? 'serial',
       ...(typeof subtaskFallbackModel === 'string' && subtaskFallbackModel
         ? { subtaskFallbackModel }
         : {}),

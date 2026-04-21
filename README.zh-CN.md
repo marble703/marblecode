@@ -226,14 +226,15 @@ node dist/index.js rollback --last
 - planner 遇到非法模型输出会最多自动重试 3 次，之后把 session 标记为失败
 - planner 和 agent 的模型调用也会对 `429 rate limit`、超时、短暂 `5xx` 这类瞬时错误做退避重试
 - planner session 会落盘 `plan.json`、`plan.state.json`、`plan.events.jsonl`、`planner.request.json`、`planner.context.packet.json`
+- planner execute 还会额外记录 `execution.graph.json`、`execution.state.json`、`execution.locks.json`，便于 host 和 TUI 解释执行波次、阻塞节点和文件所有权
 - planner 还会写出 `planner.log.jsonl`，记录结构化 plan snapshot、非法输出重试和终态摘要
 - 重试参数可放在 `session.modelRetryAttempts` 和 `session.modelRetryDelayMs`，默认是重试 3 次、基础等待 3 秒
 - planner 支持通过 `--session` 或 `--last` 做基础恢复和 replan
-- planner execute 仍默认一次只跑一个 subtask，但现在会跟踪 ready/active/failed step 集合，对失败的 code/test/docs 节点做重试，可切换到 fallback model，并在彻底失败前尝试局部 replan
-- `routing` 现在支持 `maxConcurrentSubtasks`、`subtaskMaxAttempts`、`subtaskFallbackModel`、`subtaskReplanOnFailure`，为后续安全并发打基础，同时保持默认串行行为不变
+- planner execute 仍默认一次只跑一个 subtask，但现在会构建 execution graph、跟踪 ready/active/failed/blocked step 集合、管理文件锁，对失败的 code/test/docs 节点做重试，可切换到 fallback model，并在彻底失败前尝试局部 replan
+- `routing` 现在支持 `maxConcurrentSubtasks`、`subtaskMaxAttempts`、`subtaskFallbackModel`、`subtaskReplanOnFailure`、`subtaskConflictPolicy`，为后续安全并发打基础，同时保持默认串行行为不变
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 - 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的 subtask 执行结果
-- `show:planner` 现在会显示 step attempts、恢复状态、subtask 的 executor 身份、model alias、改动文件和子 agent session 路径，便于确认 planner -> coder 的真实调用链
+- `show:planner` 现在会显示 step attempts、恢复状态、execution waves、文件锁、subtask 的 executor 身份、model alias、改动文件和子 agent session 路径，便于确认 planner -> coder 的真实调用链
 
 ## 交互式 TUI
 
@@ -278,6 +279,8 @@ node dist/index.js rollback --last
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
 - `src/planner`：只读 planner 循环和串行 planner 执行流程
+- `src/planner/graph.ts`：执行图、冲突边和 execution wave 计算
+- `src/planner/locks.ts`：planner execute 使用的文件锁和所有权转移辅助逻辑
 - `src/provider`：模型抽象和 OpenAI-compatible Provider
 - `src/router`：规则路由
 - `src/context`：上下文选择

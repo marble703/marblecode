@@ -48,6 +48,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - planner mode creates read-only plans, logs plan events, retries invalid patch-like output, supports model retries, and supports basic resume/replan
 - planner mode also writes `planner.log.jsonl`, and the repo includes `planner-task.md` for real-model planner validation
 - planner execution mode is covered by `planner-exec-task.md`, which validates serial subtask execution until verifier success
+- planner execution also records deterministic execution graph and lock artifacts so recovery and future concurrency rules stay inspectable
 - planner execution mode also covers node-level retry, fallback model selection, and local replanning before the session is considered failed
 - interactive TUI command parsing covers mode switching, `/workspace`, `/files`, `/verify`, `/yes`, `/open`, and `/reset`
 - verifier auto-discovery falls back to package `test`/`build` scripts when `.marblecode/verifier.md` is missing
@@ -60,6 +61,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - verifier-failure analysis can classify a failing manual verifier as a verifier problem
 - agent and planner model retries are covered for both recovery and retry exhaustion
 - planner execute tests also cover deterministic node retry, fallback, and local replan recovery paths
+- planner graph, wave calculation, execution locks, and restrictive write-scope enforcement are covered deterministically
 
 ## Companion Manual Checks
 

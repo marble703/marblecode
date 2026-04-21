@@ -18,6 +18,12 @@ export interface RunAgentInput {
   manualVerifierCommands: string[];
   autoApprove: boolean;
   confirm: (message: string) => Promise<boolean>;
+  policyOptions?: {
+    grantedReadPaths?: string[];
+    grantedWritePaths?: string[];
+    restrictWritePaths?: boolean;
+    writePathValidator?: (targetPath: string) => void;
+  };
   routeOverride?: {
     modelAlias: string;
     intent: 'question' | 'code' | 'planning';
@@ -60,8 +66,10 @@ export async function runAgent(
 ): Promise<RunAgentResult> {
   const session = await createSession(config);
   const policy = new PolicyEngine(config, {
-    grantedReadPaths: input.explicitFiles,
-    grantedWritePaths: input.explicitFiles,
+    grantedReadPaths: input.policyOptions?.grantedReadPaths ?? input.explicitFiles,
+    grantedWritePaths: input.policyOptions?.grantedWritePaths ?? input.explicitFiles,
+    ...(input.policyOptions?.restrictWritePaths ? { restrictWritePaths: true } : {}),
+    ...(input.policyOptions?.writePathValidator ? { writePathValidator: input.policyOptions.writePathValidator } : {}),
   });
   const route = input.routeOverride ?? routeTask(input.prompt, config);
   const modelConfig = config.models[route.modelAlias];

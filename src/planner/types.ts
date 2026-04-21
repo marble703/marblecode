@@ -10,6 +10,8 @@ export type PlannerStepExecutionState = 'idle' | 'ready' | 'running' | 'retrying
 
 export type PlannerFailureKind = 'tool' | 'model' | 'verify' | 'dependency' | 'policy' | 'conflict' | 'replan_required';
 
+export type PlannerAccessMode = 'read' | 'write' | 'verify';
+
 export interface PlannerContextPacket {
   version: '1';
   objective: string;
@@ -49,6 +51,11 @@ export interface PlannerStep {
   fallbackStepIds?: string[];
   dependsOnFiles?: string[];
   producesFiles?: string[];
+  fileScope?: string[];
+  accessMode?: PlannerAccessMode;
+  conflictsWith?: string[];
+  mustRunAfter?: string[];
+  ownershipTransfers?: string[];
   subtaskContext?: PlannerContextPacket;
 }
 
