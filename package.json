@@ -10,13 +10,15 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "node --import tsx ./src/index.ts",
+    "tui": "node --import tsx ./src/index.ts tui",
     "smoke:edit": "node --import tsx ./scripts/smoke-edit.ts",
     "smoke:verifier": "node --import tsx ./scripts/smoke-verifier.ts",
     "test:examples": "node --import tsx ./scripts/test-examples.ts",
     "check:model": "node --import tsx ./scripts/check-model.ts",
     "check:planner": "node --import tsx ./scripts/check-planner.ts",
     "check:planner:execute": "node --import tsx ./scripts/check-planner-execute.ts",
-    "show:planner": "node --import tsx ./scripts/show-planner.ts"
+    "show:planner": "node --import tsx ./scripts/show-planner.ts",
+    "tui:planner": "node --import tsx ./scripts/tui-planner.ts"
   },
   "dependencies": {
     "diff": "^5.2.0",

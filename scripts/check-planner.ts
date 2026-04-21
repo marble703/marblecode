@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     registry.register(tool);
   }
 
-  const explicitFiles = parsed.values.file ?? ['src/router.js', 'src/register-routes.js', 'src/server.js', 'tests/check-math.js'];
+  const explicitFiles = parsed.values.file ?? ['src/router.js', 'src/register-routes.js', 'src/server.js', 'tests/router.test.txt'];
   const result = await runPlanner(config, providers, registry, {
     prompt,
     explicitFiles,

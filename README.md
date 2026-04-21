@@ -105,7 +105,7 @@ node dist/index.js plan "Refactor the router module and add tests"
 Plan first, then execute subtasks serially until verifier passes:
 
 ```bash
-node dist/index.js plan "Fix src/math.js so add returns a + b" --execute
+node dist/index.js plan "Fix src/math.js so add returns a + b" --workspace examples/manual-test-suite/project --execute
 ```
 
 Resume a planner session with more input:
@@ -118,6 +118,24 @@ Show the latest planner result in the terminal:
 
 ```bash
 npm run show:planner -- --last
+```
+
+Open the lightweight live planner TUI:
+
+```bash
+npm run tui:planner -- --last
+```
+
+Open the interactive coding TUI for new conversations:
+
+```bash
+npm run tui
+```
+
+Open the TUI against another workspace:
+
+```bash
+node dist/index.js tui --workspace /path/to/project
 ```
 
 Skip patch confirmation:
@@ -162,11 +180,14 @@ node dist/index.js rollback --last
 - `npm run dev`: run the CLI with `tsx`
 - `npm run smoke:edit`: run a local no-network patch-application smoke test
 - `npm run smoke:verifier`: run the existing verifier against `examples/verifier-fixture`
-- `npm run test:examples`: run the full manual example suite for patch, verifier, rollback, shell, and policy checks
+- `npm run test:examples`: run the deterministic manual suite for tools, automatic context selection, planner flows, TUI command parsing, patch apply/reject/rollback, verifier behavior, retry paths, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 - `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
 - `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
 - `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
+- `npm run tui:planner -- --last`: open a lightweight live planner dashboard that polls session files and renders steps, subtasks, and timeline in-place
+- `npm run tui`: open an interactive terminal UI that can create new `run`, `plan`, or `plan --execute` conversations
+- `show:planner --last` and `tui:planner --last` now pick the most recent planner session, not the latest coder/verifier child session
 
 ## Notes
 
@@ -184,6 +205,9 @@ node dist/index.js rollback --last
 - project config may override shared runtime sections such as `context`, `policy`, `routing`, `session`, and `verifier`
 - project config may inject project-specific shell environment variables through `env`
 - if no manual verifier, JSON verifier command list, or `.marblecode/verifier.md` exists, the verifier falls back to auto-discovery from the repo
+- use `--workspace /path/to/project` on `run`, `plan`, `tui`, or `rollback` to set the session working directory without moving your main config file
+- `context.autoDeny` is a gitignore-like list for files that should not be auto-read during context selection, search, or normal tool browsing
+- files in `context.autoDeny`, or read-only requests outside the workspace, can still be granted explicitly with `--file` or `/files`
 - Fill the provider base URL in `agent.config.jsonc` at `providers.openai.baseUrl`.
   `http://...` and `https://...` are both accepted in the current MVP so local compatible endpoints can be tested.
 - Prefer storing the API key in the shell environment variable named by `providers.openai.apiKeyEnv`.
@@ -217,6 +241,24 @@ node dist/index.js rollback --last
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
 - `show:planner` now renders subtask executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
 
+## Interactive TUI
+
+- `npm run tui` opens a simple interactive terminal session for new requests
+- add `--workspace` when launching the TUI, or use `/workspace <path>` inside it, to switch the active session working directory
+- use `/mode run`, `/mode plan`, or `/mode execute` to switch between coding, planning, and planner execution workflows
+- use `/sessions` to refresh the recent session list and `/open <index|session-id-or-path>` to inspect a prior session inside the same TUI
+- use `/resume [index|session-id-or-path|last]` to continue a planner session and `/replan <extra prompt>` to continue the opened planner session with more input
+- use `/follow [index|session-id-or-path|last]` to open a live planner viewer and press `q` to return to the main TUI
+- use `/files path1 path2`, `/add-file`, and `/remove-file` to manage explicit files, `/verify <cmd>` to override the verifier for `run`, and `/yes on` to auto-approve patches
+- use `/paste` to enter multiline pasted context, ending with a single `.` line
+- files listed with `/files` are also treated as explicit read/write grants for otherwise auto-denied files inside the workspace, and as explicit read-only grants for files outside the workspace
+- use `/inspect step <step-id|index>` and `/open-child <step-id|index>` to drill into planner execution results
+- use `/show-state` to print the current TUI mode, workspace, and overrides
+- use `/reset` to clear the current TUI state and `/quit` to exit
+- in `run` mode, if `/yes` is off, the TUI will show the patch preview and ask for confirmation before applying it
+- when the last opened session is a planner session, the TUI embeds a planner panel showing the current plan, subtasks, and timeline directly in the conversation UI
+- see `docs/tui.md` for the full command reference and example workflows
+
 ## Multi-file Patch
 
 - patch documents may contain multiple operations in one response when a fix spans implementation, tests, config, docs, or verifier files
@@ -237,8 +279,11 @@ node dist/index.js rollback --last
 ## Repository Layout
 
 - `.marblecode`: project-scoped agent configuration and verifier plans
+- `scripts`: local smoke checks, planner inspectors, and manual regression entrypoints
 - `src/cli`: CLI entrypoint
 - `src/agent`: agent loop
+- `src/config`: config schema and config loading
+- `src/planner`: read-only planning loop and serial planner execution flow
 - `src/provider`: model abstraction and OpenAI-compatible provider
 - `src/router`: static model routing
 - `src/context`: bounded context construction
@@ -247,9 +292,12 @@ node dist/index.js rollback --last
 - `src/policy`: path and shell policy enforcement
 - `src/verifier`: post-patch verification
 - `src/session`: local session persistence and cleanup
+- `src/tui`: interactive terminal UI and planner session rendering
+- `src/shared`: shared helpers used across modules
+- `src/index.ts`: top-level entry that forwards to the CLI
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
-- `examples/manual-test-suite`: manual full-coverage fixture and documentation for release-grade checks
+- `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
 - `docs/mvp-v1.md`: architecture and protocol contract
 - `README.zh-CN.md`: Chinese project overview
 

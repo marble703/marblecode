@@ -36,7 +36,7 @@ interface AppConfigInput {
   session?: Partial<SessionConfig>;
 }
 
-export async function loadConfig(configPath?: string): Promise<AppConfig> {
+export async function loadConfig(configPath?: string, workspaceOverride?: string): Promise<AppConfig> {
   const resolvedPath = configPath
     ? path.resolve(configPath)
     : path.resolve(process.cwd(), DEFAULT_CONFIG_FILE);
@@ -46,7 +46,9 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     throw new Error(`Invalid config file: ${resolvedPath}`);
   }
 
-  const workspaceRoot = path.resolve(path.dirname(resolvedPath), parsed.workspaceRoot ?? '.');
+  const workspaceRoot = workspaceOverride
+    ? path.resolve(workspaceOverride)
+    : path.resolve(path.dirname(resolvedPath), parsed.workspaceRoot ?? '.');
   const projectDir = path.join(workspaceRoot, '.marblecode');
   const projectConfigPath = path.join(workspaceRoot, DEFAULT_PROJECT_CONFIG_FILE);
   const [projectConfigExists, projectParsed] = await Promise.all([
@@ -76,6 +78,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
       recentFileCount: projectConfig.context?.recentFileCount ?? parsed.context?.recentFileCount ?? 4,
       exclude: projectConfig.context?.exclude ?? parsed.context?.exclude ?? ['node_modules/**', '.git/**', '.agent/**'],
       sensitive: projectConfig.context?.sensitive ?? parsed.context?.sensitive ?? ['.env*', '**/*.pem', '**/*.key'],
+      autoDeny: projectConfig.context?.autoDeny ?? parsed.context?.autoDeny ?? [],
     },
     policy: {
       path: {

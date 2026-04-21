@@ -2,8 +2,24 @@ import path from 'node:path';
 import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
 
+interface PolicyEngineOptions {
+  grantedReadPaths?: string[];
+  grantedWritePaths?: string[];
+}
+
 export class PolicyEngine {
-  public constructor(private readonly config: AppConfig) {}
+  private readonly grantedReadPaths: string[];
+  private readonly grantedWritePaths: string[];
+
+  public constructor(
+    private readonly config: AppConfig,
+    options: PolicyEngineOptions = {},
+  ) {
+    this.grantedReadPaths = (options.grantedReadPaths ?? []).map((entry) => path.resolve(this.config.workspaceRoot, entry));
+    this.grantedWritePaths = (options.grantedWritePaths ?? [])
+      .map((entry) => path.resolve(this.config.workspaceRoot, entry))
+      .filter((entry) => this.isWithinWorkspace(entry));
+  }
 
   public assertReadable(targetPath: string): void {
     this.assertPathAccess(targetPath, false);
@@ -61,8 +77,30 @@ export class PolicyEngine {
     return this.config.context.sensitive.some((pattern) => minimatch(relativePath, pattern, { dot: true }));
   }
 
-  private assertPathAccess(targetPath: string, requireWrite: boolean): void {
+  public isAutoDenied(targetPath: string): boolean {
     const relativePath = this.toRelativePath(targetPath);
+    return this.config.context.autoDeny.some((pattern) => minimatch(relativePath, pattern, { dot: true }));
+  }
+
+  private assertPathAccess(targetPath: string, requireWrite: boolean): void {
+    const absolutePath = path.resolve(targetPath);
+    const relativePath = this.toRelativePath(targetPath);
+
+    if (!requireWrite && this.isGranted(absolutePath, this.grantedReadPaths)) {
+      return;
+    }
+
+    if (requireWrite && this.isGranted(absolutePath, this.grantedWritePaths)) {
+      return;
+    }
+
+    if (!requireWrite && this.isAutoDenied(targetPath)) {
+      throw new Error(`Auto read access blocked for ${relativePath}. Provide it explicitly with --file or /files to grant access.`);
+    }
+
+    if (requireWrite && this.isAutoDenied(targetPath)) {
+      throw new Error(`Auto write access blocked for ${relativePath}. Provide it explicitly with --file or /files to grant access.`);
+    }
 
     if (this.matchesAny(relativePath, this.config.policy.path.deny)) {
       throw new Error(`Access denied for ${relativePath}`);
@@ -110,5 +148,14 @@ export class PolicyEngine {
 
       return minimatch(targetPath, normalizedPattern, { dot: true });
     });
+  }
+
+  private isGranted(targetPath: string, grantedPaths: string[]): boolean {
+    return grantedPaths.some((grantedPath) => targetPath === grantedPath || targetPath.startsWith(`${grantedPath}${path.sep}`));
+  }
+
+  private isWithinWorkspace(targetPath: string): boolean {
+    const relativePath = path.relative(this.config.workspaceRoot, targetPath);
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
   }
 }

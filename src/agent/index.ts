@@ -59,7 +59,10 @@ export async function runAgent(
   input: RunAgentInput,
 ): Promise<RunAgentResult> {
   const session = await createSession(config);
-  const policy = new PolicyEngine(config);
+  const policy = new PolicyEngine(config, {
+    grantedReadPaths: input.explicitFiles,
+    grantedWritePaths: input.explicitFiles,
+  });
   const route = input.routeOverride ?? routeTask(input.prompt, config);
   const modelConfig = config.models[route.modelAlias];
   if (!modelConfig) {

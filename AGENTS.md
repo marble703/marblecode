@@ -9,17 +9,22 @@
 - If a repo has no explicit verifier commands or `.marblecode/verifier.md`, the verifier falls back to simple repo discovery (`package.json`, `Makefile`, `Cargo.toml`, `go.mod`, pytest signals).
 - For a no-network end-to-end check of patch application, run `npm run smoke:edit`.
 - For a no-network verifier check against a fixture project, run `npm run smoke:verifier`.
-- For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. This is intentionally manual-only for major changes and release validation, not something to run on every edit.
+- For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. It covers deterministic tool/context/planner/TUI/patch/verifier/policy/retry scenarios and is intentionally manual-only for major changes and release validation, not something to run on every edit.
 - For a real provider connectivity check, run `npm run check:model -- --model cheap`.
 - For a real planner check against the manual suite task, run `npm run check:planner`.
 - For a real planner execution chain check on a temp fixture, run `npm run check:planner:execute`.
 - To inspect a planner session in the terminal, run `npm run show:planner -- --last` or pass `--session <session-id-or-path>`.
+- For a lightweight live planner dashboard, run `npm run tui:planner -- --last`.
+- For a simple interactive terminal UI that can start new run/plan/execute conversations, run `npm run tui`.
+- The interactive TUI should also surface recent sessions and let the user reopen planner sessions inside the same UI.
+- `--last` for planner viewers should resolve the latest planner session with `plan.json`, not the newest child coder session.
 - If you add or change local TypeScript runner scripts, use `node --import tsx ...`, not `--loader`; Node 22 rejects the old form and the repo already standardizes on `--import` in `package.json`.
 
 # CLI Workflows
 
 - Main coding command: `node dist/index.js run "<request>" [--file path] [--paste "code"] [--verify "npm test"] [--yes]`.
 - Planner command: `node dist/index.js plan "<request>" [--file path] [--paste "code"] [--execute] [--session session-id-or-path | --last]`.
+- `run`, `plan`, `tui`, and `rollback` should all accept `--workspace /path/to/project` to override the active session workspace.
 - Prefer `--file` when you know the target file. Without `--file`, the host now extracts query terms from the prompt and pasted snippets, scores candidate files, and sends a `Context selection summary` plus the top auto-selected files.
 - `--paste` injects first-class context items like `[Pasted ~3 lines #1]`; use it when reproducing a bug from a snippet without creating a file.
 - `--verify` overrides the verifier for the current run only. Normal shared verifier behavior should come from `.marblecode/verifier.md`.
@@ -42,18 +47,22 @@
 # Codebase Boundaries
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
+- `src/config`: config schema defaults and project/local config loading.
 - `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
+- `context.autoDeny` is the gitignore-like list for files excluded from automatic context/search; explicit `--file`/`/files` grants should still allow read access, and workspace-internal grants may allow writes.
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.
+- `src/shared`: small shared utilities such as log redaction helpers.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
+- `src/tui`: interactive terminal UI plus planner session rendering helpers.
 - `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
 - `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
-- `examples/manual-test-suite`: manual full-coverage fixture for tool, patch, rollback, shell, policy, and verifier regression checks.
+- `examples/manual-test-suite`: deterministic regression fixture for tool, context, planner, patch, rollback, shell, policy, verifier, and retry checks.
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
 
 # TypeScript Gotchas

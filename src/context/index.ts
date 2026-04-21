@@ -46,6 +46,7 @@ export async function buildContext(input: ContextInput, config: AppConfig, polic
   const seen = new Set<string>();
   const pastedLabels: string[] = [];
   const queryTerms = extractQueryTerms(input.prompt, input.pastedSnippets);
+  const autoExcludePatterns = [...config.context.exclude, ...config.context.autoDeny];
 
   for (const [index, snippet] of input.pastedSnippets.entries()) {
     const label = `[Pasted ~${countSnippetLines(snippet)} lines #${index + 1}]`;
@@ -85,11 +86,11 @@ export async function buildContext(input: ContextInput, config: AppConfig, polic
   }
 
   const keywordCandidates = await collectKeywordMatches(
-    config.workspaceRoot,
-    queryTerms,
-    config.context.exclude,
-    config.context.sensitive,
-  );
+      config.workspaceRoot,
+      queryTerms,
+      autoExcludePatterns,
+      config.context.sensitive,
+    );
   let autoSelectedCount = 0;
   for (const candidate of keywordCandidates) {
     if (items.length >= config.context.maxFiles || autoSelectedCount >= MAX_AUTO_CONTEXT_CANDIDATES) {
@@ -122,7 +123,7 @@ export async function buildContext(input: ContextInput, config: AppConfig, polic
     autoSelectedCount += 1;
   }
 
-  const recentFiles = await collectRecentFiles(config.workspaceRoot, config.context.exclude, config.context.recentFileCount * 2);
+  const recentFiles = await collectRecentFiles(config.workspaceRoot, autoExcludePatterns, config.context.recentFileCount * 2);
   for (const candidate of recentFiles) {
     if (items.length >= config.context.maxFiles || autoSelectedCount >= MAX_AUTO_CONTEXT_CANDIDATES) {
       break;

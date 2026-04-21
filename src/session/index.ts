@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
 import { redactRecord } from '../shared/redact.js';
@@ -6,6 +6,16 @@ import { redactRecord } from '../shared/redact.js';
 export interface SessionRecord {
   id: string;
   dir: string;
+}
+
+export interface SessionListItem {
+  id: string;
+  dir: string;
+  isPlanner: boolean;
+  summary: string;
+  outcome?: string;
+  phase?: string;
+  currentStepId?: string | null;
 }
 
 export async function createSession(config: AppConfig): Promise<SessionRecord> {
@@ -78,6 +88,64 @@ export async function resolveSessionDir(
   return path.join(baseDir, latest);
 }
 
+export async function resolvePlannerSessionDir(
+  config: AppConfig,
+  sessionRef?: string,
+  useLatest?: boolean,
+): Promise<string> {
+  const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
+  if (sessionRef) {
+    const sessionDir = path.isAbsolute(sessionRef) ? sessionRef : path.join(baseDir, sessionRef);
+    await assertPlannerSessionDir(sessionDir);
+    return sessionDir;
+  }
+
+  if (!useLatest) {
+    throw new Error('A planner session reference is required unless --last is used');
+  }
+
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const sorted = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+
+  for (const name of sorted) {
+    const candidate = path.join(baseDir, name);
+    if (await isPlannerSessionDir(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error('No planner session directories are available');
+}
+
+export async function listRecentSessions(
+  config: AppConfig,
+  limit = 8,
+): Promise<SessionListItem[]> {
+  const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const directories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+    .slice(0, limit * 2);
+
+  const items: SessionListItem[] = [];
+  for (const name of directories) {
+    const dir = path.join(baseDir, name);
+    items.push(await buildSessionListItem(name, dir));
+    if (items.length >= limit) {
+      break;
+    }
+  }
+
+  return items;
+}
+
 async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays: number): Promise<void> {
   const entries = await readdir(baseDir, { withFileTypes: true });
   const now = Date.now();
@@ -103,5 +171,100 @@ async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays:
     if (!keep.has(entry.name)) {
       await rm(path.join(baseDir, entry.name), { recursive: true, force: true });
     }
+  }
+}
+
+export async function isPlannerSessionDir(sessionDir: string): Promise<boolean> {
+  try {
+    await access(path.join(sessionDir, 'plan.json'));
+    await access(path.join(sessionDir, 'plan.state.json'));
+    await access(path.join(sessionDir, 'plan.events.jsonl'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function buildSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const planner = await isPlannerSessionDir(dir);
+  if (planner) {
+    return loadPlannerSessionListItem(id, dir);
+  }
+
+  return loadAgentSessionListItem(id, dir);
+}
+
+async function loadPlannerSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const plan = await readJsonFile<{
+    summary?: string;
+  }>(path.join(dir, 'plan.json'));
+  const state = await readJsonFile<{
+    outcome?: string;
+    phase?: string;
+    currentStepId?: string | null;
+  }>(path.join(dir, 'plan.state.json'));
+  const request = await readJsonFile<{
+    promptHistory?: string[];
+  }>(path.join(dir, 'planner.request.json'));
+  const summary = compactSummary(
+    plan?.summary,
+    request?.promptHistory?.at(-1),
+    request?.promptHistory?.[0],
+    '(planner session)',
+  );
+
+  return {
+    id,
+    dir,
+    isPlanner: true,
+    summary,
+    ...(typeof state?.outcome === 'string' ? { outcome: state.outcome } : {}),
+    ...(typeof state?.phase === 'string' ? { phase: state.phase } : {}),
+    ...('currentStepId' in (state ?? {}) ? { currentStepId: state?.currentStepId ?? null } : {}),
+  };
+}
+
+async function loadAgentSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const request = await readJsonFile<{
+    prompt?: string;
+  }>(path.join(dir, 'request.json'));
+
+  return {
+    id,
+    dir,
+    isPlanner: false,
+    summary: compactSummary(request?.prompt, '(session)'),
+  };
+}
+
+async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function compactSummary(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      continue;
+    }
+
+    return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
+  }
+
+  return '(session)';
+}
+
+async function assertPlannerSessionDir(sessionDir: string): Promise<void> {
+  if (!(await isPlannerSessionDir(sessionDir))) {
+    throw new Error(`Session is not a planner session: ${sessionDir}`);
   }
 }
