@@ -12,6 +12,10 @@ export interface SessionListItem {
   id: string;
   dir: string;
   isPlanner: boolean;
+  summary: string;
+  outcome?: string;
+  phase?: string;
+  currentStepId?: string | null;
 }
 
 export async function createSession(config: AppConfig): Promise<SessionRecord> {
@@ -133,11 +137,7 @@ export async function listRecentSessions(
   const items: SessionListItem[] = [];
   for (const name of directories) {
     const dir = path.join(baseDir, name);
-    items.push({
-      id: name,
-      dir,
-      isPlanner: await isPlannerSessionDir(dir),
-    });
+    items.push(await buildSessionListItem(name, dir));
     if (items.length >= limit) {
       break;
     }
@@ -183,6 +183,84 @@ export async function isPlannerSessionDir(sessionDir: string): Promise<boolean> 
   } catch {
     return false;
   }
+}
+
+async function buildSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const planner = await isPlannerSessionDir(dir);
+  if (planner) {
+    return loadPlannerSessionListItem(id, dir);
+  }
+
+  return loadAgentSessionListItem(id, dir);
+}
+
+async function loadPlannerSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const plan = await readJsonFile<{
+    summary?: string;
+  }>(path.join(dir, 'plan.json'));
+  const state = await readJsonFile<{
+    outcome?: string;
+    phase?: string;
+    currentStepId?: string | null;
+  }>(path.join(dir, 'plan.state.json'));
+  const request = await readJsonFile<{
+    promptHistory?: string[];
+  }>(path.join(dir, 'planner.request.json'));
+  const summary = compactSummary(
+    plan?.summary,
+    request?.promptHistory?.at(-1),
+    request?.promptHistory?.[0],
+    '(planner session)',
+  );
+
+  return {
+    id,
+    dir,
+    isPlanner: true,
+    summary,
+    ...(typeof state?.outcome === 'string' ? { outcome: state.outcome } : {}),
+    ...(typeof state?.phase === 'string' ? { phase: state.phase } : {}),
+    ...('currentStepId' in (state ?? {}) ? { currentStepId: state?.currentStepId ?? null } : {}),
+  };
+}
+
+async function loadAgentSessionListItem(id: string, dir: string): Promise<SessionListItem> {
+  const request = await readJsonFile<{
+    prompt?: string;
+  }>(path.join(dir, 'request.json'));
+
+  return {
+    id,
+    dir,
+    isPlanner: false,
+    summary: compactSummary(request?.prompt, '(session)'),
+  };
+}
+
+async function readJsonFile<T>(filePath: string): Promise<T | null> {
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function compactSummary(...values: Array<string | undefined>): string {
+  for (const value of values) {
+    if (!value) {
+      continue;
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      continue;
+    }
+
+    return normalized.length > 90 ? `${normalized.slice(0, 87)}...` : normalized;
+  }
+
+  return '(session)';
 }
 
 async function assertPlannerSessionDir(sessionDir: string): Promise<void> {

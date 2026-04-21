@@ -246,13 +246,18 @@ node dist/index.js rollback --last
 - `npm run tui` opens a simple interactive terminal session for new requests
 - add `--workspace` when launching the TUI, or use `/workspace <path>` inside it, to switch the active session working directory
 - use `/mode run`, `/mode plan`, or `/mode execute` to switch between coding, planning, and planner execution workflows
-- use `/sessions` to refresh the recent session list and `/open <index|session-id-or-path>` to inspect a prior planner session inside the same TUI
-- use `/files path1 path2` to pin explicit files, `/verify <cmd>` to override the verifier for `run`, and `/yes on` to auto-approve patches
+- use `/sessions` to refresh the recent session list and `/open <index|session-id-or-path>` to inspect a prior session inside the same TUI
+- use `/resume [index|session-id-or-path|last]` to continue a planner session and `/replan <extra prompt>` to continue the opened planner session with more input
+- use `/follow [index|session-id-or-path|last]` to open a live planner viewer and press `q` to return to the main TUI
+- use `/files path1 path2`, `/add-file`, and `/remove-file` to manage explicit files, `/verify <cmd>` to override the verifier for `run`, and `/yes on` to auto-approve patches
 - use `/paste` to enter multiline pasted context, ending with a single `.` line
 - files listed with `/files` are also treated as explicit read/write grants for otherwise auto-denied files inside the workspace, and as explicit read-only grants for files outside the workspace
+- use `/inspect step <step-id|index>` and `/open-child <step-id|index>` to drill into planner execution results
+- use `/show-state` to print the current TUI mode, workspace, and overrides
 - use `/reset` to clear the current TUI state and `/quit` to exit
 - in `run` mode, if `/yes` is off, the TUI will show the patch preview and ask for confirmation before applying it
 - when the last opened session is a planner session, the TUI embeds a planner panel showing the current plan, subtasks, and timeline directly in the conversation UI
+- see `docs/tui.md` for the full command reference and example workflows
 
 ## Multi-file Patch
 

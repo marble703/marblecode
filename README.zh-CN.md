@@ -103,7 +103,7 @@ node dist/index.js plan "重构路由模块并补测试"
 先规划，再串行执行 subtask，直到 verifier 通过：
 
 ```bash
-node dist/index.js plan "修复 src/math.js 中的 add 错误并通过 verify" --execute
+node dist/index.js plan "修复 src/math.js 中的 add 错误并通过 verify" --workspace examples/manual-test-suite/project --execute
 ```
 
 带着新输入恢复 planner session：
@@ -178,7 +178,7 @@ node dist/index.js rollback --last
 - `npm run dev`：用 `tsx` 直接运行 CLI
 - `npm run smoke:edit`：执行一个不依赖外部 API 的本地改码 smoke test
 - `npm run smoke:verifier`：对 `examples/verifier-fixture` 运行现有 verifier 冒烟验证
-- `npm run test:examples`：运行手动触发的完整 examples 测试套件，覆盖 patch、verifier、rollback、shell 和权限检查
+- `npm run test:examples`：运行确定性的 manual suite，覆盖工具、自动上下文选择、planner 流程、TUI 命令解析、patch 应用/拒绝/回滚、verifier 行为、重试路径、shell 和权限检查
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
 - `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
 - `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 串行链路
@@ -237,13 +237,18 @@ node dist/index.js rollback --last
 - `npm run tui` 会打开一个简单的交互式终端会话，可直接输入新请求
 - 启动时可加 `--workspace`，或在 TUI 里用 `/workspace <path>` 切换当前 session 工作目录
 - 用 `/mode run`、`/mode plan`、`/mode execute` 切换编码、规划和 planner 执行模式
-- 用 `/sessions` 刷新最近 session 列表，用 `/open <序号|session-id-or-path>` 在同一个 TUI 里查看之前的 planner session
-- 用 `/files path1 path2` 固定显式文件，用 `/verify <cmd>` 为 `run` 模式覆盖 verifier，用 `/yes on` 开启自动确认 patch
+- 用 `/sessions` 刷新最近 session 列表，用 `/open <序号|session-id-or-path>` 在同一个 TUI 里查看之前的 session
+- 用 `/resume [序号|session-id-or-path|last]` 恢复 planner session，用 `/replan <额外输入>` 为当前打开的 planner session 继续补充输入
+- 用 `/follow [序号|session-id-or-path|last]` 打开实时 planner 查看器，按 `q` 返回主 TUI
+- 用 `/files path1 path2`、`/add-file`、`/remove-file` 管理显式文件，用 `/verify <cmd>` 为 `run` 模式覆盖 verifier，用 `/yes on` 开启自动确认 patch
 - 用 `/paste` 进入多行粘贴模式，以单独一行 `.` 结束
 - `/files` 中的路径也会被视为显式授权：工作目录内的 autoDeny 文件可读写，工作目录外文件仅允许读取
+- 用 `/inspect step <step-id|index>` 和 `/open-child <step-id|index>` 钻取 planner 执行细节
+- 用 `/show-state` 查看当前模式、工作目录和覆盖项
 - 用 `/reset` 清空当前 TUI 状态，用 `/quit` 退出
 - 在 `run` 模式下，如果没有开启 `/yes on`，TUI 会展示 patch preview 并询问是否应用
 - 当最后打开的是 planner session 时，TUI 会把 planner 计划、subtask 和时间线直接内嵌显示在会话界面中
+- 完整命令说明和示例流程见 `docs/tui.md`
 
 ## 多文件 Patch
 
@@ -265,8 +270,11 @@ node dist/index.js rollback --last
 ## 仓库结构
 
 - `.marblecode`：项目级 agent 配置和 verifier 计划
+- `scripts`：本地 smoke check、planner 查看器和手动回归入口
 - `src/cli`：CLI 入口
 - `src/agent`：主执行循环
+- `src/config`：配置 schema 和配置加载
+- `src/planner`：只读 planner 循环和串行 planner 执行流程
 - `src/provider`：模型抽象和 OpenAI-compatible Provider
 - `src/router`：规则路由
 - `src/context`：上下文选择
@@ -275,9 +283,12 @@ node dist/index.js rollback --last
 - `src/policy`：权限和 Shell 策略
 - `src/verifier`：补丁后的验证执行
 - `src/session`：本地会话记录
+- `src/tui`：交互式终端 UI 和 planner session 渲染
+- `src/shared`：跨模块复用的共享辅助函数
+- `src/index.ts`：顶层入口，仅转发到 CLI
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
-- `examples/manual-test-suite`：用于手动全量回归验证的 fixture 和说明文档
+- `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
 - `docs/mvp-v1.md`：MVP 架构和协议说明
 
 ## Verifier Markdown

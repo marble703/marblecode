@@ -30,13 +30,16 @@ export interface PlannerViewModel {
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
   const [planRaw, stateRaw, eventsRaw, plannerLogRaw] = await Promise.all([
-    readFile(path.join(sessionDir, 'plan.json'), 'utf8'),
-    readFile(path.join(sessionDir, 'plan.state.json'), 'utf8'),
-    readFile(path.join(sessionDir, 'plan.events.jsonl'), 'utf8'),
-    readFile(path.join(sessionDir, 'planner.log.jsonl'), 'utf8'),
+    readTextIfExists(path.join(sessionDir, 'plan.json')),
+    readTextIfExists(path.join(sessionDir, 'plan.state.json')),
+    readTextIfExists(path.join(sessionDir, 'plan.events.jsonl')),
+    readTextIfExists(path.join(sessionDir, 'planner.log.jsonl')),
   ]);
 
-  const plan = JSON.parse(planRaw) as {
+  const plan = parseJsonWithFallback(planRaw, {
+    summary: 'Planner session has not produced a plan yet.',
+    steps: [],
+  }) as {
     summary: string;
     steps: Array<{
       id: string;
@@ -49,7 +52,13 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
       assignee?: string;
     }>;
   };
-  const state = JSON.parse(stateRaw) as {
+  const state = parseJsonWithFallback(stateRaw, {
+    phase: 'PENDING',
+    outcome: 'RUNNING',
+    message: 'Planner session is still initializing.',
+    currentStepId: null,
+    consistencyErrors: [],
+  }) as {
     phase: string;
     outcome: string;
     message: string;
@@ -142,7 +151,13 @@ export function parseJsonLines(content: string): PlannerEventRecord[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as PlannerEventRecord);
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as PlannerEventRecord];
+      } catch {
+        return [];
+      }
+    });
 }
 
 export function renderPlannerEvent(event: PlannerEventRecord): string {
@@ -212,4 +227,24 @@ function findLastMatching<T>(items: T[], predicate: (item: T) => boolean): T | u
   }
 
   return undefined;
+}
+
+async function readTextIfExists(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function parseJsonWithFallback<T>(content: string, fallback: T): T {
+  if (!content.trim()) {
+    return fallback;
+  }
+
+  try {
+    return JSON.parse(content) as T;
+  } catch {
+    return fallback;
+  }
 }
