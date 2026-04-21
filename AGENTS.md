@@ -51,8 +51,8 @@
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
 - `src/config`: config schema defaults and project/local config loading.
-- `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
-- `src/planner`: planner loop, execution graph helpers, node-level retry/fallback/local-replan recovery, and serial subtask orchestration.
+- `src/planner`: planner loop plus the remaining execution orchestration that still lives in `src/planner/index.ts`.
+- `src/planner/model.ts`, `src/planner/parse.ts`, `src/planner/artifacts.ts`, `src/planner/prompts.ts`, `src/planner/state.ts`, `src/planner/recovery.ts`, `src/planner/utils.ts`: planner helper modules split out of the old monolithic planner entrypoint.
 - `src/planner/graph.ts`: execution graph helpers, conflict detection, and execution wave calculation.
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute and future concurrency work.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
@@ -61,7 +61,7 @@
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.
-- `src/shared`: small shared utilities such as log redaction helpers.
+- `src/shared`: shared utilities such as log redaction helpers, JSON response extraction, and recursive file walking.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
 - `src/tools`: built-in tools. Planner-facing tools now also include read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`.
 - `src/tui`: interactive terminal UI plus planner session rendering helpers.

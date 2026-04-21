@@ -1,10 +1,11 @@
 import { exec as execCallback, execFile as execFileCallback } from 'node:child_process';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
+import { walkRelativeFiles } from '../shared/file-walk.js';
 import type { Tool } from './types.js';
 
 const exec = promisify(execCallback);
@@ -85,7 +86,7 @@ function createListFilesTool(config: AppConfig, policy: PolicyEngine): Tool {
       try {
         const targetDir = path.resolve(config.workspaceRoot, String(input.path ?? '.'));
         policy.assertReadable(targetDir);
-        const files = await walkFiles(config.workspaceRoot, targetDir, [...config.context.exclude, ...config.context.autoDeny]);
+        const files = await walkRelativeFiles(config.workspaceRoot, targetDir, [...config.context.exclude, ...(config.context.autoDeny ?? [])]);
         const pattern = typeof input.pattern === 'string' ? input.pattern : '**/*';
         return {
           ok: true,
@@ -120,7 +121,7 @@ function createSearchTextTool(config: AppConfig, policy: PolicyEngine): Tool {
       try {
         const flags = normalizeRegexFlags(input.flags);
         const regex = new RegExp(String(input.pattern), flags);
-        const files = await walkFiles(config.workspaceRoot, config.workspaceRoot, [...config.context.exclude, ...config.context.autoDeny]);
+        const files = await walkRelativeFiles(config.workspaceRoot, config.workspaceRoot, [...config.context.exclude, ...(config.context.autoDeny ?? [])]);
         const pathPattern = typeof input.pathPattern === 'string' ? input.pathPattern : '**/*';
         const matches: Array<{
           path: string;
@@ -399,25 +400,4 @@ function sanitizeGitToken(value: string): string {
   }
 
   return trimmed;
-}
-
-async function walkFiles(root: string, currentDir: string, excludePatterns: string[]): Promise<string[]> {
-  const entries = await readdir(currentDir, { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const absolutePath = path.join(currentDir, entry.name);
-    const relativePath = path.relative(root, absolutePath) || entry.name;
-    if (excludePatterns.some((pattern) => minimatch(relativePath, pattern, { dot: true }))) {
-      continue;
-    }
-
-    if (entry.isDirectory()) {
-      files.push(...(await walkFiles(root, absolutePath, excludePatterns)));
-    } else {
-      files.push(relativePath);
-    }
-  }
-
-  return files;
 }

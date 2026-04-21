@@ -1,8 +1,8 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
+import { matchesPathPatterns, walkRelativeFiles } from '../shared/file-walk.js';
 
 export interface ContextInput {
   prompt: string;
@@ -46,7 +46,7 @@ export async function buildContext(input: ContextInput, config: AppConfig, polic
   const seen = new Set<string>();
   const pastedLabels: string[] = [];
   const queryTerms = extractQueryTerms(input.prompt, input.pastedSnippets);
-  const autoExcludePatterns = [...config.context.exclude, ...config.context.autoDeny];
+  const autoExcludePatterns = [...config.context.exclude, ...(config.context.autoDeny ?? [])];
 
   for (const [index, snippet] of input.pastedSnippets.entries()) {
     const label = `[Pasted ~${countSnippetLines(snippet)} lines #${index + 1}]`;
@@ -183,7 +183,7 @@ export async function buildContext(input: ContextInput, config: AppConfig, polic
 }
 
 function isExcluded(targetPath: string, patterns: string[]): boolean {
-  return patterns.some((pattern) => minimatch(targetPath, pattern, { dot: true }));
+  return matchesPathPatterns(targetPath, patterns);
 }
 
 async function safeReadSnippet(filePath: string, limit: number): Promise<string> {
@@ -192,7 +192,7 @@ async function safeReadSnippet(filePath: string, limit: number): Promise<string>
 }
 
 async function collectRecentFiles(root: string, excludePatterns: string[], limit: number): Promise<Array<{ path: string; mtimeMs: number }>> {
-  const entries = await walk(root, root, excludePatterns);
+  const entries = await walkRelativeFiles(root, root, excludePatterns);
   const stats = await Promise.all(
     entries.map(async (entry) => ({
       path: entry,
@@ -213,7 +213,7 @@ async function collectKeywordMatches(
     return [];
   }
 
-  const files = await walk(root, root, excludePatterns);
+  const files = await walkRelativeFiles(root, root, excludePatterns);
   const matches: Array<{ path: string; score: number; matchedTerms: string[]; lineHints: number[]; excerpt: string }> = [];
 
   for (const file of files) {
@@ -386,26 +386,4 @@ function extractRelevantSnippet(content: string, queryTerms: string[]): string {
   const start = Math.max(0, lineStart - 400);
   const end = Math.min(content.length, firstIndex + 800);
   return content.slice(start, end);
-}
-
-async function walk(root: string, currentDir: string, excludePatterns: string[]): Promise<string[]> {
-  const results: string[] = [];
-  const entries = await readdir(currentDir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const absolutePath = path.join(currentDir, entry.name);
-    const relativePath = path.relative(root, absolutePath) || entry.name;
-    if (isExcluded(relativePath, excludePatterns)) {
-      continue;
-    }
-
-    if (entry.isDirectory()) {
-      results.push(...(await walk(root, absolutePath, excludePatterns)));
-      continue;
-    }
-
-    results.push(relativePath);
-  }
-
-  return results;
 }

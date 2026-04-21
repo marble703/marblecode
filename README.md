@@ -290,6 +290,7 @@ node dist/index.js rollback --last
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
 - `src/planner`: read-only planning loop and serial planner execution flow
+- `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, `utils.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, recovery, and shared planner utilities
 - `src/planner/graph.ts`: execution graph, conflict edges, and execution wave helpers
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute
 - `src/provider`: model abstraction and OpenAI-compatible provider
@@ -302,6 +303,8 @@ node dist/index.js rollback --last
 - `src/session`: local session persistence and cleanup
 - `src/tui`: interactive terminal UI and planner session rendering
 - `src/shared`: shared helpers used across modules
+- `src/shared/json-response.ts`: shared fenced/balanced JSON extraction used by agent, planner, and verifier flows
+- `src/shared/file-walk.ts`: shared recursive workspace file walking used by context and tool discovery
 - `src/index.ts`: top-level entry that forwards to the CLI
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
@@ -312,8 +315,9 @@ node dist/index.js rollback --last
 
 ## Refactor Notes
 
-- the current top-level module boundaries are still sound, but `src/planner/index.ts`, `src/tui/agent-repl.ts`, `src/agent/index.ts`, `src/verifier/index.ts`, and `scripts/test-examples.ts` are the main file-size and mixed-responsibility hotspots
-- `docs/repo-refactor-plan.md` defines the intended split order, target module layout, and which existing verification commands should protect each phase
+- the first structural cleanup pass has already extracted shared JSON parsing and file-walk helpers plus the planner request/parse/artifact/prompt/state/recovery helpers into focused modules
+- the main remaining large-file hotspots are `src/planner/index.ts`, `src/tui/agent-repl.ts`, `src/agent/index.ts`, `src/verifier/index.ts`, and `scripts/test-examples.ts`
+- `docs/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
 
 ## Verifier Markdown
 

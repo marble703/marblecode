@@ -2,6 +2,24 @@
 
 This document captures the next cleanup pass for the repository structure. The repo already has sensible top-level module boundaries, but a few core files now combine too many responsibilities and should be split before more planner and TUI work lands.
 
+## Status
+
+Implemented in the current pass:
+
+- extracted shared JSON parsing into `src/shared/json-response.ts`
+- extracted shared recursive file walking into `src/shared/file-walk.ts`
+- updated `src/context/index.ts` and `src/tools/builtins.ts` to use the shared file walker
+- updated `src/agent/index.ts` and `src/verifier/index.ts` to use the shared JSON extractor
+- split planner helpers into `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, and `utils.ts`
+- kept `runPlanner()` exported from `src/planner/index.ts` while shrinking the old monolithic helper surface
+
+Still pending after this pass:
+
+- move more execution orchestration out of `src/planner/index.ts`
+- split `src/tui/agent-repl.ts`
+- split `src/agent/index.ts` and `src/verifier/index.ts` further than the shared-helper extraction
+- split `scripts/test-examples.ts`
+
 ## Goals
 
 - keep behavior stable while reducing file-level complexity
@@ -25,16 +43,13 @@ The current repository layout is directionally good, but these files are carryin
 - `src/verifier/index.ts`: command resolution, verifier execution, LLM-based verifier-failure analysis, and JSON extraction helpers
 - `scripts/test-examples.ts`: provider stubs, case registry, most fixture scenarios, and suite helpers all live in one file
 
-There are also smaller shared-utility candidates that are currently duplicated:
-
-- JSON object extraction logic appears in planner, agent, and verifier flows
-- recursive file walking and exclude handling appear in both `src/context/index.ts` and `src/tools/builtins.ts`
+The first shared-utility cleanup is already done, but these larger runtime files still need follow-up splits.
 
 ## Target Shape
 
 ### Shared utilities first
 
-Move repeated helpers into `src/shared` before splitting the large orchestrators.
+This phase is now complete and should stay the baseline for later cleanup.
 
 - `src/shared/json-response.ts`: fenced-JSON extraction, balanced-object extraction, parseability checks
 - `src/shared/file-walk.ts`: recursive file walking with shared exclude-pattern handling
@@ -97,11 +112,10 @@ Leave `scripts/test-examples.ts` for last so production refactors land first. Wh
 
 ## Rollout Order
 
-1. Extract shared JSON parsing helpers and recursive file-walk helpers.
-2. Split planner internals while keeping `runPlanner()` exported from `src/planner/index.ts`.
-3. Split TUI command, action, and render layers.
-4. Split agent and verifier helpers onto the new shared primitives.
-5. Split the manual suite after production modules are stable.
+1. Continue splitting planner execution orchestration while keeping `runPlanner()` exported from `src/planner/index.ts`.
+2. Split TUI command, action, and render layers.
+3. Split agent and verifier helpers further on top of the new shared primitives.
+4. Split the manual suite after production modules are stable.
 
 This order keeps the highest-risk runtime path first, but avoids changing planner and TUI before their shared dependencies are ready.
 

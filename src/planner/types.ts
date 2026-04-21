@@ -4,6 +4,36 @@ export type PlannerPhase = 'PENDING' | 'PLANNING' | 'SEARCHING' | 'PATCHING' | '
 
 export type PlannerOutcome = 'RUNNING' | 'FAILED' | 'DONE' | 'CANCELLED' | 'NEEDS_INPUT';
 
+export type PlannerPlanPayload = Omit<PlannerPlan, 'revision'> & { revision?: number };
+
+export type PlannerResponse =
+  | {
+      type: 'tool_call';
+      thought?: string;
+      tool: string;
+      input: Record<string, unknown>;
+    }
+  | {
+      type: 'plan';
+      thought?: string;
+      plan: PlannerPlanPayload;
+    }
+  | {
+      type: 'plan_update';
+      thought?: string;
+      stepId: string;
+      status: PlannerStepStatus;
+      message?: string;
+      relatedFiles?: string[];
+    }
+  | {
+      type: 'final';
+      thought?: string;
+      message: string;
+      outcome?: Exclude<PlannerOutcome, 'RUNNING'>;
+      summary?: string;
+    };
+
 export type PlannerStepKind = 'search' | 'code' | 'test' | 'verify' | 'docs' | 'note';
 
 export type PlannerStepExecutionState = 'idle' | 'ready' | 'running' | 'retrying' | 'fallback' | 'blocked' | 'done' | 'failed';
@@ -64,6 +94,19 @@ export interface PlannerPlan {
   revision: number;
   summary: string;
   steps: PlannerStep[];
+}
+
+export interface PlannerRequestArtifact {
+  promptHistory: string[];
+  explicitFiles: string[];
+  pastedSnippets: string[];
+  resumedFrom: string | null;
+}
+
+export interface PlannerSessionArtifacts {
+  request: PlannerRequestArtifact;
+  plan: PlannerPlan;
+  state: PlannerState;
 }
 
 export interface PlannerState {

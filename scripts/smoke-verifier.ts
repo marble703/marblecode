@@ -25,6 +25,10 @@ async function main(): Promise<void> {
       planningModel: 'strong',
       maxSteps: 8,
       maxAutoRepairAttempts: 0,
+      maxConcurrentSubtasks: 1,
+      subtaskMaxAttempts: 1,
+      subtaskReplanOnFailure: false,
+      subtaskConflictPolicy: 'serial',
     },
     context: {
       maxFiles: 4,
@@ -32,6 +36,7 @@ async function main(): Promise<void> {
       recentFileCount: 2,
       exclude: ['dist/**'],
       sensitive: ['.env*'],
+      autoDeny: [],
     },
     policy: {
       path: {

@@ -78,7 +78,7 @@ Use this suite as the regression map when splitting large runtime files.
 - planner graph, lock, retry, fallback, local replan, and execute-wave refactors should keep the planner-execute scenarios green
 - TUI command or planner-view refactors should keep the interactive command parsing and recent-session scenarios green
 - agent, patch, rollback, or verifier refactors should keep the deterministic patch-apply, rollback, verifier-output, and verifier-analysis scenarios green
-- the repository split plan in `docs/repo-refactor-plan.md` references this suite as the main deterministic safety net for structural cleanup
+- the repository split plan in `docs/repo-refactor-plan.md` references this suite as the main deterministic safety net for structural cleanup; the current shared-helper and planner-helper split pass was validated with `npm run test:examples`
 
 ## Fixture Layout
 

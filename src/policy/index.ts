@@ -85,7 +85,7 @@ export class PolicyEngine {
 
   public isAutoDenied(targetPath: string): boolean {
     const relativePath = this.toRelativePath(targetPath);
-    return this.config.context.autoDeny.some((pattern) => minimatch(relativePath, pattern, { dot: true }));
+    return (this.config.context.autoDeny ?? []).some((pattern) => minimatch(relativePath, pattern, { dot: true }));
   }
 
   private assertPathAccess(targetPath: string, requireWrite: boolean): void {
