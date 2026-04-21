@@ -13,7 +13,7 @@ Use this task when manually validating the read-only planner with a real model.
 - `src/router.js`
 - `src/register-routes.js`
 - `src/server.js`
-- `tests/check-math.js`
+- `tests/router.test.txt`
 
 ## Manual Command
 

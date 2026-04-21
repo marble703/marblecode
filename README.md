@@ -105,7 +105,7 @@ node dist/index.js plan "Refactor the router module and add tests"
 Plan first, then execute subtasks serially until verifier passes:
 
 ```bash
-node dist/index.js plan "Fix src/math.js so add returns a + b" --execute
+node dist/index.js plan "Fix src/math.js so add returns a + b" --workspace examples/manual-test-suite/project --execute
 ```
 
 Resume a planner session with more input:
@@ -180,7 +180,7 @@ node dist/index.js rollback --last
 - `npm run dev`: run the CLI with `tsx`
 - `npm run smoke:edit`: run a local no-network patch-application smoke test
 - `npm run smoke:verifier`: run the existing verifier against `examples/verifier-fixture`
-- `npm run test:examples`: run the full manual example suite for patch, verifier, rollback, shell, and policy checks
+- `npm run test:examples`: run the deterministic manual suite for tools, automatic context selection, planner flows, TUI command parsing, patch apply/reject/rollback, verifier behavior, retry paths, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 - `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
 - `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
@@ -274,8 +274,11 @@ node dist/index.js rollback --last
 ## Repository Layout
 
 - `.marblecode`: project-scoped agent configuration and verifier plans
+- `scripts`: local smoke checks, planner inspectors, and manual regression entrypoints
 - `src/cli`: CLI entrypoint
 - `src/agent`: agent loop
+- `src/config`: config schema and config loading
+- `src/planner`: read-only planning loop and serial planner execution flow
 - `src/provider`: model abstraction and OpenAI-compatible provider
 - `src/router`: static model routing
 - `src/context`: bounded context construction
@@ -284,9 +287,12 @@ node dist/index.js rollback --last
 - `src/policy`: path and shell policy enforcement
 - `src/verifier`: post-patch verification
 - `src/session`: local session persistence and cleanup
+- `src/tui`: interactive terminal UI and planner session rendering
+- `src/shared`: shared helpers used across modules
+- `src/index.ts`: top-level entry that forwards to the CLI
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
-- `examples/manual-test-suite`: manual full-coverage fixture and documentation for release-grade checks
+- `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
 - `docs/mvp-v1.md`: architecture and protocol contract
 - `README.zh-CN.md`: Chinese project overview
 

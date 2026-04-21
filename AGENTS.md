@@ -9,7 +9,7 @@
 - If a repo has no explicit verifier commands or `.marblecode/verifier.md`, the verifier falls back to simple repo discovery (`package.json`, `Makefile`, `Cargo.toml`, `go.mod`, pytest signals).
 - For a no-network end-to-end check of patch application, run `npm run smoke:edit`.
 - For a no-network verifier check against a fixture project, run `npm run smoke:verifier`.
-- For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. This is intentionally manual-only for major changes and release validation, not something to run on every edit.
+- For the full manual regression suite under `examples/manual-test-suite`, run `npm run test:examples`. It covers deterministic tool/context/planner/TUI/patch/verifier/policy/retry scenarios and is intentionally manual-only for major changes and release validation, not something to run on every edit.
 - For a real provider connectivity check, run `npm run check:model -- --model cheap`.
 - For a real planner check against the manual suite task, run `npm run check:planner`.
 - For a real planner execution chain check on a temp fixture, run `npm run check:planner:execute`.
@@ -47,6 +47,7 @@
 # Codebase Boundaries
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
+- `src/config`: config schema defaults and project/local config loading.
 - `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
@@ -54,12 +55,14 @@
 - `src/patch`: preview/apply/rollback; this is where backups are created.
 - `src/policy`: workspace/file/shell restrictions. `readWrite: ['.']` must not allow paths outside the workspace.
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.
+- `src/shared`: small shared utilities such as log redaction helpers.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
+- `src/tui`: interactive terminal UI plus planner session rendering helpers.
 - `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
 - `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
-- `examples/manual-test-suite`: manual full-coverage fixture for tool, patch, rollback, shell, policy, and verifier regression checks.
+- `examples/manual-test-suite`: deterministic regression fixture for tool, context, planner, patch, rollback, shell, policy, verifier, and retry checks.
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
 
 # TypeScript Gotchas
