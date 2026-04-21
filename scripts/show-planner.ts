@@ -42,11 +42,16 @@ async function main(): Promise<void> {
   process.stdout.write(`Outcome: ${view.outcome}\n`);
   process.stdout.write(`Phase: ${view.phase}\n`);
   process.stdout.write(`Current step: ${view.currentStepId ?? '(none)'}\n`);
+  process.stdout.write(`Active steps: ${view.activeStepIds.join(', ') || '(none)'}\n`);
+  process.stdout.write(`Ready steps: ${view.readyStepIds.join(', ') || '(none)'}\n`);
+  process.stdout.write(`Failed steps: ${view.failedStepIds.join(', ') || '(none)'}\n`);
+  process.stdout.write(`Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}\n`);
   process.stdout.write(`Summary: ${view.summary}\n\n`);
 
   process.stdout.write('Plan Steps:\n');
   for (const [index, step] of view.steps.entries()) {
     process.stdout.write(`${index + 1}. [${step.status}] ${step.title} (${step.kind})\n`);
+    process.stdout.write(`   attempts: ${step.attempts}${step.executionState ? ` state=${step.executionState}` : ''}\n`);
     if (step.details) {
       process.stdout.write(`   ${step.details}\n`);
     }
@@ -58,6 +63,9 @@ async function main(): Promise<void> {
     }
     if (step.assignee) {
       process.stdout.write(`   assignee: ${step.assignee}\n`);
+    }
+    if (step.failureKind || step.lastError) {
+      process.stdout.write(`   failure: ${step.failureKind ?? 'unknown'}${step.lastError ? ` ${step.lastError}` : ''}\n`);
     }
   }
 

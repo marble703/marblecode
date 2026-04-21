@@ -40,6 +40,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - `read_file` returns expected file contents
 - `list_files` filters fixture files by glob pattern
 - `search_text` performs regex matching and returns line/column locations
+- read-only git helpers expose repository status, history, show, and base diff information when the workspace is a git repo
 - `run_shell` executes `pwd`, `ls`, and `grep`
 - policy blocks sensitive file reads and forbidden shell commands
 - explicit grants can override `context.autoDeny` for approved in-workspace and read-only out-of-workspace files
@@ -47,6 +48,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - planner mode creates read-only plans, logs plan events, retries invalid patch-like output, supports model retries, and supports basic resume/replan
 - planner mode also writes `planner.log.jsonl`, and the repo includes `planner-task.md` for real-model planner validation
 - planner execution mode is covered by `planner-exec-task.md`, which validates serial subtask execution until verifier success
+- planner execution mode also covers node-level retry, fallback model selection, and local replanning before the session is considered failed
 - interactive TUI command parsing covers mode switching, `/workspace`, `/files`, `/verify`, `/yes`, `/open`, and `/reset`
 - verifier auto-discovery falls back to package `test`/`build` scripts when `.marblecode/verifier.md` is missing
 - a deterministic provider generates a patch and the host applies it
@@ -57,6 +59,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - verifier failures return structured stderr output for syntax errors
 - verifier-failure analysis can classify a failing manual verifier as a verifier problem
 - agent and planner model retries are covered for both recovery and retry exhaustion
+- planner execute tests also cover deterministic node retry, fallback, and local replan recovery paths
 
 ## Companion Manual Checks
 

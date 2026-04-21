@@ -61,6 +61,7 @@ export async function loadConfig(configPath?: string, workspaceOverride?: string
   const verifierCommands = projectConfig.verifier?.commands ?? parsed.verifier?.commands ?? [];
   const hasProjectVerifierSource = projectConfigExists || verifierFileExists;
   const explicitVerifierEnabled = projectConfig.verifier?.enabled ?? (hasProjectVerifierSource ? undefined : parsed.verifier?.enabled);
+  const subtaskFallbackModel = projectConfig.routing?.subtaskFallbackModel ?? parsed.routing?.subtaskFallbackModel;
   const config: AppConfig = {
     workspaceRoot,
     providers: mergeProviderConfigs(parsed.providers ?? {}, projectConfig.providers ?? {}),
@@ -71,6 +72,12 @@ export async function loadConfig(configPath?: string, workspaceOverride?: string
       planningModel: projectConfig.routing?.planningModel ?? parsed.routing?.planningModel ?? 'strong',
       maxSteps: projectConfig.routing?.maxSteps ?? parsed.routing?.maxSteps ?? 8,
       maxAutoRepairAttempts: projectConfig.routing?.maxAutoRepairAttempts ?? parsed.routing?.maxAutoRepairAttempts ?? 2,
+      maxConcurrentSubtasks: projectConfig.routing?.maxConcurrentSubtasks ?? parsed.routing?.maxConcurrentSubtasks ?? 1,
+      subtaskMaxAttempts: projectConfig.routing?.subtaskMaxAttempts ?? parsed.routing?.subtaskMaxAttempts ?? 2,
+      subtaskReplanOnFailure: projectConfig.routing?.subtaskReplanOnFailure ?? parsed.routing?.subtaskReplanOnFailure ?? true,
+      ...(typeof subtaskFallbackModel === 'string' && subtaskFallbackModel
+        ? { subtaskFallbackModel }
+        : {}),
     },
     context: {
       maxFiles: projectConfig.context?.maxFiles ?? parsed.context?.maxFiles ?? 8,

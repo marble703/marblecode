@@ -230,6 +230,7 @@ node dist/index.js rollback --last
 - add `--execute` to let the host execute planner-produced code/test/verify steps serially through subagents and a final verifier pass
 - in execute mode, planner stays on `planningModel` while code/test/repair subtasks run through a coder subagent on `codeModel`
 - planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
+- planner mode now also exposes read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`
 - planner responses are limited to `plan`, `plan_update`, `tool_call`, and `final`
 - planner mode retries invalid model output up to 3 times before failing the session
 - planner and agent model calls also retry transient provider failures such as `429 rate limit`, timeouts, and short-lived `5xx` responses with backoff
@@ -237,9 +238,11 @@ node dist/index.js rollback --last
 - planner also writes `planner.log.jsonl` with structured plan snapshots, invalid-output retries, and terminal summaries
 - retry settings live under `session.modelRetryAttempts` and `session.modelRetryDelayMs`; defaults are 3 retries with a 3s base delay
 - planner supports basic resume and replan by rerunning `plan` with `--session` or `--last`
+- planner execution still defaults to one subtask at a time, but it now tracks ready/active/failed step sets, retries failed code/test/docs nodes, can fall back to a configured model alias, and may locally replan a failed node before giving up
+- routing now supports `maxConcurrentSubtasks`, `subtaskMaxAttempts`, `subtaskFallbackModel`, and `subtaskReplanOnFailure` so the execution model can grow toward safe concurrency without changing the default serial behavior
 - `planner.context.packet.json` is the future handoff format for planner-driven subtask workers; today it is logged for determinism and TUI-friendly inspection
 - use `npm run show:planner -- --session <session-id-or-path>` or `--last` to render the current plan, event timeline, and recorded subtask execution results
-- `show:planner` now renders subtask executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
+- `show:planner` now renders step attempts, recovery state, executor identity, model alias, changed files, and child agent session directories so you can confirm planner -> coder delegation
 
 ## Interactive TUI
 

@@ -26,6 +26,10 @@ export interface RoutingConfig {
   planningModel: string;
   maxSteps: number;
   maxAutoRepairAttempts: number;
+  maxConcurrentSubtasks: number;
+  subtaskMaxAttempts: number;
+  subtaskReplanOnFailure: boolean;
+  subtaskFallbackModel?: string;
 }
 
 export interface ContextConfig {

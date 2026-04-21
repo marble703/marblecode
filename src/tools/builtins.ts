@@ -1,4 +1,4 @@
-import { exec as execCallback } from 'node:child_process';
+import { exec as execCallback, execFile as execFileCallback } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import { PolicyEngine } from '../policy/index.js';
 import type { Tool } from './types.js';
 
 const exec = promisify(execCallback);
+const execFile = promisify(execFileCallback);
 
 export function createBuiltinTools(config: AppConfig, policy: PolicyEngine): Tool[] {
   return [
@@ -15,12 +16,16 @@ export function createBuiltinTools(config: AppConfig, policy: PolicyEngine): Too
     createListFilesTool(config, policy),
     createSearchTextTool(config, policy),
     createRunShellTool(config, policy),
+    createGitStatusTool(config),
+    createGitLogTool(config),
+    createGitShowTool(config),
     createGitDiffTool(config),
+    createGitDiffBaseTool(config),
   ];
 }
 
 export function createPlannerTools(config: AppConfig, policy: PolicyEngine): Tool[] {
-  const allowed = new Set(['read_file', 'list_files', 'search_text', 'git_diff']);
+  const allowed = new Set(['read_file', 'list_files', 'search_text', 'git_status', 'git_log', 'git_show', 'git_diff', 'git_diff_base']);
   return createBuiltinTools(config, policy).filter((tool) => allowed.has(tool.definition.name));
 }
 
@@ -254,6 +259,146 @@ function createGitDiffTool(config: AppConfig): Tool {
       }
     },
   };
+}
+
+function createGitStatusTool(config: AppConfig): Tool {
+  return {
+    definition: {
+      name: 'git_status',
+      description: 'Read git status output for the current repository.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          short: { type: 'boolean' },
+        },
+      },
+    },
+    async execute(input) {
+      try {
+        const args = ['status'];
+        if (input.short !== false) {
+          args.push('--short');
+        }
+        const { stdout, stderr } = await execFile('git', args, {
+          cwd: config.workspaceRoot,
+          timeout: 15000,
+          maxBuffer: 512 * 1024,
+        });
+        return { ok: true, stdout, stderr };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  };
+}
+
+function createGitLogTool(config: AppConfig): Tool {
+  return {
+    definition: {
+      name: 'git_log',
+      description: 'Read recent git log entries for the current repository.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          count: { type: 'number' },
+          path: { type: 'string' },
+        },
+      },
+    },
+    async execute(input) {
+      try {
+        const count = Math.max(1, Math.min(50, Number(input.count ?? 10)));
+        const args = ['log', '--oneline', `-n${count}`];
+        if (typeof input.path === 'string' && input.path.trim()) {
+          args.push('--', input.path.trim());
+        }
+        const { stdout, stderr } = await execFile('git', args, {
+          cwd: config.workspaceRoot,
+          timeout: 15000,
+          maxBuffer: 512 * 1024,
+        });
+        return { ok: true, stdout, stderr };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  };
+}
+
+function createGitShowTool(config: AppConfig): Tool {
+  return {
+    definition: {
+      name: 'git_show',
+      description: 'Read git show output for a commit or a file at a commit.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          path: { type: 'string' },
+        },
+        required: ['ref'],
+      },
+    },
+    async execute(input) {
+      try {
+        const ref = sanitizeGitToken(String(input.ref ?? ''));
+        const targetPath = typeof input.path === 'string' && input.path.trim() ? input.path.trim() : '';
+        const args = targetPath ? ['show', `${ref}:${targetPath}`] : ['show', '--stat', '--oneline', ref];
+        const { stdout, stderr } = await execFile('git', args, {
+          cwd: config.workspaceRoot,
+          timeout: 15000,
+          maxBuffer: 512 * 1024,
+        });
+        return { ok: true, stdout, stderr };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  };
+}
+
+function createGitDiffBaseTool(config: AppConfig): Tool {
+  return {
+    definition: {
+      name: 'git_diff_base',
+      description: 'Read git diff output against a chosen base ref.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          baseRef: { type: 'string' },
+          targetRef: { type: 'string' },
+          path: { type: 'string' },
+        },
+      },
+    },
+    async execute(input) {
+      try {
+        const baseRef = sanitizeGitToken(String(input.baseRef ?? 'HEAD~1'));
+        const targetRef = sanitizeGitToken(String(input.targetRef ?? 'HEAD'));
+        const args = ['diff', '--no-ext-diff', '--minimal', `${baseRef}...${targetRef}`];
+        if (typeof input.path === 'string' && input.path.trim()) {
+          args.push('--', input.path.trim());
+        }
+        const { stdout, stderr } = await execFile('git', args, {
+          cwd: config.workspaceRoot,
+          timeout: 15000,
+          maxBuffer: 512 * 1024,
+        });
+        return { ok: true, stdout, stderr };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  };
+}
+
+function sanitizeGitToken(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || !/^[a-zA-Z0-9_./:@^~-]+$/.test(trimmed)) {
+    throw new Error(`Invalid git token: ${value}`);
+  }
+
+  return trimmed;
 }
 
 async function walkFiles(root: string, currentDir: string, excludePatterns: string[]): Promise<string[]> {

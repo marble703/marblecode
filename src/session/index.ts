@@ -1,4 +1,5 @@
-import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
 import { redactRecord } from '../shared/redact.js';
@@ -23,10 +24,21 @@ export async function createSession(config: AppConfig): Promise<SessionRecord> {
   await mkdir(baseDir, { recursive: true });
   await cleanupSessions(baseDir, config.session.maxSessions, config.session.maxAgeDays);
 
-  const id = new Date().toISOString().replace(/[:.]/g, '-');
-  const dir = path.join(baseDir, id);
-  await mkdir(dir, { recursive: true });
-  return { id, dir };
+  const baseId = new Date().toISOString().replace(/[:.]/g, '-');
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const id = attempt === 0 ? baseId : `${baseId}-${randomUUID().slice(0, 8)}`;
+    const dir = path.join(baseDir, id);
+    try {
+      await mkdir(dir);
+      return { id, dir };
+    } catch (error) {
+      if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST')) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error('Could not allocate a unique session directory');
 }
 
 export async function writeSessionArtifact(
@@ -43,17 +55,8 @@ export async function appendSessionLog(
   record: Record<string, unknown>,
   redactSecrets: boolean,
 ): Promise<void> {
-  const filePath = path.join(session.dir, fileName);
-  let current = '';
-  try {
-    current = await readFile(filePath, 'utf8');
-  } catch {
-    current = '';
-  }
-
   const payload = redactSecrets ? redactRecord(record) : record;
-  const next = `${current}${JSON.stringify(payload)}\n`;
-  await writeFile(filePath, next, 'utf8');
+  await appendFile(path.join(session.dir, fileName), `${JSON.stringify(payload)}\n`, 'utf8');
 }
 
 export async function resolveSessionDir(

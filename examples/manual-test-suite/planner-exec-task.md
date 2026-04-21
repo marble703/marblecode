@@ -1,6 +1,6 @@
 # Planner Execute Real-Model Check Task
 
-Use this task when manually validating the serial `planner -> subagent -> verifier` workflow with a real model.
+Use this task when manually validating the default `planner -> subagent -> verifier` workflow with a real model.
 
 ## Prompt
 

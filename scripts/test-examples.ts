@@ -170,6 +170,7 @@ class BranchingProvider implements ModelProvider {
 async function main(): Promise<void> {
   const cases: Array<{ name: string; run: () => Promise<void> }> = [
     { name: 'tool read/list/search', run: testReadListAndSearch },
+    { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
@@ -181,6 +182,9 @@ async function main(): Promise<void> {
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
     { name: 'auto deny with explicit grant', run: testAutoDenyWithExplicitGrant },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
+    { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
+    { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
+    { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
@@ -297,6 +301,38 @@ async function testAutomaticContextSelection(): Promise<void> {
 
     assert.equal(result.status, 'completed');
     assert.equal(result.changedFiles.length, 0);
+  });
+}
+
+async function testGitReadOnlyTools(): Promise<void> {
+  await withWorkspace(async ({ registry, workspaceRoot }) => {
+    const init = await registry.execute({ name: 'run_shell', input: { command: 'git init' } });
+    assert.equal(init.ok, true);
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git config user.email suite@example.com' } })).ok, true);
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git config user.name "Manual Suite"' } })).ok, true);
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git add .' } })).ok, true);
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git commit -m "initial fixture"' } })).ok, true);
+
+    await writeFile(path.join(workspaceRoot, 'src', 'notes.txt'), 'notes v2\n', 'utf8');
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git add src/notes.txt' } })).ok, true);
+    assert.equal((await registry.execute({ name: 'run_shell', input: { command: 'git commit -m "update notes"' } })).ok, true);
+    await writeFile(path.join(workspaceRoot, 'src', 'math.js'), 'export function add(a, b) {\n  return a - b; // BUG_MARKER\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n// local change\n', 'utf8');
+
+    const status = await registry.execute({ name: 'git_status', input: { short: true } });
+    assert.equal(status.ok, true);
+    assert.match(status.stdout ?? '', /src\/math\.js/);
+
+    const log = await registry.execute({ name: 'git_log', input: { count: 1 } });
+    assert.equal(log.ok, true);
+    assert.match(log.stdout ?? '', /update notes/);
+
+    const show = await registry.execute({ name: 'git_show', input: { ref: 'HEAD', path: 'src/notes.txt' } });
+    assert.equal(show.ok, true);
+    assert.match(show.stdout ?? '', /notes v2/);
+
+    const diffBase = await registry.execute({ name: 'git_diff_base', input: { baseRef: 'HEAD~1', targetRef: 'HEAD', path: 'src/notes.txt' } });
+    assert.equal(diffBase.ok, true);
+    assert.match(diffBase.stdout ?? '', /notes v2/);
   });
 }
 
@@ -433,7 +469,7 @@ async function testPlannerReadOnlyFlow(): Promise<void> {
     assert.deepEqual(plan.steps[0]?.relatedFiles, ['src/router.js', 'src/register-routes.js', 'src/server.js']);
     assert.equal(state.outcome, 'DONE');
     assert.equal(contextPacket.constraints.readOnly, true);
-    assert.deepEqual(contextPacket.constraints.allowedTools, ['read_file', 'list_files', 'search_text', 'git_diff']);
+    assert.deepEqual(contextPacket.constraints.allowedTools, ['read_file', 'list_files', 'search_text', 'git_status', 'git_log', 'git_show', 'git_diff', 'git_diff_base']);
     assert.ok(contextPacket.queryTerms.includes('router'));
     assert.match(events, /planner_started/);
     assert.match(events, /plan_step_updated/);
@@ -872,6 +908,178 @@ async function testPlannerExecuteChain(): Promise<void> {
     assert.match(events, /"modelAlias":"code"/);
     assert.match(events, /subtask_completed/);
     assert.match(events, /planner_execution_finished/);
+  });
+}
+
+async function testPlannerExecuteRetryRecovery(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.subtaskMaxAttempts = 2;
+    let codeAttempts = 0;
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if ((request.messages[0]?.content ?? '').includes('Failed step:')) {
+          throw new Error('Unexpected local replan request');
+        }
+        if (!(request.messages[0]?.content ?? '').includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Fix add after a transient subtask failure.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Fix add after a transient subtask failure.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        codeAttempts += 1;
+        if (codeAttempts === 1) {
+          throw new Error('Simulated transient coder failure');
+        }
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; attempts: number; status: string }> };
+    assert.match(events, /subtask_retry_scheduled/);
+    assert.match(events, /subtask_retry_started/);
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.attempts, 2);
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'DONE');
+  });
+}
+
+async function testPlannerExecuteFallbackModel(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.subtaskMaxAttempts = 1;
+    config.routing.subtaskFallbackModel = 'cheap';
+    config.models.code = { provider: 'primary', model: 'code-model' };
+    config.models.cheap = { provider: 'fallback', model: 'fallback-model' };
+
+    const primaryProvider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!(request.messages[0]?.content ?? '').includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Use fallback model for the code change.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Use fallback model for the code change.' });
+      }
+
+      throw new Error('Primary model failed for the step');
+    });
+    const fallbackProvider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        return buildMathFixStep(workspaceRoot);
+      }
+      throw new Error('Unexpected fallback request');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['primary', primaryProvider], ['fallback', fallbackProvider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.match(events, /subtask_fallback_started/);
+    assert.match(events, /"modelAlias":"cheap"/);
+  });
+}
+
+async function testPlannerExecuteLocalReplan(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.subtaskMaxAttempts = 1;
+    config.routing.subtaskFallbackModel = 'cheap';
+    config.routing.subtaskReplanOnFailure = true;
+    config.models.strong = { provider: 'primary', model: 'planner-model' };
+    config.models.code = { provider: 'primary', model: 'code-model' };
+    config.models.cheap = { provider: 'fallback', model: 'fallback-model' };
+
+    const primaryProvider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (content.includes('Failed step:')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Replanned after coder failure.',
+              steps: [
+                { id: 'step-1', title: 'Retry add fix with minimal patch', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b after the earlier failure.', relatedFiles: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        if (!content.includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Initial plan before local replan.',
+              steps: [
+                { id: 'step-1', title: 'Do impossible thing', status: 'PENDING', kind: 'code', details: 'Do impossible thing before replanning.', relatedFiles: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Initial plan before local replan.' });
+      }
+
+      if (content.includes('Do impossible thing')) {
+        throw new Error('Subtask could not complete with the original approach');
+      }
+      if (content.includes('returns a + b after the earlier failure')) {
+        return buildMathFixStep(workspaceRoot);
+      }
+      throw new Error('Unexpected request during local replan');
+    });
+    const fallbackProvider = new BranchingProvider(async () => {
+      throw new Error('Fallback model also failed before local replan');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['primary', primaryProvider], ['fallback', fallbackProvider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { lastReplanReason?: string };
+    assert.match(events, /subtask_replanned/);
+    assert.match(state.lastReplanReason ?? '', /step-1/);
   });
 }
 

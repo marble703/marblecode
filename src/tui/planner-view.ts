@@ -11,16 +11,25 @@ export interface PlannerViewModel {
   outcome: string;
   phase: string;
   currentStepId: string | null;
+  activeStepIds: string[];
+  readyStepIds: string[];
+  completedStepIds: string[];
+  failedStepIds: string[];
+  blockedStepIds: string[];
   summary: string;
   steps: Array<{
     id: string;
     title: string;
     status: string;
     kind: string;
+    attempts: number;
     details?: string;
     relatedFiles: string[];
     children: string[];
     assignee?: string;
+    executionState?: string;
+    lastError?: string;
+    failureKind?: string;
   }>;
   events: PlannerEventRecord[];
   subtaskEvents: PlannerEventRecord[];
@@ -46,10 +55,14 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
       title: string;
       status: string;
       kind: string;
+      attempts?: number;
       details?: string;
       relatedFiles?: string[];
       children: string[];
       assignee?: string;
+      executionState?: string;
+      lastError?: string;
+      failureKind?: string;
     }>;
   };
   const state = parseJsonWithFallback(stateRaw, {
@@ -57,12 +70,22 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     outcome: 'RUNNING',
     message: 'Planner session is still initializing.',
     currentStepId: null,
+    activeStepIds: [],
+    readyStepIds: [],
+    completedStepIds: [],
+    failedStepIds: [],
+    blockedStepIds: [],
     consistencyErrors: [],
   }) as {
     phase: string;
     outcome: string;
     message: string;
     currentStepId: string | null;
+    activeStepIds?: string[];
+    readyStepIds?: string[];
+    completedStepIds?: string[];
+    failedStepIds?: string[];
+    blockedStepIds?: string[];
     consistencyErrors: string[];
   };
   const events = parseJsonLines(eventsRaw);
@@ -78,16 +101,25 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     outcome: state.outcome,
     phase: state.phase,
     currentStepId: state.currentStepId,
+    activeStepIds: state.activeStepIds ?? [],
+    readyStepIds: state.readyStepIds ?? [],
+    completedStepIds: state.completedStepIds ?? [],
+    failedStepIds: state.failedStepIds ?? [],
+    blockedStepIds: state.blockedStepIds ?? [],
     summary: plan.summary || state.message,
     steps: plan.steps.map((step) => ({
       id: step.id,
       title: step.title,
       status: step.status,
       kind: step.kind,
+      attempts: step.attempts ?? 0,
       ...(step.details ? { details: step.details } : {}),
       relatedFiles: step.relatedFiles ?? [],
       children: step.children,
       ...(step.assignee ? { assignee: step.assignee } : {}),
+      ...(step.executionState ? { executionState: step.executionState } : {}),
+      ...(step.lastError ? { lastError: step.lastError } : {}),
+      ...(step.failureKind ? { failureKind: step.failureKind } : {}),
     })),
     events,
     subtaskEvents,
@@ -102,6 +134,10 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Outcome: ${view.outcome}`,
     `Phase: ${view.phase}`,
     `Current step: ${view.currentStepId ?? '(none)'}`,
+    `Active steps: ${view.activeStepIds.join(', ') || '(none)'}`,
+    `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
+    `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
+    `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
     `Summary: ${view.summary}`,
     '',
     'Plan Steps:',
@@ -109,6 +145,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
 
   for (const [index, step] of view.steps.entries()) {
     lines.push(`${index + 1}. [${step.status}] ${step.title} (${step.kind})`);
+    lines.push(`   attempts: ${step.attempts}${step.executionState ? ` state=${step.executionState}` : ''}`);
     if (step.details) {
       lines.push(`   ${step.details}`);
     }
@@ -120,6 +157,9 @@ export function formatPlannerView(view: PlannerViewModel): string {
     }
     if (step.assignee) {
       lines.push(`   assignee: ${step.assignee}`);
+    }
+    if (step.failureKind || step.lastError) {
+      lines.push(`   failure: ${step.failureKind ?? 'unknown'}${step.lastError ? ` ${step.lastError}` : ''}`);
     }
   }
 
@@ -189,6 +229,15 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
   if (type === 'planner_execution_finished') {
     return `subtask execution finished: ${String(event.outcome ?? '')}`;
   }
+  if (type === 'subtask_retry_scheduled') {
+    return `${String(event.stepId ?? '')} retry scheduled ${String(event.attempt ?? '')}/${String(event.maxAttempts ?? '')}: ${String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_retry_started') {
+    return `${String(event.stepId ?? '')} retry started (${String(event.modelAlias ?? '')}) attempt=${String(event.attempt ?? '')}`;
+  }
+  if (type === 'subtask_fallback_started') {
+    return `${String(event.stepId ?? '')} fallback ${String(event.fromModelAlias ?? '')} -> ${String(event.toModelAlias ?? '')}`;
+  }
   if (type === 'planner_failed') {
     return `failed: ${String(event.reason ?? '')}`;
   }
@@ -211,6 +260,15 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
   }
   if (type === 'subtask_verify_failed') {
     return `${String(event.stepId ?? '')} verify failed`;
+  }
+  if (type === 'subtask_replanned') {
+    return `${String(event.stepId ?? '')} replanned revision ${String(event.revision ?? '')}`;
+  }
+  if (type === 'subtask_replan_failed') {
+    return `${String(event.stepId ?? '')} replan failed: ${String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_blocked') {
+    return `${String(event.stepId ?? '')} blocked: ${String(event.reason ?? '')}`;
   }
   if (type === 'planner_started' || type === 'planner_resumed' || type === 'planner_replanned') {
     return `${type}: ${String(event.prompt ?? '')}`;

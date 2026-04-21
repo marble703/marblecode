@@ -31,6 +31,7 @@
 - `plan` is read-only by default. With `--execute`, the host serially runs planner-produced code/test/verify steps through subagents and a final verifier pass. Planner artifacts live alongside normal session logs as `plan.json`, `plan.state.json`, `plan.events.jsonl`, `planner.context.packet.json`, and `planner.log.jsonl`.
 - In execute mode, planner itself stays on `planningModel`; coder subtasks run through `runAgent()` with `codeModel`, and `show:planner` should make that visible via executor/modelAlias/sessionDir fields.
 - Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
+- Planner execute still runs one node at a time by default, but node-level retry, fallback model selection, and local replanning are now part of the execution foundation.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
 - If patch apply fails with weak context, the CLI now tells the user to rerun with `--file` or `--paste`. Keep that behavior intact when touching apply/context code.
@@ -49,6 +50,7 @@
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
 - `src/config`: config schema defaults and project/local config loading.
 - `src/planner`: planner loop, serial subtask execution orchestration, plan state machine, resume/replan basics, and future subtask context packets.
+- `src/planner`: planner loop, execution graph helpers, node-level retry/fallback/local-replan recovery, and serial subtask orchestration.
 - `examples/manual-test-suite/planner-exec-task.md`: canonical planner execution-chain real-model check task.
 - `src/context`: explicit file context, pasted snippets, keyword recall, recent-file fallback.
 - `context.autoDeny` is the gitignore-like list for files excluded from automatic context/search; explicit `--file`/`/files` grants should still allow read access, and workspace-internal grants may allow writes.
@@ -57,6 +59,7 @@
 - `src/provider`: only OpenAI-compatible Chat Completions is implemented today.
 - `src/shared`: small shared utilities such as log redaction helpers.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
+- `src/tools`: built-in tools. Planner-facing tools now also include read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`.
 - `src/tui`: interactive terminal UI plus planner session rendering helpers.
 - `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
 - `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
