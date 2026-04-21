@@ -237,11 +237,13 @@ node dist/index.js rollback --last
 - `npm run tui` 会打开一个简单的交互式终端会话，可直接输入新请求
 - 启动时可加 `--workspace`，或在 TUI 里用 `/workspace <path>` 切换当前 session 工作目录
 - 用 `/mode run`、`/mode plan`、`/mode execute` 切换编码、规划和 planner 执行模式
+- 用 `/sessions` 刷新最近 session 列表，用 `/open <序号|session-id-or-path>` 在同一个 TUI 里查看之前的 planner session
 - 用 `/files path1 path2` 固定显式文件，用 `/verify <cmd>` 为 `run` 模式覆盖 verifier，用 `/yes on` 开启自动确认 patch
 - 用 `/paste` 进入多行粘贴模式，以单独一行 `.` 结束
 - `/files` 中的路径也会被视为显式授权：工作目录内的 autoDeny 文件可读写，工作目录外文件仅允许读取
 - 用 `/reset` 清空当前 TUI 状态，用 `/quit` 退出
 - 在 `run` 模式下，如果没有开启 `/yes on`，TUI 会展示 patch preview 并询问是否应用
+- 当最后打开的是 planner session 时，TUI 会把 planner 计划、subtask 和时间线直接内嵌显示在会话界面中
 
 ## 多文件 Patch
 

@@ -637,6 +637,15 @@ async function testInteractiveTuiCommandParsing(): Promise<void> {
   assert.equal(state.autoApprove, true);
   state = applyTuiCommand(state, '/clear-files').state;
   assert.deepEqual(state.explicitFiles, []);
+  state = {
+    ...state,
+    recentSessions: [
+      { id: 'planner-1', dir: '/tmp/session-1', isPlanner: true },
+      { id: 'child-1', dir: '/tmp/session-2', isPlanner: false },
+    ],
+  };
+  state = applyTuiCommand(state, '/open 1').state;
+  assert.equal(state.lastSessionDir, '/tmp/session-1');
   state = applyTuiCommand(state, '/reset').state;
   assert.equal(state.mode, 'run');
   assert.equal(state.autoApprove, false);

@@ -16,6 +16,7 @@
 - To inspect a planner session in the terminal, run `npm run show:planner -- --last` or pass `--session <session-id-or-path>`.
 - For a lightweight live planner dashboard, run `npm run tui:planner -- --last`.
 - For a simple interactive terminal UI that can start new run/plan/execute conversations, run `npm run tui`.
+- The interactive TUI should also surface recent sessions and let the user reopen planner sessions inside the same UI.
 - `--last` for planner viewers should resolve the latest planner session with `plan.json`, not the newest child coder session.
 - If you add or change local TypeScript runner scripts, use `node --import tsx ...`, not `--loader`; Node 22 rejects the old form and the repo already standardizes on `--import` in `package.json`.
 

@@ -8,6 +8,12 @@ export interface SessionRecord {
   dir: string;
 }
 
+export interface SessionListItem {
+  id: string;
+  dir: string;
+  isPlanner: boolean;
+}
+
 export async function createSession(config: AppConfig): Promise<SessionRecord> {
   const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
   await mkdir(baseDir, { recursive: true });
@@ -111,6 +117,35 @@ export async function resolvePlannerSessionDir(
   throw new Error('No planner session directories are available');
 }
 
+export async function listRecentSessions(
+  config: AppConfig,
+  limit = 8,
+): Promise<SessionListItem[]> {
+  const baseDir = path.resolve(config.workspaceRoot, config.session.dir);
+  const entries = await readdir(baseDir, { withFileTypes: true });
+  const directories = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .reverse()
+    .slice(0, limit * 2);
+
+  const items: SessionListItem[] = [];
+  for (const name of directories) {
+    const dir = path.join(baseDir, name);
+    items.push({
+      id: name,
+      dir,
+      isPlanner: await isPlannerSessionDir(dir),
+    });
+    if (items.length >= limit) {
+      break;
+    }
+  }
+
+  return items;
+}
+
 async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays: number): Promise<void> {
   const entries = await readdir(baseDir, { withFileTypes: true });
   const now = Date.now();
@@ -139,7 +174,7 @@ async function cleanupSessions(baseDir: string, maxSessions: number, maxAgeDays:
   }
 }
 
-async function isPlannerSessionDir(sessionDir: string): Promise<boolean> {
+export async function isPlannerSessionDir(sessionDir: string): Promise<boolean> {
   try {
     await access(path.join(sessionDir, 'plan.json'));
     await access(path.join(sessionDir, 'plan.state.json'));

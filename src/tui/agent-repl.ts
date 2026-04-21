@@ -8,9 +8,10 @@ import { runPlanner } from '../planner/index.js';
 import { PolicyEngine } from '../policy/index.js';
 import { createProviders } from '../provider/index.js';
 import type { ModelProvider } from '../provider/types.js';
+import { isPlannerSessionDir, listRecentSessions, type SessionListItem } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
-import { loadPlannerView, formatPlannerView } from './planner-view.js';
+import { loadPlannerView, formatPlannerView, type PlannerViewModel } from './planner-view.js';
 
 export type TuiMode = 'run' | 'plan' | 'execute';
 
@@ -23,6 +24,8 @@ export interface TuiState {
   autoApprove: boolean;
   lastSessionDir: string | null;
   lastOutput: string;
+  recentSessions: SessionListItem[];
+  plannerView: PlannerViewModel | null;
 }
 
 export interface TuiCommandResult {
@@ -41,6 +44,8 @@ export function createInitialTuiState(workspaceRoot = process.cwd()): TuiState {
     autoApprove: false,
     lastSessionDir: null,
     lastOutput: 'Type a prompt to start a new task. Use /help for commands.',
+    recentSessions: [],
+    plannerView: null,
   };
 }
 
@@ -60,14 +65,16 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
           lastOutput: [
             'Commands:',
             '/mode run|plan|execute',
-          '/workspace <path>',
-          '/files path1 path2',
+            '/workspace <path>',
+            '/files path1 path2',
             '/clear-files',
             '/paste (enter multiline paste mode, finish with a single . line)',
             '/clear-paste',
             '/verify <command>',
             '/clear-verify',
             '/yes on|off',
+            '/sessions',
+            '/open <index|session-id-or-path>',
             '/reset',
             '/quit',
           ].join('\n'),
@@ -84,7 +91,7 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
     }
     case 'workspace': {
       const nextWorkspace = args ? path.resolve(args) : state.workspaceRoot;
-      return { state: { ...state, workspaceRoot: nextWorkspace, lastOutput: `Workspace set to ${nextWorkspace}` }, quit: false, enterPaste: false };
+      return { state: { ...state, workspaceRoot: nextWorkspace, lastSessionDir: null, plannerView: null, lastOutput: `Workspace set to ${nextWorkspace}` }, quit: false, enterPaste: false };
     }
     case 'files': {
       const files = args.split(/\s+/).filter(Boolean);
@@ -105,6 +112,23 @@ export function applyTuiCommand(state: TuiState, line: string): TuiCommandResult
       const autoApprove = normalized === 'on' || normalized === 'true' || normalized === 'yes';
       return { state: { ...state, autoApprove, lastOutput: `Auto-approve set to ${autoApprove}` }, quit: false, enterPaste: false };
     }
+    case 'sessions':
+      return { state: { ...state, lastOutput: 'Recent sessions refreshed below.' }, quit: false, enterPaste: false };
+    case 'open': {
+      const target = args.trim();
+      if (!target) {
+        return { state: { ...state, lastOutput: 'Provide a session index or path to open.' }, quit: false, enterPaste: false };
+      }
+
+      const numericIndex = Number(target);
+      const selected = Number.isInteger(numericIndex) && numericIndex > 0
+        ? state.recentSessions[numericIndex - 1]?.dir ?? null
+        : target;
+      if (!selected) {
+        return { state: { ...state, lastOutput: `No session found for ${target}` }, quit: false, enterPaste: false };
+      }
+      return { state: { ...state, lastSessionDir: selected, lastOutput: `Opened session ${selected}` }, quit: false, enterPaste: false };
+    }
     case 'reset':
       return { state: { ...createInitialTuiState(state.workspaceRoot), lastOutput: 'TUI state reset.' }, quit: false, enterPaste: false };
     case 'quit':
@@ -120,14 +144,22 @@ export async function runInteractiveTui(
   initialConfig: AppConfig,
 ): Promise<void> {
   const rl = readline.createInterface({ input, output });
-  let state = createInitialTuiState(initialConfig.workspaceRoot);
+  let state = await refreshTuiState(configPath, createInitialTuiState(initialConfig.workspaceRoot));
 
   try {
     while (true) {
       renderTuiScreen(state);
-      const line = await rl.question('tui> ');
+      let line: string;
+      try {
+        line = await rl.question('tui> ');
+      } catch (error) {
+        if (error instanceof Error && /readline was closed/i.test(error.message)) {
+          break;
+        }
+        throw error;
+      }
       const commandResult = applyTuiCommand(state, line);
-      state = commandResult.state;
+      state = await refreshTuiState(configPath, commandResult.state);
 
       if (commandResult.quit) {
         break;
@@ -152,12 +184,12 @@ export async function runInteractiveTui(
       renderTuiScreen(state);
 
       try {
-        state = await executeTuiPrompt(configPath, initialConfig, state, prompt, rl);
+        state = await refreshTuiState(configPath, await executeTuiPrompt(configPath, initialConfig, state, prompt, rl));
       } catch (error) {
-        state = {
+        state = await refreshTuiState(configPath, {
           ...state,
           lastOutput: error instanceof Error ? error.message : String(error),
-        };
+        });
       }
     }
   } finally {
@@ -223,7 +255,32 @@ async function executeTuiPrompt(
   return {
     ...state,
     lastSessionDir: result.sessionDir,
+    plannerView: null,
     lastOutput: plannerSummary,
+  };
+}
+
+async function refreshTuiState(configPath: string | undefined, state: TuiState): Promise<TuiState> {
+  const config = await loadConfig(configPath, state.workspaceRoot);
+  const recentSessions = await listRecentSessions(config, 8);
+  let plannerView: PlannerViewModel | null = null;
+  if (state.lastSessionDir) {
+    const sessionDir = path.isAbsolute(state.lastSessionDir)
+      ? state.lastSessionDir
+      : path.join(config.workspaceRoot, config.session.dir, state.lastSessionDir);
+    if (await isPlannerSessionDir(sessionDir)) {
+      try {
+        plannerView = await loadPlannerView(sessionDir);
+      } catch {
+        plannerView = null;
+      }
+    }
+  }
+
+  return {
+    ...state,
+    recentSessions,
+    plannerView,
   };
 }
 
@@ -261,5 +318,19 @@ function renderTuiScreen(state: TuiState): void {
   output.write(`mode=${state.mode} workspace=${state.workspaceRoot} autoApprove=${state.autoApprove} files=${state.explicitFiles.length} pasted=${state.pastedSnippets.length} verify=${state.manualVerifierCommands.length > 0 ? 'on' : 'off'}\n`);
   output.write(`lastSession=${state.lastSessionDir ?? '(none)'}\n\n`);
   output.write(`${state.lastOutput}\n\n`);
+  output.write('Recent Sessions\n');
+  if (state.recentSessions.length === 0) {
+    output.write('- none\n');
+  } else {
+    for (const [index, session] of state.recentSessions.entries()) {
+      output.write(`${index + 1}. ${session.id} ${session.isPlanner ? '(planner)' : '(child)'}\n`);
+    }
+  }
+
+  if (state.plannerView) {
+    output.write('\nPlanner Panel\n');
+    output.write(`${formatPlannerView(state.plannerView)}\n\n`);
+  }
+
   output.write('Tips: type a prompt to run it, /help for commands.\n');
 }
