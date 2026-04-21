@@ -281,6 +281,7 @@ node dist/index.js rollback --last
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
 - `src/planner`：只读 planner 循环和串行 planner 执行流程
+- `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`recovery.ts`、`utils.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、恢复流程和共享工具逻辑
 - `src/planner/graph.ts`：执行图、冲突边和 execution wave 计算
 - `src/planner/locks.ts`：planner execute 使用的文件锁和所有权转移辅助逻辑
 - `src/provider`：模型抽象和 OpenAI-compatible Provider
@@ -293,11 +294,22 @@ node dist/index.js rollback --last
 - `src/session`：本地会话记录
 - `src/tui`：交互式终端 UI 和 planner session 渲染
 - `src/shared`：跨模块复用的共享辅助函数
+- `src/shared/json-response.ts`：agent、planner、verifier 共用的 fenced/balanced JSON 提取逻辑
+- `src/shared/file-walk.ts`：context 和 tools 共用的递归文件遍历逻辑
 - `src/index.ts`：顶层入口，仅转发到 CLI
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
 - `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
 - `docs/mvp-v1.md`：MVP 架构和协议说明
+- `docs/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
+- `docs/repo-refactor-plan.md`：当前仓库拆分路线、已完成项和后续清理计划
+- `README.zh-CN.md`：中文说明文档
+
+## 重构说明
+
+- 第一轮结构清理已经落地：共享 JSON 解析、共享文件遍历，以及 planner 的 request/parse/artifact/prompt/state/recovery helper 都已拆到独立模块
+- 目前剩余的主要大文件热点仍是 `src/planner/index.ts`、`src/tui/agent-repl.ts`、`src/agent/index.ts`、`src/verifier/index.ts` 和 `scripts/test-examples.ts`
+- `docs/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
 
 ## Verifier Markdown
 
