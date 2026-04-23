@@ -536,6 +536,8 @@ async function executePlannerPlan(
           message: conflictError,
         };
         await appendPlannerEvent(session, { type: 'subtask_conflict_detected', reason: conflictError }, config.session.redactSecrets);
+        await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+        await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
         await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
         return { plan: nextPlan, state: nextState };
       }
@@ -568,6 +570,8 @@ async function executePlannerPlan(
         message: `Planner execution blocked by unmet dependencies for ${blockedStep.id}.`,
       });
       await appendPlannerEvent(session, { type: 'subtask_blocked', stepId: blockedStep.id, reason: nextState.message }, config.session.redactSecrets);
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       return { plan: nextPlan, state: nextState };
     }
@@ -600,6 +604,8 @@ async function executePlannerPlan(
       for (const file of verifyResult.changedFiles) {
         accumulatedChangedFiles.add(file);
       }
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       if (verifyResult.stop) {
         return { plan: nextPlan, state: nextState };
@@ -628,6 +634,8 @@ async function executePlannerPlan(
       continue;
     }
     if (waveResult.stop) {
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       await writePlannerExecutionArtifacts(session, executionGraph, lockTable, nextState);
       return { plan: nextPlan, state: nextState };
     }
@@ -701,6 +709,7 @@ async function executePlannerWave(
 
   let stop = false;
   let replanned = false;
+  const failedStepIds = new Set<string>();
   for (let index = 0; index < results.length; index += 1) {
     const settled = results[index];
     const step = wave[index];
@@ -724,6 +733,7 @@ async function executePlannerWave(
         currentStepId: step.id,
         message,
       });
+      failedStepIds.add(step.id);
       stop = true;
       continue;
     }
@@ -746,8 +756,20 @@ async function executePlannerWave(
     for (const file of value.changedFiles) {
       changedFiles.add(file);
     }
+    if (value.stop) {
+      failedStepIds.add(step.id);
+    }
     stop ||= value.stop;
     replanned ||= value.replanned;
+  }
+
+  if (stop && !replanned && failedStepIds.size > 0) {
+    nextPlan = annotateBlockedDependents(nextPlan, failedStepIds);
+    nextState = refreshPlannerStateFromPlan(nextPlan, {
+      ...nextState,
+      outcome: 'FAILED',
+      message: nextState.message || `Planner execution stopped after failures in ${[...failedStepIds].join(', ')}.`,
+    });
   }
 
   await appendPlannerEvent(session, {
@@ -1314,6 +1336,30 @@ function updatePlannerStep(
     ...plan,
     steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
   };
+}
+
+function annotateBlockedDependents(plan: PlannerPlan, failedStepIds: Set<string>): PlannerPlan {
+  let nextPlan = plan;
+  for (const step of plan.steps) {
+    if (step.status === 'DONE' || step.status === 'FAILED') {
+      continue;
+    }
+
+    const blockingDependencies = step.dependencies.filter((dependency) => failedStepIds.has(dependency));
+    if (blockingDependencies.length === 0) {
+      continue;
+    }
+
+    const message = `Blocked by failed dependencies: ${blockingDependencies.join(', ')}`;
+    nextPlan = updatePlannerStep(nextPlan, step.id, {
+      executionState: 'blocked',
+      failureKind: 'dependency',
+      lastError: message,
+      details: message,
+    });
+  }
+
+  return nextPlan;
 }
 
 function buildPlannerProviderFailureMessage(error: unknown, retryAttempts: number): string {

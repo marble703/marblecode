@@ -148,6 +148,12 @@ Enforces path, shell, environment, and provider-network restrictions.
 
 This module is the main safety boundary between model intent and host execution.
 
+Current boundary hardening includes:
+
+- workspace-relative path checks plus resolved-path validation so symlink escapes are rejected
+- shell syntax restrictions for chained commands, subshell syntax, redirection, and inline environment assignments
+- explicit write-path narrowing for planner subtasks and other restricted runs
+
 ### `src/agent`
 
 Implements the JSON-step coding loop for `run` and coder subtasks.
@@ -165,6 +171,8 @@ It is responsible for:
 Owns the internal patch representation and patch application pipeline.
 
 The model never writes files directly. The host interprets structured patch operations and records backups plus rollback metadata during apply.
+
+Patch application also distinguishes baseline drift from generic apply errors so agent and planner flows can surface clearer recovery guidance when a file changes after patch generation.
 
 ### `src/verifier`
 
@@ -240,6 +248,11 @@ Current host-side execution foundations include:
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
 - retry, fallback model selection, and local replan for failed steps
 - persisted execution artifacts for TUI and offline inspection
+
+Failure propagation is intentionally conservative:
+
+- tasks already started in the same wave are allowed to finish and then get merged back into host state
+- if a step fails and execution stops, pending downstream dependents are annotated as blocked by failed dependencies instead of being treated as silently skipped
 
 This is best understood as “host-managed structured execution,” not just a bigger planner prompt.
 

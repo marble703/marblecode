@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
@@ -19,9 +20,9 @@ export class PolicyEngine {
     private readonly config: AppConfig,
     options: PolicyEngineOptions = {},
   ) {
-    this.grantedReadPaths = (options.grantedReadPaths ?? []).map((entry) => path.resolve(this.config.workspaceRoot, entry));
+    this.grantedReadPaths = (options.grantedReadPaths ?? []).map((entry) => this.resolvePolicyPath(path.resolve(this.config.workspaceRoot, entry)));
     this.grantedWritePaths = (options.grantedWritePaths ?? [])
-      .map((entry) => path.resolve(this.config.workspaceRoot, entry))
+      .map((entry) => this.resolvePolicyPath(path.resolve(this.config.workspaceRoot, entry)))
       .filter((entry) => this.isWithinWorkspace(entry));
     this.restrictWritePaths = options.restrictWritePaths ?? false;
     this.writePathValidator = options.writePathValidator ?? null;
@@ -41,10 +42,29 @@ export class PolicyEngine {
       throw new Error('Shell execution is disabled by policy');
     }
 
-    const normalizedCommand = command.trim().toLowerCase();
+    const rawCommand = command.trim();
+    const normalizedCommand = rawCommand.toLowerCase();
+    if (!rawCommand) {
+      throw new Error('Shell command cannot be empty');
+    }
+
+    if (/\r|\n/.test(rawCommand)) {
+      throw new Error('Multi-line shell commands are blocked by policy');
+    }
+
+    const blockedShellSyntax = ['&&', '||', ';', '|', '>', '<', '$(', '`'];
+    const blockedSyntax = blockedShellSyntax.find((fragment) => rawCommand.includes(fragment));
+    if (blockedSyntax) {
+      throw new Error(`Command matched blocked shell syntax: ${blockedSyntax}`);
+    }
+
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(rawCommand)) {
+      throw new Error('Inline environment variable assignments are blocked by policy');
+    }
+
     const tokens = normalizedCommand.split(/\s+/);
     const binary = path.basename(tokens[0] ?? '');
-    if (shell.denyCommands.includes(binary)) {
+    if (shell.denyCommands.includes(binary) || ['sh', 'bash', 'zsh', 'fish', 'ksh'].includes(binary)) {
       throw new Error(`Command ${binary} is blocked by policy`);
     }
 
@@ -79,33 +99,34 @@ export class PolicyEngine {
   }
 
   public isSensitive(targetPath: string): boolean {
-    const relativePath = this.toRelativePath(targetPath);
+    const relativePath = this.toRelativePath(this.resolvePolicyPath(targetPath));
     return this.config.context.sensitive.some((pattern) => minimatch(relativePath, pattern, { dot: true }));
   }
 
   public isAutoDenied(targetPath: string): boolean {
-    const relativePath = this.toRelativePath(targetPath);
+    const relativePath = this.toRelativePath(this.resolvePolicyPath(targetPath));
     return (this.config.context.autoDeny ?? []).some((pattern) => minimatch(relativePath, pattern, { dot: true }));
   }
 
   private assertPathAccess(targetPath: string, requireWrite: boolean): void {
     const absolutePath = path.resolve(targetPath);
-    const relativePath = this.toRelativePath(targetPath);
+    const resolvedPath = this.resolvePolicyPath(absolutePath);
+    const relativePath = this.toRelativePath(resolvedPath);
 
-    if (!requireWrite && this.isGranted(absolutePath, this.grantedReadPaths)) {
+    if (!requireWrite && this.isGranted(resolvedPath, this.grantedReadPaths)) {
       return;
     }
 
-    if (requireWrite && this.isGranted(absolutePath, this.grantedWritePaths)) {
-      this.writePathValidator?.(absolutePath);
+    if (requireWrite && this.isGranted(resolvedPath, this.grantedWritePaths)) {
+      this.writePathValidator?.(resolvedPath);
       return;
     }
 
-    if (!requireWrite && this.isAutoDenied(targetPath)) {
+    if (!requireWrite && this.isAutoDenied(resolvedPath)) {
       throw new Error(`Auto read access blocked for ${relativePath}. Provide it explicitly with --file or /files to grant access.`);
     }
 
-    if (requireWrite && this.isAutoDenied(targetPath)) {
+    if (requireWrite && this.isAutoDenied(resolvedPath)) {
       throw new Error(`Auto write access blocked for ${relativePath}. Provide it explicitly with --file or /files to grant access.`);
     }
 
@@ -120,7 +141,7 @@ export class PolicyEngine {
       if (!this.matchesAny(relativePath, this.config.policy.path.readWrite)) {
         throw new Error(`Write access denied for ${relativePath}`);
       }
-      this.writePathValidator?.(absolutePath);
+      this.writePathValidator?.(resolvedPath);
       return;
     }
 
@@ -168,5 +189,27 @@ export class PolicyEngine {
   private isWithinWorkspace(targetPath: string): boolean {
     const relativePath = path.relative(this.config.workspaceRoot, targetPath);
     return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+  }
+
+  private resolvePolicyPath(targetPath: string): string {
+    const absolutePath = path.resolve(targetPath);
+    let current = absolutePath;
+    while (!existsSync(current)) {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return absolutePath;
+      }
+      current = parent;
+    }
+
+    let resolvedBase: string;
+    try {
+      resolvedBase = realpathSync.native(current);
+    } catch {
+      return absolutePath;
+    }
+
+    const suffix = path.relative(current, absolutePath);
+    return suffix ? path.resolve(resolvedBase, suffix) : resolvedBase;
   }
 }

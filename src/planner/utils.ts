@@ -54,6 +54,9 @@ export function resolveSubtaskFallbackModel(config: AppConfig, primaryModelAlias
 
 export function deriveFailureKind(message: string): PlannerFailureKind {
   const normalized = message.toLowerCase();
+  if (/baseline drift|patch baseline drift|changed after the patch was generated|stale base/.test(normalized)) {
+    return 'stale_base';
+  }
   if (/dependency|blocked/.test(normalized)) {
     return 'dependency';
   }

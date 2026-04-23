@@ -1,6 +1,6 @@
 import { buildContext } from '../context/index.js';
 import type { AppConfig } from '../config/schema.js';
-import { previewPatch, applyPatch, rollbackPatch } from '../patch/apply.js';
+import { applyPatch, isPatchBaseDriftError, previewPatch, rollbackPatch } from '../patch/apply.js';
 import { parsePatchDocument } from '../patch/codec.js';
 import type { PatchApplyResult, PatchDocument } from '../patch/types.js';
 import type { ModelProvider, ModelRequest } from '../provider/types.js';
@@ -451,6 +451,10 @@ export async function tryRollback(
 function buildApplyFailureMessage(error: unknown, hadExplicitFiles: boolean, hadContext: boolean): string {
   const reason = error instanceof Error ? error.message : String(error);
   const hints: string[] = [];
+
+  if (isPatchBaseDriftError(error)) {
+    hints.push(`The baseline for ${error.filePath} changed after the patch was generated. Refresh context and regenerate the patch before retrying.`);
+  }
 
   if (!hadExplicitFiles) {
     hints.push('No --file was provided. Try rerunning with --file path/to/file or --paste for a pasted snippet.');

@@ -38,7 +38,7 @@ export type PlannerStepKind = 'search' | 'code' | 'test' | 'verify' | 'docs' | '
 
 export type PlannerStepExecutionState = 'idle' | 'ready' | 'running' | 'retrying' | 'fallback' | 'blocked' | 'done' | 'failed';
 
-export type PlannerFailureKind = 'tool' | 'model' | 'verify' | 'dependency' | 'policy' | 'conflict' | 'replan_required';
+export type PlannerFailureKind = 'tool' | 'model' | 'verify' | 'dependency' | 'policy' | 'conflict' | 'stale_base' | 'replan_required';
 
 export type PlannerAccessMode = 'read' | 'write' | 'verify';
 

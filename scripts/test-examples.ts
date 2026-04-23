@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
@@ -191,6 +191,7 @@ async function main(): Promise<void> {
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
+    { name: 'planner execute blocked dependents', run: testPlannerExecuteBlockedDependents },
     { name: 'shell tools', run: testShellTools },
     { name: 'policy blocks', run: testPolicyBlocks },
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
@@ -200,6 +201,7 @@ async function main(): Promise<void> {
     { name: 'restricted write scope blocks extra file', run: testRestrictedWriteScopeBlocksExtraFile },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
     { name: 'patch rejection', run: testPatchRejection },
+    { name: 'patch baseline drift', run: testPatchBaselineDrift },
     { name: 'rollback restore', run: testRollbackRestore },
     { name: 'verifier syntax error output', run: testVerifierSyntaxErrorOutput },
     { name: 'verifier failure analysis', run: testVerifierFailureAnalysis },
@@ -382,6 +384,10 @@ async function testShellTools(): Promise<void> {
     const grepResult = await registry.execute({ name: 'run_shell', input: { command: 'grep -n "BUG_MARKER" src/math.js' } });
     assert.equal(grepResult.ok, true);
     assert.match(grepResult.stdout ?? '', /^2:.*BUG_MARKER/m);
+
+    const blockedSubshell = await registry.execute({ name: 'run_shell', input: { command: 'echo $(pwd)' } });
+    assert.equal(blockedSubshell.ok, false);
+    assert.match(blockedSubshell.error ?? '', /blocked shell syntax/i);
   });
 }
 
@@ -1231,6 +1237,61 @@ async function testPlannerExecuteLocalReplan(): Promise<void> {
   });
 }
 
+async function testPlannerExecuteBlockedDependents(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.routing.defaultModel = 'strong';
+    config.routing.subtaskMaxAttempts = 1;
+    config.routing.subtaskFallbackModel = 'cheap';
+    config.routing.subtaskReplanOnFailure = false;
+    config.models.strong = { provider: 'primary', model: 'planner-model' };
+    config.models.code = { provider: 'primary', model: 'code-model' };
+    config.models.cheap = { provider: 'fallback', model: 'fallback-model' };
+
+    const primaryProvider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!content.includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Show dependent steps blocked after a failed code step.',
+              steps: [
+                { id: 'step-1', title: 'Break the code step', status: 'PENDING', kind: 'code', details: 'Fail the first code step.', relatedFiles: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run dependent verify', status: 'PENDING', kind: 'verify', details: 'Should be blocked by step-1 failure.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Show dependent steps blocked after a failed code step.' });
+      }
+
+      throw new Error('Primary code step failed hard');
+    });
+    const fallbackProvider = new BranchingProvider(async () => {
+      throw new Error('Fallback code step also failed');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['primary', primaryProvider], ['fallback', fallbackProvider]]), plannerRegistry, {
+      prompt: '模拟失败后阻断依赖 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as {
+      steps: Array<{ id: string; status: string; executionState?: string; failureKind?: string; details?: string }>;
+    };
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'PENDING');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.executionState, 'blocked');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.failureKind, 'dependency');
+    assert.match(plan.steps.find((step) => step.id === 'step-2')?.details ?? '', /Blocked by failed dependencies: step-1/);
+  });
+}
+
 async function testMultiFilePatchApply(): Promise<void> {
   await withWorkspace(async ({ config, registry, workspaceRoot }) => {
     const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMultiFileFixStep(workspaceRoot))]]);
@@ -1260,7 +1321,7 @@ async function testMultiFilePatchApply(): Promise<void> {
 }
 
 async function testPolicyBlocks(): Promise<void> {
-  await withWorkspace(async ({ registry }) => {
+  await withWorkspace(async ({ registry, tempRoot, workspaceRoot }) => {
     const sensitiveRead = await registry.execute({ name: 'read_file', input: { path: '.env' } });
     assert.equal(sensitiveRead.ok, false);
     assert.match(sensitiveRead.error ?? '', /Sensitive files/);
@@ -1272,6 +1333,19 @@ async function testPolicyBlocks(): Promise<void> {
     const blockedShell = await registry.execute({ name: 'run_shell', input: { command: 'curl https://example.com' } });
     assert.equal(blockedShell.ok, false);
     assert.match(blockedShell.error ?? '', /blocked by policy|matched blocked pattern/);
+
+    const envInjectedShell = await registry.execute({ name: 'run_shell', input: { command: 'FOO=bar pwd' } });
+    assert.equal(envInjectedShell.ok, false);
+    assert.match(envInjectedShell.error ?? '', /Inline environment variable assignments are blocked/);
+
+    const shellChain = await registry.execute({ name: 'run_shell', input: { command: 'pwd && ls' } });
+    assert.equal(shellChain.ok, false);
+    assert.match(shellChain.error ?? '', /blocked shell syntax/i);
+
+    await symlink(path.join(tempRoot, 'outside.txt'), path.join(workspaceRoot, 'src', 'outside-link.txt'));
+    const symlinkRead = await registry.execute({ name: 'read_file', input: { path: 'src/outside-link.txt' } });
+    assert.equal(symlinkRead.ok, false);
+    assert.match(symlinkRead.error ?? '', /Read access denied/);
   });
 }
 
@@ -1436,6 +1510,27 @@ async function testPatchRejection(): Promise<void> {
   });
 }
 
+async function testPatchBaselineDrift(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMathFixStep(workspaceRoot))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js so add returns the correct sum.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: false,
+      confirm: async () => {
+        await writeFile(path.join(workspaceRoot, 'src/math.js'), 'export function add(a, b) {\n  return a * b;\n}\n', 'utf8');
+        return true;
+      },
+    });
+
+    assert.equal(result.status, 'needs_intervention');
+    assert.match(result.message, /baseline drift/i);
+    assert.match(result.message, /Refresh context and regenerate the patch/i);
+  });
+}
+
 async function testRollbackRestore(): Promise<void> {
   await withWorkspace(async ({ config, registry, workspaceRoot }) => {
     const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => buildMathFixStep(workspaceRoot))]]);
@@ -1553,6 +1648,10 @@ function createAgentConfig(): Record<string, unknown> {
       planningModel: 'strong',
       maxSteps: 8,
       maxAutoRepairAttempts: 0,
+      maxConcurrentSubtasks: 1,
+      subtaskMaxAttempts: 2,
+      subtaskReplanOnFailure: true,
+      subtaskConflictPolicy: 'serial',
     },
     context: {
       maxFiles: 8,
@@ -1560,6 +1659,7 @@ function createAgentConfig(): Record<string, unknown> {
       recentFileCount: 2,
       exclude: ['node_modules/**', '.git/**', '.agent/**'],
       sensitive: ['.env*'],
+      autoDeny: [],
     },
     policy: {
       path: {

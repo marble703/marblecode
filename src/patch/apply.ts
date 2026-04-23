@@ -4,6 +4,22 @@ import { createPatch } from 'diff';
 import { PolicyEngine } from '../policy/index.js';
 import type { PatchApplyResult, PatchDocument, RollbackOperation } from './types.js';
 
+export class PatchBaseDriftError extends Error {
+  public readonly kind = 'stale_base';
+
+  public constructor(
+    public readonly filePath: string,
+    expectation: 'replace' | 'delete',
+  ) {
+    super(`Patch baseline drift detected for ${filePath} during ${expectation}. The file changed after the patch was generated.`);
+    this.name = 'PatchBaseDriftError';
+  }
+}
+
+export function isPatchBaseDriftError(error: unknown): error is PatchBaseDriftError {
+  return error instanceof PatchBaseDriftError;
+}
+
 export interface PatchPreviewItem {
   path: string;
   type: string;
@@ -72,7 +88,7 @@ export async function applyPatch(
       policy.assertWritable(absolutePath);
       const previous = await readFile(absolutePath, 'utf8');
       if (operation.oldText !== undefined && previous !== operation.oldText) {
-        throw new Error(`Patch precondition failed for ${operation.path}`);
+        throw new PatchBaseDriftError(operation.path, 'replace');
       }
 
       const backupFile = await writeBackupFile(backupRoot, operation.path, previous);
@@ -94,7 +110,7 @@ export async function applyPatch(
       policy.assertWritable(absolutePath);
       const previous = await readFile(absolutePath, 'utf8');
       if (operation.expectedText !== undefined && previous !== operation.expectedText) {
-        throw new Error(`Patch precondition failed for ${operation.path}`);
+        throw new PatchBaseDriftError(operation.path, 'delete');
       }
 
       const backupFile = await writeBackupFile(backupRoot, operation.path, previous);
