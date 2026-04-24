@@ -208,6 +208,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `model.ts`：规划器请求构建
 - `parse.ts`：规划器响应解析和计划归一化
 - `artifacts.ts`：规划器产物写入以及会话恢复/加载辅助函数
+- `execute.ts`：顶层 planner 执行编排和 wave 分发
 - `execute-wave.ts`：wave 选择、冲突检查和 blocked 依赖标注
 - `execute-verify.ts`：verify 步骤执行和 verify-repair 衔接
 - `execute-subtask.ts`：subtask 尝试准备、锁准备和 coder 子代理执行辅助逻辑

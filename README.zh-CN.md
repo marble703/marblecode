@@ -281,7 +281,7 @@ node dist/index.js rollback --last
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
 - `src/planner`：只读 planner 循环和基于 wave 的 planner 执行流程
-- `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`recovery.ts`、`utils.ts`、`execute-wave.ts`、`execute-verify.ts`、`execute-subtask.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、恢复流程、执行波次逻辑、verify 步骤执行、subtask 执行和共享工具逻辑
+- `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`recovery.ts`、`utils.ts`、`execute.ts`、`execute-wave.ts`、`execute-verify.ts`、`execute-subtask.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、恢复流程、顶层执行编排、执行波次逻辑、verify 步骤执行、subtask 执行和共享工具逻辑
 - `src/planner/graph.ts`：执行图、冲突边和 execution wave 计算
 - `src/planner/locks.ts`：planner execute 使用的文件锁和所有权转移辅助逻辑
 - `src/provider`：模型抽象和 OpenAI-compatible Provider

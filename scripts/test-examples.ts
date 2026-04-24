@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
+import { executePlannerPlan } from '../src/planner/execute.js';
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../src/planner/execute-wave.js';
 import { executePlannerVerifyStep } from '../src/planner/execute-verify.js';
@@ -177,6 +178,7 @@ async function main(): Promise<void> {
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
+    { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
     { name: 'git read only tools', run: testGitReadOnlyTools },
@@ -368,6 +370,57 @@ async function testPlannerExecutionLocks(): Promise<void> {
     ['src/math.js'],
   );
   assert.doesNotThrow(() => assertStepCanWrite(transferred, 'step-2', 'src/math.js'));
+}
+
+async function testPlannerExecuteEntryHelper(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    const session = await createSession(config);
+    const result = await executePlannerPlan(
+      config,
+      new Map<string, ModelProvider>(),
+      session,
+      {
+        promptHistory: ['Execute planner helper'],
+        explicitFiles: [],
+        pastedSnippets: [],
+        resumedFrom: null,
+      },
+      {
+        version: '1',
+        revision: 1,
+        summary: 'execute helper fixture',
+        steps: [
+          { id: 'step-1', title: 'Search files only', status: 'PENDING', kind: 'search', attempts: 0, dependencies: [], children: [] },
+        ],
+      },
+      {
+        version: '1',
+        revision: 1,
+        phase: 'PLANNING',
+        outcome: 'DONE',
+        currentStepId: null,
+        activeStepIds: [],
+        readyStepIds: ['step-1'],
+        completedStepIds: [],
+        failedStepIds: [],
+        blockedStepIds: [],
+        invalidResponseAttempts: 0,
+        message: 'planned',
+        consistencyErrors: [],
+      },
+      {
+        classifyPlannerStep: (step) => (step.kind === 'search' ? 'skip' : 'subagent'),
+        updatePlannerStep: (plan, stepId, updates) => ({
+          ...plan,
+          steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
+        }),
+      },
+    );
+
+    assert.equal(result.state.outcome, 'DONE');
+    assert.equal(result.plan.steps[0]?.status, 'DONE');
+    assert.equal(result.plan.steps[0]?.executionState, 'done');
+  });
 }
 
 async function testPlannerVerifyHelper(): Promise<void> {

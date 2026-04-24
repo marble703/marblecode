@@ -208,6 +208,7 @@ Current internal split:
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
+- `execute.ts`: top-level planner execution orchestration and wave handoff
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff
 - `execute-subtask.ts`: subtask attempt setup, lock preparation, and coder-subagent execution helpers
