@@ -289,7 +289,7 @@ These artifacts make the runtime easier to inspect, resume, replay mentally, and
 Several design decisions are central to the current architecture:
 
 - models do not write files directly
-- shell commands are policy-checked and workspace-scoped
+- shell commands are policy-checked and run with the workspace root as their current directory
 - sensitive files are excluded from normal context and tool access
 - write access can be narrowed to explicit file grants
 - planner execute writes are additionally constrained by file locks

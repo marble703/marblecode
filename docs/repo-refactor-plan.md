@@ -37,10 +37,10 @@ Still pending after this pass:
 
 The current repository layout is directionally good, but these files are carrying multiple sub-systems at once:
 
-- `src/planner/index.ts`: planner loop, request building, response parsing, plan normalization, artifact writing, execution orchestration, wave scheduling, verify execution, retry/fallback/replan recovery, prompt building, and JSON extraction helpers
+- `src/planner/index.ts`: public `runPlanner()` entrypoint plus the remaining planner session setup, model fallback handling, execution orchestration, wave scheduling, verify execution, and retry/fallback/replan recovery
 - `src/tui/agent-repl.ts`: slash-command parsing, REPL loop, run/plan/execute dispatch, live refresh, rendering, planner inspection, and child-session navigation
-- `src/agent/index.ts`: agent loop, request building, patch preview/apply flow, verifier integration, rollback helper, and JSON extraction helpers
-- `src/verifier/index.ts`: command resolution, verifier execution, LLM-based verifier-failure analysis, and JSON extraction helpers
+- `src/agent/index.ts`: agent loop, request building, patch preview/apply flow, verifier integration, and rollback helper
+- `src/verifier/index.ts`: command resolution, verifier execution, and LLM-based verifier-failure analysis
 - `scripts/test-examples.ts`: provider stubs, case registry, most fixture scenarios, and suite helpers all live in one file
 
 The first shared-utility cleanup is already done, but these larger runtime files still need follow-up splits.

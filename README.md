@@ -102,7 +102,7 @@ Create a read-only plan instead of editing files:
 node dist/index.js plan "Refactor the router module and add tests"
 ```
 
-Plan first, then execute subtasks serially until verifier passes:
+Plan first, then execute subtasks until verifier passes:
 
 ```bash
 node dist/index.js plan "Fix src/math.js so add returns a + b" --workspace examples/manual-test-suite/project --execute
@@ -183,7 +183,7 @@ node dist/index.js rollback --last
 - `npm run test:examples`: run the deterministic manual suite for tools, automatic context selection, planner flows, TUI command parsing, patch apply/reject/rollback, verifier behavior, retry paths, shell, and policy checks
 - `npm run check:model -- --model cheap`: verify the configured provider, key, base URL, and model
 - `npm run check:planner`: run the planner task in `examples/manual-test-suite/planner-task.md` with a real configured planning model
-- `npm run check:planner:execute`: run the full serial planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
+- `npm run check:planner:execute`: run the full planner -> subagent -> verifier workflow on a temp manual-suite workspace with a real model
 - `npm run show:planner -- --last`: render a planner session summary, timeline, and current subtask status in the terminal
 - `npm run tui:planner -- --last`: open a lightweight live planner dashboard that polls session files and renders steps, subtasks, and timeline in-place
 - `npm run tui`: open an interactive terminal UI that can create new `run`, `plan`, or `plan --execute` conversations
@@ -192,7 +192,7 @@ node dist/index.js rollback --last
 ## Notes
 
 - Runtime model access uses the OpenAI-compatible `POST /chat/completions` flow.
-- Shell execution is restricted to the workspace root and uses a deny-by-default security baseline.
+- Shell commands run with the workspace root as their current directory and use a deny-by-default security baseline.
 - The agent writes code through structured patch operations, not direct model-controlled file writes.
 - `agent.config.jsonc` is intentionally gitignored because it may contain local endpoints or credentials.
 - Session directories now include `rollback.json`, `backups.json`, and backed-up source files under `backups/` when files are replaced or deleted.
@@ -218,7 +218,7 @@ node dist/index.js rollback --last
 
 - `--file path/to/file.ts`: inject an explicit file into context
 - `--paste "..."`: inject pasted code as a `[Pasted ~N lines #k]` context item
-- if `--file` is omitted, the context builder extracts query terms from the prompt and pasted snippets, scores candidate files, and auto-selects the top 3-5 likely files
+- if `--file` is omitted, the context builder extracts query terms from the prompt and pasted snippets, scores candidate files, and auto-selects up to 4 likely files
 - explicit `--file` entries always stay at the front of the context list and win tie-breaks over auto-selected candidates
 - the model also receives a `Context selection summary` block listing extracted query terms and the top auto-selected files
 - recent files are also used as a fallback source
@@ -227,7 +227,7 @@ node dist/index.js rollback --last
 ## Planner
 
 - `node dist/index.js plan "..."` runs a read-only planner loop by default
-- add `--execute` to let the host execute planner-produced code/test/verify steps serially through subagents and a final verifier pass
+- add `--execute` to let the host execute planner-produced code/test/verify steps through subagents and a final verifier pass; execution is still one subtask at a time by default
 - in execute mode, planner stays on `planningModel` while code/test/repair subtasks run through a coder subagent on `codeModel`
 - planner mode only exposes `read_file`, `list_files`, `search_text`, and `git_diff`
 - planner mode now also exposes read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`
@@ -289,7 +289,7 @@ node dist/index.js rollback --last
 - `src/cli`: CLI entrypoint
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
-- `src/planner`: read-only planning loop and serial planner execution flow
+- `src/planner`: read-only planning loop and wave-based planner execution flow
 - `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, `utils.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, recovery, and shared planner utilities
 - `src/planner/graph.ts`: execution graph, conflict edges, and execution wave helpers
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute

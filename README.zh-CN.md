@@ -100,7 +100,7 @@ node dist/index.js run "修复 add 函数，让它返回 a + b" --file examples/
 node dist/index.js plan "重构路由模块并补测试"
 ```
 
-先规划，再串行执行 subtask，直到 verifier 通过：
+先规划，再执行 subtask，直到 verifier 通过：
 
 ```bash
 node dist/index.js plan "修复 src/math.js 中的 add 错误并通过 verify" --workspace examples/manual-test-suite/project --execute
@@ -181,7 +181,7 @@ node dist/index.js rollback --last
 - `npm run test:examples`：运行确定性的 manual suite，覆盖工具、自动上下文选择、planner 流程、TUI 命令解析、patch 应用/拒绝/回滚、verifier 行为、重试路径、shell 和权限检查
 - `npm run check:model -- --model cheap`：检查当前配置下的模型、URL、Key 是否可用
 - `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
-- `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 串行链路
+- `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 链路
 - `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
 - `npm run tui:planner -- --last`：打开一个轻量实时 planner 面板，轮询 session 文件并原地渲染步骤、subtask 和时间线
 - `npm run tui`：打开一个可交互终端 UI，可直接发起新的 `run` / `plan` / `plan --execute` 对话
@@ -209,7 +209,7 @@ node dist/index.js rollback --last
 
 - `--file path/to/file.ts`：把指定文件加入上下文
 - `--paste "..."`：把粘贴代码作为 `[Pasted ~N lines #k]` 上下文项注入
-- 如果没有提供 `--file`，系统会从请求和粘贴片段里提取查询词，对候选文件打分，并自动挑选最可能相关的 3 到 5 个文件
+- 如果没有提供 `--file`，系统会从请求和粘贴片段里提取查询词，对候选文件打分，并自动挑选最多 4 个最可能相关的文件
 - 显式传入的 `--file` 永远排在上下文前面，并且优先级高于自动召回结果
 - 模型还会收到一个 `Context selection summary` 摘要块，说明查询词和自动选中的候选文件
 - 最近修改文件也会作为兜底上下文来源
@@ -218,7 +218,7 @@ node dist/index.js rollback --last
 ## Planner
 
 - `node dist/index.js plan "..."` 默认进入只读 planner 循环
-- 加上 `--execute` 后，host 会在 planner 产出有效计划后按顺序执行 code/test/verify 步骤
+- 加上 `--execute` 后，host 会在 planner 产出有效计划后执行 code/test/verify 步骤；默认仍一次只跑一个 subtask
 - 在 `--execute` 模式下，planner 继续使用 `planningModel`，而 code/test/repair 子任务会通过 coder subagent 使用 `codeModel`
 - planner 模式只开放 `read_file`、`list_files`、`search_text`、`git_diff`
 - planner 模式现在也开放只读 git 工具，例如 `git_status`、`git_log`、`git_show`、`git_diff_base`
@@ -280,7 +280,7 @@ node dist/index.js rollback --last
 - `src/cli`：CLI 入口
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
-- `src/planner`：只读 planner 循环和串行 planner 执行流程
+- `src/planner`：只读 planner 循环和基于 wave 的 planner 执行流程
 - `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`recovery.ts`、`utils.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、恢复流程和共享工具逻辑
 - `src/planner/graph.ts`：执行图、冲突边和 execution wave 计算
 - `src/planner/locks.ts`：planner execute 使用的文件锁和所有权转移辅助逻辑
@@ -336,7 +336,7 @@ node dist/index.js rollback --last
 
 ## 说明
 
-- Shell 执行默认限制在当前工作区内
+- Shell 命令会以当前工作区根目录作为执行目录，并配合默认拒绝风格的安全基线
 - 默认禁止高风险命令、联网命令和后台常驻模式
 - 模型通过结构化 Patch 改码，不直接控制文件写入
 - 当前整体架构总览见 `docs/architecture.md`
