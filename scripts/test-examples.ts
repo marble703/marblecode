@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
+import { prepareLockTableForStep } from '../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../src/planner/execute-wave.js';
 import { executePlannerVerifyStep } from '../src/planner/execute-verify.js';
 import { buildExecutionGraph } from '../src/planner/graph.js';
@@ -350,6 +351,22 @@ async function testPlannerExecutionLocks(): Promise<void> {
   assert.throws(() => assertStepCanWrite(locks, 'step-1', 'src/math.js'));
   locks = transferWriteOwnership(locks, 'step-1', 'step-2', ['src/math.js'], 1);
   assert.doesNotThrow(() => assertStepCanWrite(locks, 'step-2', 'src/math.js'));
+
+  const transferred = prepareLockTableForStep(
+    downgradeToGuardedRead(acquireWriteLocks(createExecutionLockTable(2), 'step-1', ['src/math.js'], 2), 'step-1', ['src/math.js'], 2),
+    {
+      version: '1',
+      revision: 2,
+      summary: 'lock transfer fixture',
+      steps: [
+        { id: 'step-1', title: 'Update math', status: 'DONE', kind: 'code', attempts: 1, fileScope: ['src/math.js'], dependencies: [], children: [] },
+        { id: 'step-2', title: 'Retest math', status: 'PENDING', kind: 'test', attempts: 0, fileScope: ['src/math.js'], dependencies: ['step-1'], children: [] },
+      ],
+    },
+    { id: 'step-2', title: 'Retest math', status: 'PENDING', kind: 'test', attempts: 0, fileScope: ['src/math.js'], dependencies: ['step-1'], children: [] },
+    ['src/math.js'],
+  );
+  assert.doesNotThrow(() => assertStepCanWrite(transferred, 'step-2', 'src/math.js'));
 }
 
 async function testPlannerVerifyHelper(): Promise<void> {

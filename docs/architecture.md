@@ -210,6 +210,7 @@ Current internal split:
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff
+- `execute-subtask.ts`: subtask attempt setup, lock preparation, and coder-subagent execution helpers
 - `prompts.ts`: subtask, repair, and replan prompt builders
 - `state.ts`: ready/active/blocked/done derivation
 - `recovery.ts`: local replan flow
