@@ -11,7 +11,7 @@ Implemented in the current pass:
 - updated `src/context/index.ts` and `src/tools/builtins.ts` to use the shared file walker
 - updated `src/agent/index.ts` and `src/verifier/index.ts` to use the shared JSON extractor
 - split planner helpers into `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, and `utils.ts`
-- started splitting planner execution helpers into `src/planner/execute-wave.ts`, `src/planner/execute-verify.ts`, and `src/planner/execute-subtask.ts`
+- moved planner wave, verify, and subtask execution helpers into `src/planner/execute-wave.ts`, `src/planner/execute-verify.ts`, and `src/planner/execute-subtask.ts`
 - kept `runPlanner()` exported from `src/planner/index.ts` while shrinking the old monolithic helper surface
 
 Still pending after this pass:

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
-import { prepareLockTableForStep } from '../src/planner/execute-subtask.js';
+import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../src/planner/execute-wave.js';
 import { executePlannerVerifyStep } from '../src/planner/execute-verify.js';
 import { buildExecutionGraph } from '../src/planner/graph.js';
@@ -178,6 +178,7 @@ async function main(): Promise<void> {
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
+    { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
@@ -427,6 +428,60 @@ async function testPlannerVerifyHelper(): Promise<void> {
     assert.deepEqual(result.changedFiles, ['src/math.js']);
     const verifyArtifact = JSON.parse(await readFile(path.join(session.dir, 'subtask.verify-step.verify.json'), 'utf8')) as { success: boolean };
     assert.equal(verifyArtifact.success, true);
+  });
+}
+
+async function testPlannerSubtaskRecoveryHelper(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    const session = await createSession(config);
+    await assert.rejects(
+      () => executePlannerSubtaskWithRecovery(
+        config,
+        new Map<string, ModelProvider>(),
+        session,
+        {
+          promptHistory: ['Fix math'],
+          explicitFiles: ['src/math.js'],
+          pastedSnippets: [],
+          resumedFrom: null,
+        },
+        {
+          version: '1',
+          revision: 1,
+          summary: 'subtask recovery fixture',
+          steps: [
+            { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'] },
+          ],
+        },
+        {
+          version: '1',
+          revision: 1,
+          phase: 'PATCHING',
+          outcome: 'RUNNING',
+          currentStepId: null,
+          activeStepIds: [],
+          readyStepIds: ['step-1'],
+          completedStepIds: [],
+          failedStepIds: [],
+          blockedStepIds: [],
+          invalidResponseAttempts: 0,
+          message: 'ready',
+          consistencyErrors: [],
+        },
+        { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'] },
+        'Fix src/math.js',
+        ['src/math.js'],
+        false,
+        false,
+        createExecutionLockTable(1),
+        false,
+        (plan, stepId, updates) => ({
+          ...plan,
+          steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
+        }),
+      ),
+      /not available/i,
+    );
   });
 }
 

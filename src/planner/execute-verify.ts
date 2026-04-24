@@ -32,6 +32,7 @@ interface PlannerVerifyDependencies {
     allowReplan: boolean,
     lockTable: ExecutionLockTable,
     manageLocksInternally: boolean,
+    updatePlannerStep: (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
   ) => Promise<{
     plan: PlannerPlan;
     state: PlannerState;
@@ -117,6 +118,7 @@ export async function executePlannerVerifyStep(
     false,
     lockTable,
     true,
+    dependencies.updatePlannerStep,
   );
   nextPlan = repair.plan;
   nextState = repair.state;

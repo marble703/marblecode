@@ -204,7 +204,7 @@ Implements the read-only planner loop and the host-side planner execution flow.
 
 Current internal split:
 
-- `index.ts`: public entrypoint plus remaining execution orchestration
+- `index.ts`: public entrypoint plus the remaining top-level planner loop and result mapping
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
