@@ -290,7 +290,7 @@ node dist/index.js rollback --last
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
 - `src/planner`: read-only planning loop and wave-based planner execution flow
-- `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, `utils.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, recovery, and shared planner utilities
+- `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, `utils.ts`, `execute-wave.ts`, `execute-verify.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, recovery, execution-wave handling, verify-step execution, and shared planner utilities
 - `src/planner/graph.ts`: execution graph, conflict edges, and execution wave helpers
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute
 - `src/provider`: model abstraction and OpenAI-compatible provider

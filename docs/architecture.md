@@ -208,6 +208,8 @@ Current internal split:
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
+- `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
+- `execute-verify.ts`: verify-step execution and verify-repair handoff
 - `prompts.ts`: subtask, repair, and replan prompt builders
 - `state.ts`: ready/active/blocked/done derivation
 - `recovery.ts`: local replan flow

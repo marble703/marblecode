@@ -7,11 +7,12 @@ import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../src/planner/execute-wave.js';
+import { executePlannerVerifyStep } from '../src/planner/execute-verify.js';
 import { buildExecutionGraph } from '../src/planner/graph.js';
 import { runPlanner } from '../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../src/planner/locks.js';
 import { PolicyEngine } from '../src/policy/index.js';
-import { listRecentSessions, resolvePlannerSessionDir } from '../src/session/index.js';
+import { createSession, listRecentSessions, resolvePlannerSessionDir } from '../src/session/index.js';
 import { applyTuiCommand, createInitialTuiState } from '../src/tui/agent-repl.js';
 import { loadPlannerView } from '../src/tui/planner-view.js';
 import { ToolRegistry } from '../src/tools/registry.js';
@@ -175,6 +176,7 @@ async function main(): Promise<void> {
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
+    { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
@@ -348,6 +350,67 @@ async function testPlannerExecutionLocks(): Promise<void> {
   assert.throws(() => assertStepCanWrite(locks, 'step-1', 'src/math.js'));
   locks = transferWriteOwnership(locks, 'step-1', 'step-2', ['src/math.js'], 1);
   assert.doesNotThrow(() => assertStepCanWrite(locks, 'step-2', 'src/math.js'));
+}
+
+async function testPlannerVerifyHelper(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.verifier.enabled = true;
+    config.verifier.allowDiscovery = false;
+    config.verifier.commands = ['true'];
+    const session = await createSession(config);
+    const result = await executePlannerVerifyStep(
+      config,
+      new Map<string, ModelProvider>(),
+      session,
+      {
+        promptHistory: ['Run final verify'],
+        explicitFiles: ['src/math.js'],
+        pastedSnippets: [],
+        resumedFrom: null,
+      },
+      {
+        version: '1',
+        revision: 1,
+        summary: 'verify helper fixture',
+        steps: [
+          { id: 'verify-step', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: [], children: [] },
+        ],
+      },
+      {
+        version: '1',
+        revision: 1,
+        phase: 'PATCHING',
+        outcome: 'RUNNING',
+        currentStepId: null,
+        activeStepIds: [],
+        readyStepIds: ['verify-step'],
+        completedStepIds: [],
+        failedStepIds: [],
+        blockedStepIds: [],
+        invalidResponseAttempts: 0,
+        message: 'ready',
+        consistencyErrors: [],
+      },
+      { id: 'verify-step', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: [], children: [] },
+      ['src/math.js'],
+      createExecutionLockTable(1),
+      {
+        executePlannerSubtaskWithRecovery: async () => {
+          throw new Error('verify repair should not run on successful verifier');
+        },
+        updatePlannerStep: (plan, stepId, updates) => ({
+          ...plan,
+          steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
+        }),
+      },
+    );
+
+    assert.equal(result.stop, false);
+    assert.equal(result.plan.steps[0]?.status, 'DONE');
+    assert.deepEqual(result.changedFiles, ['src/math.js']);
+    const verifyArtifact = JSON.parse(await readFile(path.join(session.dir, 'subtask.verify-step.verify.json'), 'utf8')) as { success: boolean };
+    assert.equal(verifyArtifact.success, true);
+  });
 }
 
 async function testAutomaticContextSelection(): Promise<void> {
