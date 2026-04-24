@@ -15,9 +15,10 @@ Implemented in the current pass:
 
 Still pending after this pass:
 
-- move more execution orchestration out of `src/planner/index.ts`
+- move the planner execution/runtime loop out of `src/planner/index.ts`
 - split `src/tui/agent-repl.ts`
-- split `src/agent/index.ts` and `src/verifier/index.ts` further than the shared-helper extraction
+- split `src/verifier/index.ts` into command resolution, execution, and analysis helpers
+- split `src/agent/index.ts` further than the shared-helper extraction
 - split `scripts/test-examples.ts`
 
 ## Goals
@@ -66,7 +67,10 @@ Suggested internal layout:
 - `src/planner/model.ts`: planner request building and system prompt construction
 - `src/planner/parse.ts`: planner response parsing and plan/step normalization
 - `src/planner/artifacts.ts`: planner session load/write helpers, event/log appenders, context packet creation
-- `src/planner/execute.ts`: execution loop, wave selection, verify-step handling
+- `src/planner/execute.ts`: top-level planner execution orchestration
+- `src/planner/execute-wave.ts`: ready-step selection, wave execution, and blocked-dependent propagation
+- `src/planner/execute-subtask.ts`: subagent launch, retry/fallback handling, and local replan handoff
+- `src/planner/execute-verify.ts`: verify-step execution and verify-repair handoff
 - `src/planner/recovery.ts`: retry/fallback/local-replan logic for failed subtasks
 - `src/planner/prompts.ts`: subtask, verify-repair, and node-replan prompts
 
@@ -74,7 +78,7 @@ The existing `graph.ts`, `locks.ts`, and `types.ts` should remain as stable focu
 
 ### TUI split
 
-Keep a thin top-level launcher, but separate command and rendering concerns.
+Keep a thin top-level launcher, but separate command, state-refresh, and rendering concerns.
 
 Suggested internal layout:
 
@@ -83,6 +87,7 @@ Suggested internal layout:
 - `src/tui/run-prompt.ts`: run/plan/execute dispatch
 - `src/tui/render.ts`: screen rendering and summaries
 - `src/tui/paste.ts`: multiline paste collection and patch confirmation helpers
+- `src/tui/state.ts`: session refresh, planner-view loading, and derived state hydration
 
 `planner-view.ts` and `planner-live.ts` already point in the right direction and should stay separate.
 
@@ -90,11 +95,13 @@ Suggested internal layout:
 
 Once shared JSON parsing exists, split the agent and verifier along the same lines.
 
+- `src/verifier/commands.ts`: command resolution
+- `src/verifier/execute.ts`: command execution and failure aggregation
+- `src/verifier/analysis.ts`: verifier-failure prompt building and response parsing
 - `src/agent/model.ts`: agent request/system prompt
 - `src/agent/parse.ts`: model-step parsing
 - `src/agent/runtime.ts`: patch/apply/verify loop
-- `src/verifier/commands.ts`: command resolution
-- `src/verifier/analysis.ts`: verifier-failure prompt building and response parsing
+- optional: `src/agent/messages.ts` for user-facing failure/help text
 
 This phase is lower priority than planner and TUI because the files are smaller, but the shared-helper extraction should happen early.
 
@@ -113,11 +120,12 @@ Leave `scripts/test-examples.ts` for last so production refactors land first. Wh
 ## Rollout Order
 
 1. Continue splitting planner execution orchestration while keeping `runPlanner()` exported from `src/planner/index.ts`.
-2. Split TUI command, action, and render layers.
-3. Split agent and verifier helpers further on top of the new shared primitives.
-4. Split the manual suite after production modules are stable.
+2. Split TUI command, action, state-refresh, and render layers.
+3. Split verifier helpers further on top of the new shared primitives.
+4. Split agent helpers once verifier and planner boundaries are stable.
+5. Split the manual suite after production modules are stable.
 
-This order keeps the highest-risk runtime path first, but avoids changing planner and TUI before their shared dependencies are ready.
+This order keeps the highest-risk runtime path first, lands the biggest reviewability wins early, and leaves broad test-fixture churn for last.
 
 ## Verification By Phase
 
@@ -133,7 +141,9 @@ Use the existing suite as the guardrail for each phase.
 ## Success Criteria
 
 - `src/planner/index.ts` becomes a thin entrypoint instead of the full planner subsystem
-- `src/tui/agent-repl.ts` stops owning command parsing, rendering, and planner inspection at the same time
+- planner execution logic is split across focused execution modules instead of collecting in one replacement hotspot
+- `src/tui/agent-repl.ts` stops owning command parsing, rendering, planner inspection, and state refresh at the same time
+- `src/verifier/index.ts` stops owning command resolution, command execution, and LLM analysis together
 - agent, planner, and verifier all use one shared JSON-response parser
 - context-building and tool file walking share one implementation
 - the manual suite still covers planner execute, TUI, verifier, patch, rollback, and policy behavior after each phase

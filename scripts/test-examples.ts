@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { runAgent, tryRollback } from '../src/agent/index.js';
 import { loadConfig } from '../src/config/load.js';
 import { buildContext } from '../src/context/index.js';
+import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../src/planner/execute-wave.js';
 import { buildExecutionGraph } from '../src/planner/graph.js';
 import { runPlanner } from '../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../src/planner/locks.js';
@@ -268,6 +269,75 @@ async function testPlannerGraphAndWaves(): Promise<void> {
 
   assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.from === 'step-1' && edge.to === 'step-3'), true);
   assert.deepEqual(graph.waves.map((wave) => wave.stepIds), [['step-1', 'step-2'], ['step-3']]);
+
+  const selectedVerify = selectExecutionWave(
+    [
+      { id: 'step-1', title: 'Update math', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+      { id: 'step-2', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+    ],
+    {
+      ...graph,
+      waves: [{ index: 0, stepIds: ['step-1', 'step-2'] }],
+    },
+    2,
+    (step) => (step.kind === 'verify' ? 'verify' : 'subagent'),
+  );
+  assert.deepEqual(selectedVerify.map((step) => step.id), ['step-2']);
+
+  const restrictedWrite = selectExecutionWave(
+    [
+      { id: 'step-4', title: 'Unknown write', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [] },
+      { id: 'step-5', title: 'Known write', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+    ],
+    {
+      ...graph,
+      waves: [{ index: 0, stepIds: ['step-4', 'step-5'] }],
+    },
+    2,
+    () => 'subagent',
+  );
+  assert.deepEqual(restrictedWrite.map((step) => step.id), ['step-4']);
+
+  const conflictMessage = detectPendingConflictFailure(
+    {
+      version: '1',
+      revision: 1,
+      summary: 'graph fixture',
+      steps: [
+        { id: 'step-1', title: 'Update math', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+        { id: 'step-3', title: 'Retouch math docs', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+      ],
+    },
+    buildExecutionGraph({
+      version: '1',
+      revision: 1,
+      summary: 'conflict fixture',
+      steps: [
+        { id: 'step-1', title: 'Update math', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+        { id: 'step-3', title: 'Retouch math docs', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+      ],
+    }),
+  );
+  assert.match(conflictMessage ?? '', /step-1/);
+
+  const blocked = annotateBlockedDependents(
+    {
+      version: '1',
+      revision: 1,
+      summary: 'blocked fixture',
+      steps: [
+        { id: 'step-1', title: 'Update math', status: 'FAILED', kind: 'code', attempts: 1, dependencies: [], children: [] },
+        { id: 'step-2', title: 'Update tests', status: 'PENDING', kind: 'test', attempts: 0, dependencies: ['step-1'], children: [] },
+      ],
+    },
+    new Set(['step-1']),
+    (plan, stepId, updates) => ({
+      ...plan,
+      steps: plan.steps.map((step) => (step.id === stepId ? { ...step, ...updates } : step)),
+    }),
+  );
+  assert.equal(blocked.steps[1]?.executionState, 'blocked');
+  assert.match(blocked.steps[1]?.lastError ?? '', /step-1/);
 }
 
 async function testPlannerExecutionLocks(): Promise<void> {
