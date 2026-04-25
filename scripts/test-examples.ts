@@ -12,6 +12,7 @@ import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutio
 import { executePlannerVerifyStep } from '../src/planner/execute-verify.js';
 import { buildExecutionGraph } from '../src/planner/graph.js';
 import { runPlanner } from '../src/planner/index.js';
+import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../src/planner/runtime.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../src/planner/locks.js';
 import { PolicyEngine } from '../src/policy/index.js';
 import { createSession, listRecentSessions, resolvePlannerSessionDir } from '../src/session/index.js';
@@ -178,6 +179,7 @@ async function main(): Promise<void> {
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
+    { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
@@ -370,6 +372,54 @@ async function testPlannerExecutionLocks(): Promise<void> {
     ['src/math.js'],
   );
   assert.doesNotThrow(() => assertStepCanWrite(transferred, 'step-2', 'src/math.js'));
+}
+
+async function testPlannerRuntimeHelpers(): Promise<void> {
+  const request = buildPlannerRequestArtifact(
+    {
+      prompt: 'Add retries',
+      explicitFiles: [],
+      pastedSnippets: [],
+    },
+    '/tmp/session',
+    {
+      request: {
+        promptHistory: ['Initial request'],
+        explicitFiles: ['src/math.js'],
+        pastedSnippets: ['const x = 1;'],
+        resumedFrom: null,
+      },
+      plan: {
+        version: '1',
+        revision: 1,
+        summary: 'prior plan',
+        steps: [],
+      },
+      state: initializePlannerState(undefined, 1, '', false),
+    },
+  );
+  assert.deepEqual(request.promptHistory, ['Initial request', 'Add retries']);
+  assert.deepEqual(request.explicitFiles, ['src/math.js']);
+  assert.equal(request.resumedFrom, '/tmp/session');
+
+  assert.equal(classifyPlannerStep({ id: 'verify', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: [], children: [] }), 'verify');
+  assert.equal(classifyPlannerStep({ id: 'search', title: 'Search files', status: 'PENDING', kind: 'search', attempts: 0, dependencies: [], children: [] }), 'skip');
+  assert.equal(classifyPlannerStep({ id: 'code', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [] }), 'subagent');
+
+  const updatedPlan = updatePlannerStep(
+    {
+      version: '1',
+      revision: 1,
+      summary: 'update fixture',
+      steps: [{ id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [] }],
+    },
+    'step-1',
+    { executionState: 'done', status: 'DONE' },
+  );
+  assert.equal(updatedPlan.steps[0]?.status, 'DONE');
+  assert.equal(updatedPlan.steps[0]?.executionState, 'done');
+
+  assert.deepEqual(mapPlannerResult('DONE', '/tmp/session', 'ok'), { status: 'completed', sessionDir: '/tmp/session', message: 'ok' });
 }
 
 async function testPlannerExecuteEntryHelper(): Promise<void> {
