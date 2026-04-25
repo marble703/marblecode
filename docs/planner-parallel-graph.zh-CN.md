@@ -146,7 +146,7 @@ wave 的作用不是“保证一定并发”，而是“给 host 一个可解释
 
 ## 调度策略
 
-执行主循环位于 `src/planner/index.ts`。
+调度主循环位于 `src/planner/execute.ts`，而 planner runtime loop 位于 `src/planner/loop.ts`。
 
 ### ready step
 
@@ -349,7 +349,7 @@ host 允许有限的写权转移，主要用于这种链路：
 后续如果还要继续重构，更值得关注的是：
 
 - `src/planner/execute-subtask.ts` 体积继续增长时，再考虑把 agent launch 和 recovery 细分
-- `scripts/test-examples.ts` 仍然较大，后续可按 planner/agent/verifier/TUI 维度拆分
+- `scripts/test-examples.ts` 已收敛为 suite 入口，后续如果 manual suite 继续增长，可再细分 shared fixtures 或 case registration 组织方式
 
 ## 适合怎么读这套实现
 

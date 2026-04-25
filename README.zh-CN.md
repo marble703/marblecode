@@ -279,6 +279,7 @@ node dist/index.js rollback --last
 
 - `.marblecode`：项目级 agent 配置和 verifier 计划
 - `scripts`：本地 smoke check、planner 查看器和手动回归入口
+- `scripts/manual-suite`：按领域拆分的手动回归场景和共享测试 helper/provider
 - `src/cli`：CLI 入口
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
@@ -310,7 +311,7 @@ node dist/index.js rollback --last
 ## 重构说明
 
 - 第一轮结构清理已经落地：共享 JSON 解析、共享文件遍历，以及 planner 的 request/parse/artifact/prompt/state/recovery helper 都已拆到独立模块
-- 目前剩余的主要大文件热点仍是 `src/planner/index.ts`、`src/tui/agent-repl.ts`、`src/agent/index.ts`、`src/verifier/index.ts` 和 `scripts/test-examples.ts`
+- planner runtime 和 manual suite 的拆分已经落地；目前剩余的主要大文件热点仍是 `src/tui/agent-repl.ts`、`src/agent/index.ts` 和 `src/verifier/index.ts`
 - `docs/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
 
 ## Verifier Markdown

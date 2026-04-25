@@ -284,6 +284,7 @@ node dist/index.js rollback --last
 
 - `.marblecode`: project-scoped agent configuration and verifier plans
 - `scripts`: local smoke checks, planner inspectors, and manual regression entrypoints
+- `scripts/manual-suite`: split manual regression domains and shared test helpers/providers
 - `src/cli`: CLI entrypoint
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
@@ -314,7 +315,7 @@ node dist/index.js rollback --last
 ## Refactor Notes
 
 - the first structural cleanup pass has already extracted shared JSON parsing and file-walk helpers plus the planner request/parse/artifact/prompt/state/recovery helpers into focused modules
-- the main remaining large-file hotspots are `src/planner/index.ts`, `src/tui/agent-repl.ts`, `src/agent/index.ts`, `src/verifier/index.ts`, and `scripts/test-examples.ts`
+- the planner runtime and manual suite split passes have landed; the main remaining large-file hotspots are `src/tui/agent-repl.ts`, `src/agent/index.ts`, and `src/verifier/index.ts`
 - `docs/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
 
 ## Verifier Markdown

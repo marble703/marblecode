@@ -15,13 +15,14 @@ Implemented in the current pass:
 - moved the planner runtime loop into `src/planner/loop.ts`
 - moved planner request/state/result helpers into `src/planner/runtime.ts`
 - kept `runPlanner()` exported from `src/planner/index.ts` while shrinking the old monolithic helper surface
+- split the manual suite into `scripts/manual-suite/{providers,planner,agent,verifier,tui,helpers}.ts`
+- reduced `scripts/test-examples.ts` to the suite entrypoint and case registration layer
 
 Still pending after this pass:
 
 - split `src/tui/agent-repl.ts`
 - split `src/verifier/index.ts` into command resolution, execution, and analysis helpers
 - split `src/agent/index.ts` further than the shared-helper extraction
-- split `scripts/test-examples.ts`
 
 ## Goals
 
@@ -44,7 +45,6 @@ The current repository layout is directionally good, but these files are carryin
 - `src/tui/agent-repl.ts`: slash-command parsing, REPL loop, run/plan/execute dispatch, live refresh, rendering, planner inspection, and child-session navigation
 - `src/agent/index.ts`: agent loop, request building, patch preview/apply flow, verifier integration, and rollback helper
 - `src/verifier/index.ts`: command resolution, verifier execution, and LLM-based verifier-failure analysis
-- `scripts/test-examples.ts`: provider stubs, case registry, most fixture scenarios, and suite helpers all live in one file
 
 The first shared-utility cleanup is already done, but these larger runtime files still need follow-up splits.
 
@@ -109,7 +109,7 @@ This phase is lower priority than planner and TUI because the files are smaller,
 
 ### Manual suite split
 
-Leave `scripts/test-examples.ts` for last so production refactors land first. When it is time, split by domain instead of by assertion style.
+This phase is now complete. The suite is split by domain instead of by assertion style.
 
 - `scripts/test-examples.ts`: suite entrypoint and case registration only
 - `scripts/manual-suite/providers.ts`: stub providers and test doubles

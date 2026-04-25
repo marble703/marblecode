@@ -51,7 +51,7 @@
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
 - `src/config`: config schema defaults and project/local config loading.
-- `src/planner`: planner loop plus the remaining execution orchestration that still lives in `src/planner/index.ts`.
+- `src/planner`: `src/planner/index.ts` is the public `runPlanner()` entrypoint; `src/planner/loop.ts` owns the planner runtime loop, and execute orchestration lives under `execute*.ts` modules.
 - `src/planner/model.ts`, `src/planner/parse.ts`, `src/planner/artifacts.ts`, `src/planner/prompts.ts`, `src/planner/state.ts`, `src/planner/recovery.ts`, `src/planner/utils.ts`: planner helper modules split out of the old monolithic planner entrypoint.
 - `src/planner/graph.ts`: execution graph helpers, conflict detection, and execution wave calculation.
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute and future concurrency work.
@@ -71,6 +71,7 @@
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.
 - `examples/manual-test-suite`: deterministic regression fixture for tool, context, planner, patch, rollback, shell, policy, verifier, and retry checks.
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
+- `scripts/test-examples.ts`: manual suite entrypoint only; domain cases and shared test helpers live under `scripts/manual-suite/`.
 - `docs/repo-refactor-plan.md`: current split plan for oversized runtime and test files; consult it before moving planner, TUI, agent, verifier, or manual-suite code.
 
 # TypeScript Gotchas

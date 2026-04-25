@@ -204,7 +204,9 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 当前的内部拆分：
 
-- `index.ts`：公共入口点以及剩余的 planner 顶层循环和结果映射逻辑
+- `index.ts`：公共入口点，以及 planner session 初始化与 runtime/bootstrap 衔接逻辑
+- `loop.ts`：顶层 planner 循环和结果映射
+- `runtime.ts`：planner request/state/result helper 和 step 分类逻辑
 - `model.ts`：规划器请求构建
 - `parse.ts`：规划器响应解析和计划归一化
 - `artifacts.ts`：规划器产物写入以及会话恢复/加载辅助函数
