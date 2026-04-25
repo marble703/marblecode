@@ -14,7 +14,11 @@
 
 ## 相关代码
 
-- `src/planner/index.ts`: 仍然是 `runPlanner()` 的公开入口，以及当前剩余的执行编排主流程
+- `src/planner/index.ts`: `runPlanner()` 的公开入口，负责 session/context 初始化并接入 planner loop
+- `src/planner/loop.ts`: planner runtime loop、模型 fallback、invalid-response retry、tool/plan/final 分支推进
+- `src/planner/runtime.ts`: planner request/state 初始化、step 分类、结果映射等轻量运行时 helper
+- `src/planner/execute.ts`: planner execute 顶层编排
+- `src/planner/execute-wave.ts`: ready-step 选 wave、wave 执行、失败传播
 - `src/planner/graph.ts`: 执行图、冲突边、wave 计算
 - `src/planner/locks.ts`: 文件锁、所有权转移、写权限断言
 - `src/planner/state.ts`: 从计划推导 ready/active/blocked/done 状态集合
@@ -308,7 +312,6 @@ host 允许有限的写权转移，主要用于这种链路：
 
 虽然已经有了任务图和并发基础设施，但当前实现仍然偏保守：
 
-- `runPlanner()` 的大量执行编排仍留在 `src/planner/index.ts`
 - wave 并发仍以“安全优先”，不是“吞吐优先”
 - 对无 `fileScope` 的写步骤处理较保守
 - `fallback` 边类型已预留，但更多恢复逻辑仍在执行编排层，而不是完全图化
@@ -326,20 +329,27 @@ host 允许有限的写权转移，主要用于这种链路：
 
 只要这些信息是显式 artifact，后续无论继续拆 `src/planner/index.ts`，还是把并发做得更激进，都不会回到“靠隐式顺序和临时约定运行”的状态。
 
-## 后续值得继续拆分的部分
+## 当前拆分状态
 
-结合当前仓库状态，后续可以继续把这些内容从 `src/planner/index.ts` 抽出去：
+这一轮重构后，planner execute 相关的大块逻辑已经从 `src/planner/index.ts` 迁出：
 
-- `executePlannerPlan()` 主循环
-- `executePlannerWave()`
-- `executePlannerVerifyStep()`
-- `executePlannerSubtaskWithRecovery()`
-- 锁准备与 wave 选择逻辑
+- `runPlanner()` 主入口保留在 `src/planner/index.ts`
+- planner runtime loop 位于 `src/planner/loop.ts`
+- `executePlannerPlan()` 位于 `src/planner/execute.ts`
+- `executePlannerWave()` 位于 `src/planner/execute-wave.ts`
+- `executePlannerVerifyStep()` 位于 `src/planner/execute-verify.ts`
+- `executePlannerSubtaskWithRecovery()` 和锁准备逻辑位于 `src/planner/execute-subtask.ts`
 
-对应目标形态，可以参考 `docs/repo-refactor-plan.md` 中提到的：
+这意味着：
 
-- `src/planner/execute.ts`
-- 更薄的 `src/planner/index.ts`
+- `src/planner/index.ts` 现在更接近薄入口
+- `src/planner/execute.ts` 更接近 execute 顶层 orchestration
+- wave 选择、wave 执行、blocked 传播已收敛到同一个 focused module
+
+后续如果还要继续重构，更值得关注的是：
+
+- `src/planner/execute-subtask.ts` 体积继续增长时，再考虑把 agent launch 和 recovery 细分
+- `scripts/test-examples.ts` 仍然较大，后续可按 planner/agent/verifier/TUI 维度拆分
 
 ## 适合怎么读这套实现
 
@@ -349,7 +359,7 @@ host 允许有限的写权转移，主要用于这种链路：
 2. `src/planner/graph.ts`
 3. `src/planner/locks.ts`
 4. `src/planner/state.ts`
-5. `src/planner/index.ts` 中的 `executePlannerPlan()` 和 `executePlannerSubtaskWithRecovery()`
+5. `src/planner/loop.ts` 与 `src/planner/execute.ts`
 6. 再看 `execution.graph.json`、`execution.locks.json` 和 `show:planner` 的输出
 
 这样会比直接从 `runPlanner()` 一路往下读更容易建立整体心智模型。

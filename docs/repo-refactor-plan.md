@@ -12,11 +12,12 @@ Implemented in the current pass:
 - updated `src/agent/index.ts` and `src/verifier/index.ts` to use the shared JSON extractor
 - split planner helpers into `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, and `utils.ts`
 - moved planner execution orchestration and helpers into `src/planner/execute.ts`, `src/planner/execute-wave.ts`, `src/planner/execute-verify.ts`, and `src/planner/execute-subtask.ts`
+- moved the planner runtime loop into `src/planner/loop.ts`
+- moved planner request/state/result helpers into `src/planner/runtime.ts`
 - kept `runPlanner()` exported from `src/planner/index.ts` while shrinking the old monolithic helper surface
 
 Still pending after this pass:
 
-- move the planner execution/runtime loop out of `src/planner/index.ts`
 - split `src/tui/agent-repl.ts`
 - split `src/verifier/index.ts` into command resolution, execution, and analysis helpers
 - split `src/agent/index.ts` further than the shared-helper extraction
@@ -39,7 +40,7 @@ Still pending after this pass:
 
 The current repository layout is directionally good, but these files are carrying multiple sub-systems at once:
 
-- `src/planner/index.ts`: public `runPlanner()` entrypoint plus the remaining planner session setup, model fallback handling, execution orchestration, wave scheduling, verify execution, and retry/fallback/replan recovery
+- `src/planner/index.ts`: public `runPlanner()` entrypoint plus planner session setup and runtime/bootstrap wiring
 - `src/tui/agent-repl.ts`: slash-command parsing, REPL loop, run/plan/execute dispatch, live refresh, rendering, planner inspection, and child-session navigation
 - `src/agent/index.ts`: agent loop, request building, patch preview/apply flow, verifier integration, and rollback helper
 - `src/verifier/index.ts`: command resolution, verifier execution, and LLM-based verifier-failure analysis
