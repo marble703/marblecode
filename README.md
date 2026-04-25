@@ -1,7 +1,5 @@
 # Coding Agent Core
 
-Small, secure-by-default coding agent core for local CLI workflows.
-
 ## Current Status
 
 This repository now contains a runnable MVP that can complete one basic patch-driven coding task end to end.
