@@ -209,6 +209,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `runtime.ts`：planner request/state/result helper 和 step 分类逻辑
 - `execution-types.ts`：execution-state 和 strategy 接口类型
 - `execution-state.ts`：持久化 `execution.state.json` 快照构造
+- `execution-machine.ts`：planner execution phase transition table 和事件分发入口
 - `execution-strategies.ts`：执行策略选择和策略实现
 - `model.ts`：规划器请求构建
 - `parse.ts`：规划器响应解析和计划归一化

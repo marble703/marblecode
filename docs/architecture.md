@@ -209,6 +209,7 @@ Current internal split:
 - `runtime.ts`: planner request/state/result helpers and step classification
 - `execution-types.ts`: execution-state and strategy interfaces
 - `execution-state.ts`: persisted execution-state snapshot builder
+- `execution-machine.ts`: planner execution phase transition table and event dispatch
 - `execution-strategies.ts`: execution strategy selection and policy implementations
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization

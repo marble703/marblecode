@@ -19,6 +19,7 @@
 - `src/planner/runtime.ts`: planner request/state 初始化、step 分类、结果映射等轻量运行时 helper
 - `src/planner/execution-types.ts`: execution state、strategy 接口与恢复相关类型
 - `src/planner/execution-state.ts`: `execution.state.json` 快照构造
+- `src/planner/execution-machine.ts`: execution phase transition table、事件分发和 artifact 写入入口
 - `src/planner/execution-strategies.ts`: serial/fail/aggressive/deterministic 执行策略入口
 - `src/planner/execute.ts`: planner execute 顶层编排
 - `src/planner/execute-wave.ts`: ready-step 选 wave、wave 执行、失败传播
@@ -40,13 +41,38 @@
 6. 对写步骤准备文件锁与所有权
 7. 通过 coder subagent 执行 code/test/docs 步骤，或直接运行 verify 步骤
 8. 失败时进入 retry、fallback model、local replan 等恢复路径
-9. 持续更新 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json`、`execution.state.json` 和事件日志
+9. 通过 execution machine 持续更新 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json`、`execution.state.json` 和事件日志
 
 可以把当前模型理解成：
 
 - planner 负责“提出可执行的步骤和依赖”
 - host 负责“把步骤变成安全的执行图”
 - subagent 负责“在被授予的文件范围内完成具体改动”
+
+## Execution Machine
+
+Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
+
+当前使用事件驱动的 transition table：
+
+- `EXECUTION_INITIALIZED`: `idle` -> `planning`
+- `LOCKS_ACQUIRED`: `planning`/`converging`/`recovering` -> `locking`
+- `WAVE_EXECUTED`: `locking` -> `executing_wave`
+- `WAVE_CONVERGED`: `executing_wave` -> `converging`
+- `WAVE_REPLANNED`: `locking`/`executing_wave`/`recovering` -> `recovering`
+- `VERIFY_STEP_STARTED`: `planning`/`converging`/`recovering` -> `executing_wave`
+- `VERIFY_STEP_SUCCEEDED`: `executing_wave` -> `converging`
+- `VERIFY_STEP_FAILED`: `executing_wave` -> `failed`
+- `CONFLICT_DETECTED` / `DEPENDENCIES_BLOCKED` / `WAVE_FAILED`: 进入 `failed`
+- `EXECUTION_COMPLETED`: 进入 `done`
+
+非法 transition 会抛错，避免执行编排层随意覆盖 `executionPhase`。
+
+`dispatchExecutionEvent()` 会在 transition 成功后统一写出：
+
+- `execution.graph.json`
+- `execution.locks.json`
+- `execution.state.json`
 
 ## 任务图模型
 
