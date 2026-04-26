@@ -207,6 +207,9 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `index.ts`：公共入口点，以及 planner session 初始化与 runtime/bootstrap 衔接逻辑
 - `loop.ts`：顶层 planner 循环和结果映射
 - `runtime.ts`：planner request/state/result helper 和 step 分类逻辑
+- `execution-types.ts`：execution-state 和 strategy 接口类型
+- `execution-state.ts`：持久化 `execution.state.json` 快照构造
+- `execution-strategies.ts`：执行策略选择和策略实现
 - `model.ts`：规划器请求构建
 - `parse.ts`：规划器响应解析和计划归一化
 - `artifacts.ts`：规划器产物写入以及会话恢复/加载辅助函数
@@ -214,6 +217,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `execute-wave.ts`：wave 选择、冲突检查和 blocked 依赖标注
 - `execute-verify.ts`：verify 步骤执行和 verify-repair 衔接
 - `execute-subtask.ts`：subtask 尝试准备、锁准备和 coder 子代理执行辅助逻辑
+- `execute-resume.ts`：基于执行 artifacts 的 execution resume 入口
 - `prompts.ts`：子任务、修复和重新规划的提示词构建器
 - `state.ts`：ready/active/blocked/done 状态推导
 - `recovery.ts`：本地重新规划流程
@@ -252,8 +256,10 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 - 从执行图中派生的执行波次
 - 带有写所有权和降级为受保护读的文件锁表
 - 由 `maxConcurrentSubtasks` 限制的、冲突感知的并发控制
+- 持久化到 `execution.state.json` 的 execution-state 快照
+- 通过 `serial`、`fail`、`aggressive`、`deterministic` 策略模式驱动的调度选择
 - 针对失败步骤的重试、备用模型选择以及本地重新规划
-- 持久化的执行产物，用于 TUI 和离线检查
+- 持久化的执行产物，用于 TUI、离线检查以及 execution resume
 
 失败传播语义目前刻意保持保守：
 

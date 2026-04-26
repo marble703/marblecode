@@ -207,6 +207,9 @@ Current internal split:
 - `index.ts`: public entrypoint plus planner session setup and runtime/bootstrap wiring
 - `loop.ts`: top-level planner loop and result mapping
 - `runtime.ts`: planner request/state/result helpers and step classification
+- `execution-types.ts`: execution-state and strategy interfaces
+- `execution-state.ts`: persisted execution-state snapshot builder
+- `execution-strategies.ts`: execution strategy selection and policy implementations
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
@@ -214,6 +217,7 @@ Current internal split:
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff
 - `execute-subtask.ts`: subtask attempt setup, lock preparation, and coder-subagent execution helpers
+- `execute-resume.ts`: execution resume from persisted execution artifacts
 - `prompts.ts`: subtask, repair, and replan prompt builders
 - `state.ts`: ready/active/blocked/done derivation
 - `recovery.ts`: local replan flow
@@ -252,8 +256,10 @@ Current host-side execution foundations include:
 - execution waves derived from the graph
 - file lock tables with write ownership and guarded-read downgrade
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
+- execution-state snapshots persisted as `execution.state.json`
+- strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
 - retry, fallback model selection, and local replan for failed steps
-- persisted execution artifacts for TUI and offline inspection
+- persisted execution artifacts for TUI, offline inspection, and execution resume
 
 Failure propagation is intentionally conservative:
 

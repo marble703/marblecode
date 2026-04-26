@@ -17,8 +17,12 @@
 - `src/planner/index.ts`: `runPlanner()` 的公开入口，负责 session/context 初始化并接入 planner loop
 - `src/planner/loop.ts`: planner runtime loop、模型 fallback、invalid-response retry、tool/plan/final 分支推进
 - `src/planner/runtime.ts`: planner request/state 初始化、step 分类、结果映射等轻量运行时 helper
+- `src/planner/execution-types.ts`: execution state、strategy 接口与恢复相关类型
+- `src/planner/execution-state.ts`: `execution.state.json` 快照构造
+- `src/planner/execution-strategies.ts`: serial/fail/aggressive/deterministic 执行策略入口
 - `src/planner/execute.ts`: planner execute 顶层编排
 - `src/planner/execute-wave.ts`: ready-step 选 wave、wave 执行、失败传播
+- `src/planner/execute-resume.ts`: 基于 execution artifacts 的执行恢复入口
 - `src/planner/graph.ts`: 执行图、冲突边、wave 计算
 - `src/planner/locks.ts`: 文件锁、所有权转移、写权限断言
 - `src/planner/state.ts`: 从计划推导 ready/active/blocked/done 状态集合
@@ -36,7 +40,7 @@
 6. 对写步骤准备文件锁与所有权
 7. 通过 coder subagent 执行 code/test/docs 步骤，或直接运行 verify 步骤
 8. 失败时进入 retry、fallback model、local replan 等恢复路径
-9. 持续更新 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json` 和事件日志
+9. 持续更新 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json`、`execution.state.json` 和事件日志
 
 可以把当前模型理解成：
 
@@ -160,7 +164,7 @@ host 会先根据：
 
 ### 选择一个 wave
 
-从 `graph.waves` 中选择当前可运行的第一批候选后，再做缩减：
+从 `graph.waves` 中选择当前可运行的第一批候选后，再根据 execution strategy 做缩减：
 
 - 如果其中包含 `verify`，优先只执行 verify
 - 如果 `maxConcurrentSubtasks <= 1`，退化成串行
@@ -182,7 +186,7 @@ host 会先根据：
 
 ## conflict policy
 
-`routing.subtaskConflictPolicy` 当前有两种模式：
+`routing.subtaskConflictPolicy` 当前既影响冲突处理，也映射到 execution strategy：
 
 ### `serial`
 
@@ -203,6 +207,20 @@ host 会先根据：
 
 适合做保守验证，确认 planner 是否已经把步骤拆得足够清晰。
 
+### `aggressive`
+
+更偏吞吐优先的模式。
+
+- 仍复用同一份执行图和锁规则
+- wave 选择时更倾向于保留更大的 ready 集合，而不是过早缩减到保守串行
+
+### `deterministic`
+
+更偏可复现的模式。
+
+- 即使 `maxConcurrentSubtasks > 1`，也优先按稳定顺序挑选单步执行
+- 更适合做回归验证和时序敏感问题排查
+
 ## 文件锁与所有权
 
 文件锁定义在 `src/planner/locks.ts`。
@@ -210,6 +228,7 @@ host 会先根据：
 当前锁表是显式 artifact：
 
 - `execution.locks.json`
+- `execution.state.json`
 
 每条锁记录包含：
 
@@ -307,6 +326,8 @@ host 允许有限的写权转移，主要用于这种链路：
 - TUI 可解释
 - 手工调试可追踪
 - 后续并发增强有稳定数据基础
+
+当前实现已经开始把 `execution.state.json` 作为恢复快照使用：当 planner session 仍处于执行中且存在 execution artifacts 时，resume 路径会优先尝试从 `plan.json` + `plan.state.json` + `execution.graph.json` + `execution.locks.json` + `execution.state.json` 恢复，而不是直接回到 planner loop。
 
 ## 当前限制
 

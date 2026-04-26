@@ -32,7 +32,7 @@
 - In execute mode, planner itself stays on `planningModel`; coder subtasks run through `runAgent()` with `codeModel`, and `show:planner` should make that visible via executor/modelAlias/sessionDir fields.
 - Planner and agent model calls now retry transient provider failures such as `429 rate limit`, timeouts, and brief `5xx` responses using session retry settings.
 - Planner execute still runs one node at a time by default, but node-level retry, fallback model selection, and local replanning are now part of the execution foundation.
-- Planner execute also builds `execution.graph.json` and `execution.locks.json`, so future concurrency work can rely on explicit waves, conflicts, and file ownership rather than implicit step order.
+- Planner execute also builds `execution.graph.json`, `execution.locks.json`, and `execution.state.json`, so future concurrency and recovery work can rely on explicit waves, conflicts, file ownership, and persisted execution snapshots rather than implicit step order.
 - Planner execute now uses those wave/conflict/lock artifacts directly; with `maxConcurrentSubtasks > 1`, same-wave write steps may run concurrently when their file scopes do not overlap.
 - `show:planner` renders `plan.json`, `plan.state.json`, `plan.events.jsonl`, and `planner.log.jsonl` into a terminal-friendly summary for quick inspection.
 - If the auto-selected context is not enough, the model should search with `search_text`, `list_files`, and `read_file` before it patches anything.
@@ -51,7 +51,7 @@
 
 - `src/agent`: JSON-step agent loop and apply-failure messaging.
 - `src/config`: config schema defaults and project/local config loading.
-- `src/planner`: `src/planner/index.ts` is the public `runPlanner()` entrypoint; `src/planner/loop.ts` owns the planner runtime loop, and execute orchestration lives under `execute*.ts` modules.
+- `src/planner`: `src/planner/index.ts` is the public `runPlanner()` entrypoint; `src/planner/loop.ts` owns the planner runtime loop, execute orchestration lives under `execute*.ts` modules, and execution-state/strategy helpers live in `execution-*.ts` modules.
 - `src/planner/model.ts`, `src/planner/parse.ts`, `src/planner/artifacts.ts`, `src/planner/prompts.ts`, `src/planner/state.ts`, `src/planner/recovery.ts`, `src/planner/utils.ts`: planner helper modules split out of the old monolithic planner entrypoint.
 - `src/planner/graph.ts`: execution graph helpers, conflict detection, and execution wave calculation.
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute and future concurrency work.
