@@ -253,19 +253,20 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 当前主机端执行的基础能力包括：
 
 - 带有显式依赖和文件作用域的归一化规划器步骤
-- 包含 `dependency`、`must_run_after` 和 `conflict` 边的执行图
+- 包含 `dependency`、`must_run_after`、`conflict` 和 `fallback` 边的执行图
 - 从执行图中派生的执行波次
 - 带有写所有权和降级为受保护读的文件锁表
 - 由 `maxConcurrentSubtasks` 限制的、冲突感知的并发控制
 - 持久化到 `execution.state.json` 的 execution-state 快照
 - 通过 `serial`、`fail`、`aggressive`、`deterministic` 策略模式驱动的调度选择
-- 针对失败步骤的重试、备用模型选择以及本地重新规划
+- 针对失败步骤的重试、备用模型选择、graph fallback 激活以及本地重新规划
 - 持久化的执行产物，用于 TUI、离线检查以及 execution resume
 
 失败传播语义目前刻意保持保守：
 
 - 同一 wave 中已经启动的任务允许先执行完，再统一并回主机状态
-- 如果某一步失败并导致当前执行停止，则仍处于 pending 的下游依赖节点会被显式标注为“被失败依赖阻断”，而不是被静默跳过
+- 如果某一步失败，会优先激活可用的 graph fallback step
+- 如果当前执行仍然停止，则仍处于 pending 的下游依赖节点会被显式标注为“被失败依赖阻断”，而不是被静默跳过
 
 最好将其理解为“主机管理的结构化执行”，而不仅仅是一个更大的规划器提示词。
 

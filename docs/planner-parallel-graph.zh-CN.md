@@ -60,6 +60,7 @@ Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
 - `WAVE_EXECUTED`: `locking` -> `executing_wave`
 - `WAVE_CONVERGED`: `executing_wave` -> `converging`
 - `WAVE_REPLANNED`: `locking`/`executing_wave`/`recovering` -> `recovering`
+- `FALLBACK_ACTIVATED`: `locking`/`executing_wave`/`recovering` -> `recovering`
 - `VERIFY_STEP_STARTED`: `planning`/`converging`/`recovering` -> `executing_wave`
 - `VERIFY_STEP_SUCCEEDED`: `executing_wave` -> `converging`
 - `VERIFY_STEP_FAILED`: `executing_wave` -> `failed`
@@ -89,6 +90,7 @@ Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
 - `dependencies`
 - `mustRunAfter`
 - `conflictsWith`
+- `fallbackStepIds`
 
 其中最关键的是两个维度：
 
@@ -102,9 +104,11 @@ Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
 - `dependency`: 来自 `step.dependencies`
 - `must_run_after`: 来自 `step.mustRunAfter`
 - `conflict`: host 根据写入范围或显式冲突关系补出来的边
-- `fallback`: 目前类型已预留，主要恢复逻辑仍由执行层控制
+- `fallback`: 来自 `step.fallbackStepIds` 的条件恢复边
 
 `conflict` 边尤其重要，因为它把“这两个步骤不能同时推进”从隐式约定变成了显式图结构。
+
+`fallback` 边不会像普通 dependency 一样参与 wave 入度计算。它表示“当 source step 失败时，target step 可以作为恢复路径被激活”。在 source step 未失败前，fallback target 会被视为 `fallback_inactive`，不会进入 ready set。
 
 ### accessMode
 
@@ -185,6 +189,7 @@ host 会先根据：
 - 已完成依赖
 - `mustRunAfter`
 - `conflict` 边
+- `fallback` 边的激活状态
 
 推导出 ready steps。
 
@@ -205,7 +210,9 @@ host 会先根据：
 
 - 同一 wave 中的 subtask 一旦已经启动，host 不会中途强杀它们
 - host 会等待该 wave 的 `Promise.allSettled()` 结果全部返回
-- 如果其中任一步骤失败，当前执行会在本 wave 结束后停止
+- 如果其中任一步骤失败，host 会优先检查是否存在可激活的 graph fallback step
+- 如果 fallback step 被激活，执行进入 `recovering` 并继续下一轮调度
+- 如果没有 fallback step 可用，当前执行会在本 wave 结束后停止
 - 依赖失败步骤的下游节点不会被静默跳过，而是会被标注为 `blocked`，并带上 `dependency` 失败原因
 
 这意味着当前模型更偏向“安全收敛”，而不是“立即取消其余并发任务”。

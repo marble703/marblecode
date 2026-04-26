@@ -253,19 +253,20 @@ Planner execute is the main place where the architecture has grown beyond the or
 Current host-side execution foundations include:
 
 - normalized planner steps with explicit dependencies and file scopes
-- execution graphs with `dependency`, `must_run_after`, and `conflict` edges
+- execution graphs with `dependency`, `must_run_after`, `conflict`, and `fallback` edges
 - execution waves derived from the graph
 - file lock tables with write ownership and guarded-read downgrade
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
 - execution-state snapshots persisted as `execution.state.json`
 - strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
-- retry, fallback model selection, and local replan for failed steps
+- retry, fallback model selection, graph fallback activation, and local replan for failed steps
 - persisted execution artifacts for TUI, offline inspection, and execution resume
 
 Failure propagation is intentionally conservative:
 
 - tasks already started in the same wave are allowed to finish and then get merged back into host state
-- if a step fails and execution stops, pending downstream dependents are annotated as blocked by failed dependencies instead of being treated as silently skipped
+- if a step fails, graph fallback steps are activated first when available
+- if execution still stops, pending downstream dependents are annotated as blocked by failed dependencies instead of being treated as silently skipped
 
 This is best understood as “host-managed structured execution,” not just a bigger planner prompt.
 

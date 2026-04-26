@@ -9,7 +9,7 @@
 已具备的基础：
 
 - `executePlannerPlan()` 已通过 `src/planner/execution-machine.ts` 使用事件驱动的显式 phase transition，并持久化 `execution.state.json`。
-- `execution.graph.json` 已包含 `dependency`、`must_run_after`、`conflict`、`fallback` 四类边类型，其中 `fallback` 目前只是类型预留。
+- `execution.graph.json` 已包含 `dependency`、`must_run_after`、`conflict`、`fallback` 四类边类型，其中 `fallback` 已可由 `fallbackStepIds` 生成并在 step 失败后激活。
 - `execution.locks.json` 已记录文件锁，支持 write lock、guarded read、所有权转移。
 - `subtaskConflictPolicy` 已支持 `serial`、`fail`、`aggressive`、`deterministic`，并通过 `PlannerExecutionStrategy` 选择 wave。
 - planner execute 可从 execution artifacts 进入恢复路径，但恢复策略仍偏保守。
@@ -21,7 +21,7 @@
 - `execution.state.json` 记录了阶段和集合快照，但还不是所有调度决策的唯一来源。
 - artifact resume 目前基本是重置非 DONE 步骤再重跑，没有精确恢复 active wave、fallback path 或局部子图状态。
 - 冲突检测主要基于 `fileScope` 路径字符串、空 scope 写步骤保守冲突、以及显式 `conflictsWith`。
-- `fallbackStepIds` 已存在于 `PlannerStep`，`fallback` edge 类型也已存在，但 execution graph 没有生成/激活 fallback 边。
+- graph fallback 已支持基础激活，但局部 replan 仍未 proposal-first，fallback 也还没有替代依赖改写语义。
 - 局部 replan 由 `attemptPlannerNodeReplan()` 直接调用 planner 并 merge，新计划校验和图级合并边界还不够严格。
 - wave 失败处理仍偏“一失败则停止 wave/全局失败”，没有 `DEGRADED` 或可容忍失败语义。
 - 工具系统目前是内置 `ToolRegistry`，没有 LSP/MCP provider 层。
@@ -58,7 +58,7 @@
 - 所有 phase 变化都经过同一个 transition 入口。
 - `execution.state.json` 至少包含当前 phase、epoch、strategy、ready/active/completed/failed/blocked、current wave、last completed wave、recovery metadata。
 
-### P1：把 fallback/replan 变成图的一部分
+### P1：把 fallback/replan 变成图的一部分（fallback 基础已完成）
 
 这是当前恢复能力最值得优先补齐的方向。
 
@@ -70,15 +70,21 @@
 - step 失败后 host 优先激活 fallback path，而不是直接全局 FAILED。
 - 局部 replan 输出不能直接替换内存计划，必须经过校验和图级合并。
 
-建议任务：
+已完成的 fallback 基础：
 
-1. 在 `buildExecutionGraph()` 中基于 `step.fallbackStepIds` 生成 `fallback` edge。
-2. 定义 fallback 激活规则：只有 source step 失败且 fallback target 未执行时，fallback target 才进入 ready path。
-3. 新增 `PlannerStepStatus` 或 step metadata 表达 fallback 激活态。可先避免新增状态，用 `executionState: 'fallback'` 表达 active fallback，但长期建议引入单独的 graph activation state。
-4. 将 model fallback 与 graph fallback 区分：model fallback 是同一节点换模型重试；graph fallback 是执行另一节点。
-5. 抽出 `mergeReplannedSubgraph(previousPlan, proposedPlan, scope)`，要求：不得删除 DONE 步骤；不得修改已完成步骤语义字段；新增节点必须有明确 dependencies/fileScope/conflict metadata；必须重新跑 consistency checks；必须重新构图并验证无 cycle。
-6. 局部 replan 不直接写 `plan.json`，而是先写 `replan.proposal.<stepId>.json`，通过校验后再写 `plan.json`。
-7. 在 execution events 中记录 `fallback_activated`、`replan_proposed`、`replan_rejected`、`replan_merged`。
+1. `buildExecutionGraph()` 基于 `step.fallbackStepIds` 生成 `fallback` edge。
+2. fallback target 在 source step 未失败时保持 `fallback_inactive`，不会进入 ready set。
+3. 当 source step 失败且存在可用 fallback target 时，host 会激活 fallback step 并继续执行，而不是直接全局 FAILED。
+4. `FALLBACK_ACTIVATED` 已纳入 execution machine，进入 `recovering` phase。
+5. `plan.events.jsonl` 会记录 `subtask_fallback_activated`。
+6. planner view 会展示 fallback edges。
+
+仍待完成的 replan/替代语义：
+
+1. 抽出 `mergeReplannedSubgraph(previousPlan, proposedPlan, scope)`，要求：不得删除 DONE 步骤；不得修改已完成步骤语义字段；新增节点必须有明确 dependencies/fileScope/conflict metadata；必须重新跑 consistency checks；必须重新构图并验证无 cycle。
+2. 局部 replan 不直接写 `plan.json`，而是先写 `replan.proposal.<stepId>.json`，通过校验后再写 `plan.json`。
+3. 在 execution events 中记录 `replan_proposed`、`replan_rejected`、`replan_merged`。
+4. 明确 fallback dependency substitution 语义。当前下游如果要依赖 fallback 成功，需要 planner 显式依赖 fallback step。
 
 完成标准：
 
@@ -251,9 +257,9 @@
 
 - fallback edge generation
 - fallback activation
+- TUI 展示 fallback/replan events
 - `replan.proposal.*.json`
 - bounded subgraph merge validator
-- TUI 展示 fallback/replan events
 
 验证：
 
