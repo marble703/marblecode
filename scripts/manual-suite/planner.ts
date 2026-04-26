@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { executePlannerPlan } from '../../src/planner/execute.js';
+import { createInitialExecutionState, dispatchExecutionEvent, transitionExecutionPhase } from '../../src/planner/execution-machine.js';
 import { getPlannerExecutionStrategy } from '../../src/planner/execution-strategies.js';
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../../src/planner/execute-wave.js';
@@ -22,6 +23,8 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
+    { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
+    { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
@@ -200,6 +203,86 @@ async function testPlannerRuntimeHelpers(): Promise<void> {
   assert.deepEqual(mapPlannerResult('DONE', '/tmp/session', 'ok'), { status: 'completed', sessionDir: '/tmp/session', message: 'ok' });
 }
 
+async function testPlannerExecutionStateMachineTransitions(): Promise<void> {
+  assert.equal(transitionExecutionPhase('idle', { type: 'EXECUTION_INITIALIZED' }), 'planning');
+  assert.equal(transitionExecutionPhase('planning', { type: 'LOCKS_ACQUIRED' }), 'locking');
+  assert.equal(transitionExecutionPhase('locking', { type: 'WAVE_EXECUTED' }), 'executing_wave');
+  assert.equal(transitionExecutionPhase('executing_wave', { type: 'WAVE_CONVERGED' }), 'converging');
+  assert.equal(transitionExecutionPhase('converging', { type: 'EXECUTION_COMPLETED' }), 'done');
+  assert.equal(transitionExecutionPhase('executing_wave', { type: 'VERIFY_STEP_FAILED' }), 'failed');
+  assert.equal(transitionExecutionPhase('recovering', { type: 'WAVE_REPLANNED' }), 'recovering');
+
+  assert.throws(() => transitionExecutionPhase('done', { type: 'EXECUTION_INITIALIZED' }), /Invalid execution transition/);
+  assert.throws(() => transitionExecutionPhase('failed', { type: 'WAVE_CONVERGED' }), /Invalid execution transition/);
+  assert.throws(() => transitionExecutionPhase('locking', { type: 'VERIFY_STEP_STARTED' }), /Invalid execution transition/);
+}
+
+async function testPlannerExecutionEventDispatch(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    const session = await createSession(config);
+    const state = {
+      version: '1' as const,
+      revision: 1,
+      phase: 'PATCHING' as const,
+      outcome: 'RUNNING' as const,
+      currentStepId: null,
+      activeStepIds: [],
+      readyStepIds: ['step-1'],
+      completedStepIds: [],
+      failedStepIds: [],
+      blockedStepIds: [],
+      invalidResponseAttempts: 0,
+      message: 'ready',
+      consistencyErrors: [],
+    };
+    const plan = {
+      version: '1' as const,
+      revision: 1,
+      summary: 'dispatch fixture',
+      steps: [
+        { id: 'step-1', title: 'Update notes', status: 'PENDING' as const, kind: 'docs' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/notes.txt'] },
+      ],
+    };
+    const graph = buildExecutionGraph(plan);
+    const locks = createExecutionLockTable(1);
+    let executionState = createInitialExecutionState(state, 'serial');
+
+    executionState = await dispatchExecutionEvent(session, graph, locks, executionState, { type: 'EXECUTION_INITIALIZED' }, {
+      state,
+      strategy: 'serial',
+      currentWaveStepIds: [],
+      lastCompletedWaveStepIds: [],
+      epoch: 0,
+    });
+    assert.equal(executionState.executionPhase, 'planning');
+
+    executionState = await dispatchExecutionEvent(session, graph, locks, executionState, { type: 'LOCKS_ACQUIRED' }, {
+      state,
+      strategy: 'serial',
+      currentWaveStepIds: ['step-1'],
+      lastCompletedWaveStepIds: [],
+      epoch: 1,
+    });
+    assert.equal(executionState.executionPhase, 'locking');
+
+    const persisted = JSON.parse(await readFile(path.join(session.dir, 'execution.state.json'), 'utf8')) as { executionPhase: string; currentWaveStepIds: string[]; epoch: number };
+    assert.equal(persisted.executionPhase, 'locking');
+    assert.deepEqual(persisted.currentWaveStepIds, ['step-1']);
+    assert.equal(persisted.epoch, 1);
+
+    await assert.rejects(
+      () => dispatchExecutionEvent(session, graph, locks, executionState, { type: 'VERIFY_STEP_STARTED' }, {
+        state,
+        strategy: 'serial',
+        currentWaveStepIds: ['step-1'],
+        lastCompletedWaveStepIds: [],
+        epoch: 1,
+      }),
+      /Invalid execution transition/,
+    );
+  });
+}
+
 async function testPlannerExecutionStrategies(): Promise<void> {
   const readySteps = [
     { id: 'step-1', title: 'Fix add', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
@@ -279,6 +362,10 @@ async function testPlannerExecuteEntryHelper(): Promise<void> {
     assert.equal(result.state.outcome, 'DONE');
     assert.equal(result.plan.steps[0]?.status, 'DONE');
     assert.equal(result.plan.steps[0]?.executionState, 'done');
+    const executionState = JSON.parse(await readFile(path.join(session.dir, 'execution.state.json'), 'utf8')) as { executionPhase: string; strategy: string; epoch: number };
+    assert.equal(executionState.executionPhase, 'done');
+    assert.equal(executionState.strategy, 'serial');
+    assert.equal(executionState.epoch, 1);
   });
 }
 
@@ -743,8 +830,10 @@ async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
 
     assert.equal(resumed.status, 'completed');
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
-    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string; lastCompletedWaveStepIds: string[] };
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string; lastCompletedWaveStepIds: string[]; strategy: string; epoch: number };
     assert.equal(resumedExecutionState.executionPhase, 'done');
+    assert.equal(resumedExecutionState.strategy, 'serial');
+    assert.equal(resumedExecutionState.epoch >= 1, true);
     assert.ok(resumedExecutionState.lastCompletedWaveStepIds.length >= 1);
   });
 }

@@ -1,8 +1,8 @@
 import type { AppConfig } from '../config/schema.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import type { ModelProvider } from '../provider/types.js';
-import { appendPlannerEvent, appendPlannerStructuredLog, writePlannerExecutionArtifacts } from './artifacts.js';
-import { createPlannerExecutionState } from './execution-state.js';
+import { appendPlannerEvent, appendPlannerStructuredLog } from './artifacts.js';
+import { createInitialExecutionState, dispatchExecutionEvent, type PlannerExecutionEvent } from './execution-machine.js';
 import { getPlannerExecutionStrategy } from './execution-strategies.js';
 import {
   buildExecutionGraph as buildPlannerExecutionGraph,
@@ -10,7 +10,6 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import type { PlannerExecutionPhase } from './execution-types.js';
 import type { PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
@@ -44,44 +43,39 @@ export async function executePlannerPlan(
     phase: 'PATCHING',
     message: 'Planner finished planning. Starting subtask execution.',
   });
-  let executionPhase: PlannerExecutionPhase = 'planning';
+  let executionState = createInitialExecutionState(nextState, strategy.mode);
   let currentWaveStepIds: string[] = [];
   let lastCompletedWaveStepIds: string[] = [];
   let executionEpoch = 0;
 
-  const writeExecutionArtifacts = async (
-    phase: PlannerExecutionPhase,
+  const dispatchExecution = async (
+    event: PlannerExecutionEvent,
     extras?: {
-      currentWaveStepIds?: string[];
-      lastCompletedWaveStepIds?: string[];
       recoveryStepId?: string;
       recoveryReason?: string;
     },
   ): Promise<void> => {
-    executionPhase = phase;
-    if (extras?.currentWaveStepIds) {
-      currentWaveStepIds = extras.currentWaveStepIds;
-    }
-    if (extras?.lastCompletedWaveStepIds) {
-      lastCompletedWaveStepIds = extras.lastCompletedWaveStepIds;
-    }
-    await writePlannerExecutionArtifacts(
+    executionState = await dispatchExecutionEvent(
       session,
       executionGraph,
       lockTable,
-      createPlannerExecutionState(nextState, strategy.mode, executionPhase, {
+      executionState,
+      event,
+      {
+        state: nextState,
+        strategy: strategy.mode,
         currentWaveStepIds,
         lastCompletedWaveStepIds,
         epoch: executionEpoch,
         ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
         ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
-      }),
+      },
     );
   };
 
   await appendPlannerEvent(session, { type: 'planner_execution_started', revision: nextPlan.revision }, config.session.redactSecrets);
   await appendPlannerStructuredLog(session, { type: 'execution_started', revision: nextPlan.revision }, config.session.redactSecrets);
-  await writeExecutionArtifacts('planning');
+  await dispatchExecution({ type: 'EXECUTION_INITIALIZED' });
 
   while (true) {
     executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
@@ -97,7 +91,7 @@ export async function executePlannerPlan(
       await appendPlannerEvent(session, { type: 'subtask_conflict_detected', reason: conflictError }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await writeExecutionArtifacts('failed');
+      await dispatchExecution({ type: 'CONFLICT_DETECTED' });
       return { plan: nextPlan, state: nextState };
     }
 
@@ -130,7 +124,7 @@ export async function executePlannerPlan(
       await appendPlannerEvent(session, { type: 'subtask_blocked', stepId: blockedStep.id, reason: nextState.message }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await writeExecutionArtifacts('failed', {
+      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, {
         recoveryStepId: blockedStep.id,
         recoveryReason: nextState.message,
       });
@@ -154,7 +148,7 @@ export async function executePlannerPlan(
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       lastCompletedWaveStepIds = currentWaveStepIds;
       currentWaveStepIds = [];
-      await writeExecutionArtifacts('converging');
+      await dispatchExecution({ type: 'SKIP_WAVE_COMPLETED' });
       continue;
     }
     if (selectedWave.length === 1 && dependencies.classifyPlannerStep(selectedWave[0] ?? nextPlan.steps[0] ?? { kind: 'note', title: '', details: '' } as PlannerStep) === 'verify') {
@@ -162,7 +156,7 @@ export async function executePlannerPlan(
       if (!step) {
         break;
       }
-      await writeExecutionArtifacts('executing_wave');
+      await dispatchExecution({ type: 'VERIFY_STEP_STARTED' });
       const verifyResult = await executePlannerVerifyStep(
         config,
         providers,
@@ -188,14 +182,14 @@ export async function executePlannerPlan(
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       lastCompletedWaveStepIds = currentWaveStepIds;
       currentWaveStepIds = [];
-      await writeExecutionArtifacts(verifyResult.stop ? 'failed' : 'converging');
+      await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
       if (verifyResult.stop) {
         return { plan: nextPlan, state: nextState };
       }
       continue;
     }
 
-    await writeExecutionArtifacts('locking');
+    await dispatchExecution({ type: 'LOCKS_ACQUIRED' });
     const waveResult = await executePlannerWave(
       config,
       providers,
@@ -207,7 +201,7 @@ export async function executePlannerPlan(
       lockTable,
       dependencies.updatePlannerStep,
     );
-    await writeExecutionArtifacts(waveResult.replanned ? 'recovering' : 'executing_wave');
+    await dispatchExecution({ type: waveResult.replanned ? 'WAVE_REPLANNED' : 'WAVE_EXECUTED' });
     nextPlan = waveResult.plan;
     nextState = waveResult.state;
     lockTable = waveResult.lockTable;
@@ -216,7 +210,7 @@ export async function executePlannerPlan(
     }
     if (waveResult.replanned) {
       currentWaveStepIds = [];
-      await writeExecutionArtifacts('recovering', {
+      await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
         ...(nextState.lastReplanReason ? { recoveryReason: nextState.lastReplanReason } : {}),
       });
       continue;
@@ -224,7 +218,7 @@ export async function executePlannerPlan(
     if (waveResult.stop) {
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await writeExecutionArtifacts('failed', {
+      await dispatchExecution({ type: 'WAVE_FAILED' }, {
         ...(nextState.currentStepId ? { recoveryStepId: nextState.currentStepId } : {}),
         recoveryReason: nextState.message,
       });
@@ -232,7 +226,7 @@ export async function executePlannerPlan(
     }
     lastCompletedWaveStepIds = currentWaveStepIds;
     currentWaveStepIds = [];
-    await writeExecutionArtifacts('converging');
+    await dispatchExecution({ type: 'WAVE_CONVERGED' });
   }
 
   nextState = refreshPlannerStateFromPlan(nextPlan, {
@@ -247,6 +241,6 @@ export async function executePlannerPlan(
   await appendPlannerEvent(session, { type: 'planner_execution_finished', outcome: nextState.outcome }, config.session.redactSecrets);
   await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-  await writeExecutionArtifacts('done');
+  await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
   return { plan: nextPlan, state: nextState };
 }
