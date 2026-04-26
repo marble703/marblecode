@@ -7,7 +7,7 @@ import { getPlannerExecutionStrategy } from '../../src/planner/execution-strateg
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../../src/planner/execute-wave.js';
 import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
-import { buildExecutionGraph } from '../../src/planner/graph.js';
+import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
@@ -21,6 +21,7 @@ import type { ManualSuiteCase } from './types.js';
 export function createPlannerCases(): ManualSuiteCase[] {
   return [
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
+    { name: 'planner graph fallback readiness', run: testPlannerGraphFallbackReadiness },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
@@ -39,6 +40,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute conflict policy fail', run: testPlannerExecuteConflictPolicyFail },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
+    { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
     { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
     { name: 'planner execute blocked dependents', run: testPlannerExecuteBlockedDependents },
   ];
@@ -129,6 +131,45 @@ async function testPlannerGraphAndWaves(): Promise<void> {
   assert.match(blocked.steps[1]?.lastError ?? '', /step-1/);
 }
 
+async function testPlannerGraphFallbackReadiness(): Promise<void> {
+  const plan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'fallback graph fixture',
+    steps: [
+      { id: 'step-1', title: 'Primary implementation', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'], fileScope: ['src/math.js'] },
+      { id: 'step-1-fallback', title: 'Fallback implementation', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'] },
+    ],
+  };
+  const graph = buildExecutionGraph(plan);
+  assert.equal(graph.nodes.find((node) => node.stepId === 'step-1')?.fallbackStepIds.includes('step-1-fallback'), true);
+  assert.equal(graph.edges.some((edge) => edge.type === 'fallback' && edge.from === 'step-1' && edge.to === 'step-1-fallback'), true);
+  assert.deepEqual(graph.waves.map((wave) => wave.stepIds), [['step-1'], ['step-1-fallback']]);
+
+  const pendingState = {
+    version: '1' as const,
+    revision: 1,
+    phase: 'PATCHING' as const,
+    outcome: 'RUNNING' as const,
+    currentStepId: null,
+    activeStepIds: [],
+    readyStepIds: [],
+    completedStepIds: [],
+    failedStepIds: [],
+    blockedStepIds: [],
+    invalidResponseAttempts: 0,
+    message: 'ready',
+    consistencyErrors: [],
+  };
+  assert.deepEqual(getReadyStepIds(plan, pendingState, graph), ['step-1']);
+
+  const failedPlan = {
+    ...plan,
+    steps: plan.steps.map((step) => (step.id === 'step-1' ? { ...step, status: 'FAILED' as const, executionState: 'failed' as const } : step)),
+  };
+  assert.deepEqual(getReadyStepIds(failedPlan, pendingState, graph), ['step-1-fallback']);
+}
+
 async function testPlannerExecutionLocks(): Promise<void> {
   let locks = createExecutionLockTable(1);
   locks = acquireWriteLocks(locks, 'step-1', ['src/math.js'], 1);
@@ -211,6 +252,7 @@ async function testPlannerExecutionStateMachineTransitions(): Promise<void> {
   assert.equal(transitionExecutionPhase('converging', { type: 'EXECUTION_COMPLETED' }), 'done');
   assert.equal(transitionExecutionPhase('executing_wave', { type: 'VERIFY_STEP_FAILED' }), 'failed');
   assert.equal(transitionExecutionPhase('recovering', { type: 'WAVE_REPLANNED' }), 'recovering');
+  assert.equal(transitionExecutionPhase('executing_wave', { type: 'FALLBACK_ACTIVATED' }), 'recovering');
 
   assert.throws(() => transitionExecutionPhase('done', { type: 'EXECUTION_INITIALIZED' }), /Invalid execution transition/);
   assert.throws(() => transitionExecutionPhase('failed', { type: 'WAVE_CONVERGED' }), /Invalid execution transition/);
@@ -1188,6 +1230,69 @@ async function testPlannerExecuteFallbackModel(): Promise<void> {
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     assert.match(events, /subtask_fallback_started/);
     assert.match(events, /"modelAlias":"cheap"/);
+  });
+}
+
+async function testPlannerExecuteGraphFallback(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.subtaskMaxAttempts = 1;
+    delete config.routing.subtaskFallbackModel;
+    config.routing.subtaskReplanOnFailure = false;
+    let primaryAttempts = 0;
+
+    const provider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!content.includes('"id": "step-1"') && !content.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Use graph fallback when primary implementation fails.',
+              steps: [
+                { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Try a primary implementation that will fail.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'] },
+                { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after fallback succeeds.', dependencies: ['step-1-fallback'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Use graph fallback when primary implementation fails.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        if (content.includes('Execute planner step: Primary impossible implementation')) {
+          primaryAttempts += 1;
+          throw new Error('Primary implementation failed intentionally');
+        }
+        if (content.includes('Execute planner step: Fallback add implementation')) {
+          return buildMathFixStep(workspaceRoot);
+        }
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '主实现失败时用 fallback 修复 src/math.js 并 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(primaryAttempts >= 1, true);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string; executionState?: string }> };
+    const graph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { edges: Array<{ from: string; to: string; type: string }> };
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string };
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(plan.steps.find((step) => step.id === 'step-1-fallback')?.status, 'DONE');
+    assert.equal(graph.edges.some((edge) => edge.type === 'fallback' && edge.from === 'step-1' && edge.to === 'step-1-fallback'), true);
+    assert.equal(state.executionPhase, 'done');
+    assert.match(events, /subtask_fallback_activated/);
   });
 }
 

@@ -17,6 +17,7 @@ export interface PlannerViewModel {
   failedStepIds: string[];
   blockedStepIds: string[];
   executionWaves: Array<{ index: number; stepIds: string[] }>;
+  fallbackEdges: Array<{ from: string; to: string }>;
   lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
   summary: string;
   steps: Array<{
@@ -94,7 +95,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   };
   const events = parseJsonLines(eventsRaw);
   const plannerLog = parseJsonLines(plannerLogRaw);
-  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [] }) as { waves?: Array<{ index: number; stepIds: string[] }> };
+  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [], edges: [] }) as { waves?: Array<{ index: number; stepIds: string[] }>; edges?: Array<{ from: string; to: string; type: string }> };
   const executionLocks = parseJsonWithFallback(executionLocksRaw, { entries: [] }) as { entries?: Array<{ path: string; mode: string; ownerStepId: string }> };
   const subtaskEvents = events.filter((event) => {
     const type = String(event.type ?? '');
@@ -113,6 +114,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
     executionWaves: executionGraph.waves ?? [],
+    fallbackEdges: (executionGraph.edges ?? [])
+      .filter((edge) => edge.type === 'fallback')
+      .map((edge) => ({ from: edge.from, to: edge.to })),
     lockEntries: executionLocks.entries ?? [],
     summary: plan.summary || state.message,
     steps: plan.steps.map((step) => ({
@@ -147,6 +151,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
     `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
     `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
+    `Fallbacks: ${view.fallbackEdges.length > 0 ? view.fallbackEdges.map((edge) => `${edge.from}->${edge.to}`).join(', ') : '(none)'}`,
     `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
     `Summary: ${view.summary}`,
     '',
@@ -247,6 +252,9 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
   }
   if (type === 'subtask_fallback_started') {
     return `${String(event.stepId ?? '')} fallback ${String(event.fromModelAlias ?? '')} -> ${String(event.toModelAlias ?? '')}`;
+  }
+  if (type === 'subtask_fallback_activated') {
+    return `${String(event.failedStepId ?? '')} activated fallback ${String(event.fallbackStepId ?? '')}: ${String(event.reason ?? '')}`;
   }
   if (type === 'planner_failed') {
     return `failed: ${String(event.reason ?? '')}`;

@@ -15,6 +15,7 @@ export interface PlannerExecutionNode {
   conflictsWith: string[];
   dependencies: string[];
   mustRunAfter: string[];
+  fallbackStepIds: string[];
 }
 
 export interface PlannerExecutionWave {
@@ -40,6 +41,7 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
     conflictsWith: derivePlannerConflicts(step),
     dependencies: step.dependencies,
     mustRunAfter: step.mustRunAfter ?? [],
+    fallbackStepIds: step.fallbackStepIds ?? [],
     order: index,
   }));
   const edges: PlannerExecutionEdge[] = [];
@@ -50,6 +52,9 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
     }
     for (const predecessor of node.mustRunAfter) {
       edges.push({ from: predecessor, to: node.stepId, type: 'must_run_after' });
+    }
+    for (const fallback of node.fallbackStepIds) {
+      edges.push({ from: node.stepId, to: fallback, type: 'fallback' });
     }
   }
 
@@ -152,10 +157,19 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
   }
 
   for (const edge of graph.edges) {
+    if (edge.type === 'fallback' && edge.to === step.id) {
+      if (plan.steps.find((candidate) => candidate.id === edge.from)?.status !== 'FAILED') {
+        reasons.push(`fallback_inactive:${edge.from}`);
+      }
+      continue;
+    }
     if (edge.to !== step.id || edge.type !== 'conflict') {
       continue;
     }
-    if (plan.steps.find((candidate) => candidate.id === edge.from)?.status !== 'DONE') {
+    const predecessorStatus = plan.steps.find((candidate) => candidate.id === edge.from)?.status;
+    const fallbackFromFailedPredecessor = predecessorStatus === 'FAILED'
+      && graph.edges.some((candidate) => candidate.type === 'fallback' && candidate.from === edge.from && candidate.to === step.id);
+    if (predecessorStatus !== 'DONE' && !fallbackFromFailedPredecessor) {
       reasons.push(`conflict:${edge.from}`);
     }
   }
@@ -211,6 +225,9 @@ function computeExecutionWavesFromEdges(nodes: PlannerExecutionNode[], edges: Pl
     dependents.set(node.stepId, []);
   }
   for (const edge of edges) {
+    if (edge.type === 'fallback') {
+      continue;
+    }
     inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
     const next = dependents.get(edge.from);
     if (next) {

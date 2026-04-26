@@ -91,6 +91,39 @@ export function annotateBlockedDependents(
   return nextPlan;
 }
 
+export function activateFallbackSteps(
+  plan: PlannerPlan,
+  failedStepIds: Set<string>,
+  graph: PlannerExecutionGraph,
+  updatePlannerStep: (plan: PlannerPlan, targetStepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
+): { plan: PlannerPlan; activatedStepIds: string[] } {
+  let nextPlan = plan;
+  const activatedStepIds: string[] = [];
+  for (const edge of graph.edges) {
+    if (edge.type !== 'fallback' || !failedStepIds.has(edge.from)) {
+      continue;
+    }
+    const fallbackStep = nextPlan.steps.find((step) => step.id === edge.to);
+    if (!fallbackStep || fallbackStep.status === 'DONE' || fallbackStep.status === 'FAILED') {
+      continue;
+    }
+    const sourceStep = nextPlan.steps.find((step) => step.id === edge.from);
+    if (sourceStep) {
+      nextPlan = updatePlannerStep(nextPlan, edge.from, {
+        ownershipTransfers: [...new Set([...(sourceStep.ownershipTransfers ?? []), edge.to])],
+      });
+    }
+    nextPlan = updatePlannerStep(nextPlan, edge.to, {
+      executionState: 'ready',
+      details: fallbackStep.details ?? `Activated as fallback for ${edge.from}.`,
+      lastError: `Activated as fallback for ${edge.from}.`,
+    });
+    activatedStepIds.push(edge.to);
+  }
+
+  return { plan: nextPlan, activatedStepIds };
+}
+
 export async function executePlannerWave(
   config: AppConfig,
   providers: Map<string, ModelProvider>,
@@ -99,9 +132,10 @@ export async function executePlannerWave(
   plan: PlannerPlan,
   state: PlannerState,
   wave: PlannerStep[],
+  graph: PlannerExecutionGraph,
   lockTable: ExecutionLockTable,
   updatePlannerStep: (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
-): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; lockTable: ExecutionLockTable }> {
+): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; fallbackActivated: boolean; activatedFallbackStepIds: string[]; lockTable: ExecutionLockTable }> {
   let nextPlan = plan;
   let nextState = state;
   let nextLockTable = lockTable;
@@ -144,6 +178,8 @@ export async function executePlannerWave(
 
   let stop = false;
   let replanned = false;
+  let fallbackActivated = false;
+  let activatedFallbackStepIds: string[] = [];
   const failedStepIds = new Set<string>();
   for (let index = 0; index < results.length; index += 1) {
     const settled = results[index];
@@ -199,12 +235,36 @@ export async function executePlannerWave(
   }
 
   if (stop && !replanned && failedStepIds.size > 0) {
-    nextPlan = annotateBlockedDependents(nextPlan, failedStepIds, updatePlannerStep);
-    nextState = refreshPlannerStateFromPlan(nextPlan, {
-      ...nextState,
-      outcome: 'FAILED',
-      message: nextState.message || `Planner execution stopped after failures in ${[...failedStepIds].join(', ')}.`,
-    });
+    const activated = activateFallbackSteps(nextPlan, failedStepIds, graph, updatePlannerStep);
+    nextPlan = activated.plan;
+    activatedFallbackStepIds = activated.activatedStepIds;
+    fallbackActivated = activatedFallbackStepIds.length > 0;
+    if (fallbackActivated) {
+      stop = false;
+      nextState = refreshPlannerStateFromPlan(nextPlan, {
+        ...nextState,
+        outcome: 'RUNNING',
+        phase: 'RETRYING',
+        message: `Activated fallback step(s): ${activatedFallbackStepIds.join(', ')}.`,
+      });
+      for (const failedStepId of failedStepIds) {
+        for (const fallbackStepId of activatedFallbackStepIds) {
+          await appendPlannerEvent(session, {
+            type: 'subtask_fallback_activated',
+            failedStepId,
+            fallbackStepId,
+            reason: nextState.message,
+          }, config.session.redactSecrets);
+        }
+      }
+    } else {
+      nextPlan = annotateBlockedDependents(nextPlan, failedStepIds, updatePlannerStep);
+      nextState = refreshPlannerStateFromPlan(nextPlan, {
+        ...nextState,
+        outcome: 'FAILED',
+        message: nextState.message || `Planner execution stopped after failures in ${[...failedStepIds].join(', ')}.`,
+      });
+    }
   }
 
   await appendPlannerEvent(session, {
@@ -213,6 +273,7 @@ export async function executePlannerWave(
     concurrent,
     stop,
     replanned,
+    fallbackActivated,
   }, config.session.redactSecrets);
 
   return {
@@ -221,6 +282,8 @@ export async function executePlannerWave(
     changedFiles: [...changedFiles],
     stop,
     replanned,
+    fallbackActivated,
+    activatedFallbackStepIds,
     lockTable: nextLockTable,
   };
 }

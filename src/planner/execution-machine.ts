@@ -21,6 +21,7 @@ export type PlannerExecutionEvent =
   | { type: 'LOCKS_ACQUIRED' }
   | { type: 'WAVE_EXECUTED' }
   | { type: 'WAVE_REPLANNED' }
+  | { type: 'FALLBACK_ACTIVATED' }
   | { type: 'WAVE_FAILED' }
   | { type: 'WAVE_CONVERGED' }
   | { type: 'EXECUTION_COMPLETED' };
@@ -58,12 +59,14 @@ const TRANSITIONS: Partial<Record<PlannerExecutionPhase, Partial<Record<PlannerE
   locking: {
     WAVE_EXECUTED: 'executing_wave',
     WAVE_REPLANNED: 'recovering',
+    FALLBACK_ACTIVATED: 'recovering',
   },
   executing_wave: {
     VERIFY_STEP_SUCCEEDED: 'converging',
     VERIFY_STEP_FAILED: 'failed',
     WAVE_CONVERGED: 'converging',
     WAVE_REPLANNED: 'recovering',
+    FALLBACK_ACTIVATED: 'recovering',
     WAVE_FAILED: 'failed',
     EXECUTION_COMPLETED: 'done',
   },
@@ -71,6 +74,7 @@ const TRANSITIONS: Partial<Record<PlannerExecutionPhase, Partial<Record<PlannerE
     CONFLICT_DETECTED: 'failed',
     DEPENDENCIES_BLOCKED: 'failed',
     WAVE_REPLANNED: 'recovering',
+    FALLBACK_ACTIVATED: 'recovering',
     SKIP_WAVE_COMPLETED: 'converging',
     VERIFY_STEP_STARTED: 'executing_wave',
     LOCKS_ACQUIRED: 'locking',

@@ -137,6 +137,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.phase, 'PLANNING');
     assert.equal(view.outcome, 'RUNNING');
     assert.equal(view.events.length, 1);
+    assert.deepEqual(view.fallbackEdges, []);
     assert.match(view.terminalSummary, /unavailable/);
   });
 }

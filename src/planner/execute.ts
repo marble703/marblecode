@@ -198,6 +198,7 @@ export async function executePlannerPlan(
       nextPlan,
       nextState,
       selectedWave,
+      executionGraph,
       lockTable,
       dependencies.updatePlannerStep,
     );
@@ -207,6 +208,17 @@ export async function executePlannerPlan(
     lockTable = waveResult.lockTable;
     for (const file of waveResult.changedFiles) {
       accumulatedChangedFiles.add(file);
+    }
+    if (waveResult.fallbackActivated) {
+      currentWaveStepIds = [];
+      executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+      await dispatchExecution({ type: 'FALLBACK_ACTIVATED' }, {
+        ...(waveResult.activatedFallbackStepIds[0] ?? nextState.currentStepId ? { recoveryStepId: waveResult.activatedFallbackStepIds[0] ?? nextState.currentStepId ?? '' } : {}),
+        recoveryReason: nextState.message,
+      });
+      continue;
     }
     if (waveResult.replanned) {
       currentWaveStepIds = [];
