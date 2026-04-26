@@ -30,7 +30,7 @@ export interface RoutingConfig {
   subtaskMaxAttempts: number;
   subtaskReplanOnFailure: boolean;
   subtaskFallbackModel?: string;
-  subtaskConflictPolicy: 'serial' | 'fail';
+  subtaskConflictPolicy: 'serial' | 'fail' | 'aggressive' | 'deterministic';
 }
 
 export interface ContextConfig {

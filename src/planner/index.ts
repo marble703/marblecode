@@ -8,10 +8,12 @@ import { ToolRegistry } from '../tools/registry.js';
 import {
   appendPlannerEvent,
   buildContextPacket,
+  loadPlannerExecutionArtifacts,
   loadPlannerSessionArtifacts,
   resumePlannerSession,
   writePlannerArtifacts,
 } from './artifacts.js';
+import { resumePlannerExecution } from './execute-resume.js';
 import type { PlannerSessionArtifacts } from './types.js';
 import { runPlannerLoop } from './loop.js';
 import {
@@ -69,6 +71,29 @@ export async function runPlanner(
     prompt: input.prompt || '(resume)',
     resumedFrom: requestArtifact.resumedFrom,
   }, config.session.redactSecrets);
+
+  if (prior && !input.prompt.trim() && input.executeSubtasks) {
+    try {
+      const executionArtifacts = await loadPlannerExecutionArtifacts(session.dir);
+      if (executionArtifacts.executionState.executionPhase !== 'done') {
+        const resumedExecution = await resumePlannerExecution(config, providers, session, requestArtifact, executionArtifacts);
+        const resumedOutcome = resumedExecution.state.outcome === 'DONE'
+          ? 'completed'
+          : resumedExecution.state.outcome === 'NEEDS_INPUT'
+            ? 'needs_input'
+            : resumedExecution.state.outcome === 'CANCELLED'
+              ? 'cancelled'
+              : 'failed';
+        return {
+          status: resumedOutcome,
+          sessionDir: session.dir,
+          message: resumedExecution.state.message,
+        };
+      }
+    } catch {
+      // Fall back to the planner loop when execution artifacts are absent or incomplete.
+    }
+  }
 
   if (prior && !input.prompt.trim() && isTerminalOutcome(prior.state.outcome)) {
     if (prior.state.outcome !== 'RUNNING') {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { executePlannerPlan } from '../../src/planner/execute.js';
+import { getPlannerExecutionStrategy } from '../../src/planner/execution-strategies.js';
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../../src/planner/execute-wave.js';
 import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
@@ -21,11 +22,13 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner graph and waves', run: testPlannerGraphAndWaves },
     { name: 'planner execution locks', run: testPlannerExecutionLocks },
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
+    { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
+    { name: 'planner execute resume from artifacts', run: testPlannerExecuteResumeFromArtifacts },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
     { name: 'planner execute chain', run: testPlannerExecuteChain },
@@ -195,6 +198,37 @@ async function testPlannerRuntimeHelpers(): Promise<void> {
   assert.equal(updatedPlan.steps[0]?.executionState, 'done');
 
   assert.deepEqual(mapPlannerResult('DONE', '/tmp/session', 'ok'), { status: 'completed', sessionDir: '/tmp/session', message: 'ok' });
+}
+
+async function testPlannerExecutionStrategies(): Promise<void> {
+  const readySteps = [
+    { id: 'step-1', title: 'Fix add', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+    { id: 'step-2', title: 'Update notes', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+  ];
+  const graph = buildExecutionGraph({
+    version: '1',
+    revision: 1,
+    summary: 'strategy fixture',
+    steps: readySteps,
+  });
+
+  const deterministic = getPlannerExecutionStrategy('deterministic');
+  assert.deepEqual(deterministic.selectWave(readySteps, graph, 2, () => 'subagent').map((step) => step.id), ['step-1']);
+
+  const aggressive = getPlannerExecutionStrategy('aggressive');
+  assert.deepEqual(aggressive.selectWave(readySteps, graph, 1, () => 'subagent').map((step) => step.id), ['step-1', 'step-2']);
+
+  const fail = getPlannerExecutionStrategy('fail');
+  const conflictGraph = buildExecutionGraph({
+    version: '1',
+    revision: 1,
+    summary: 'conflict fixture',
+    steps: [
+      { id: 'step-1', title: 'Fix add', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+      { id: 'step-2', title: 'Retouch same file', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+    ],
+  }, 'fail');
+  assert.match(fail.checkConflicts({ version: '1', revision: 1, summary: 'conflict fixture', steps: conflictGraph.nodes.map((node) => ({ id: node.stepId, title: node.title, status: 'PENDING', kind: node.kind, attempts: 0, relatedFiles: node.fileScope, fileScope: node.fileScope, dependencies: node.dependencies, children: [] })) }, conflictGraph) ?? '', /step-1/);
 }
 
 async function testPlannerExecuteEntryHelper(): Promise<void> {
@@ -604,6 +638,114 @@ async function testPlannerInvalidRetryAndResume(): Promise<void> {
     assert.equal(finalPlan.revision, 2);
     assert.match(finalPlan.summary, /Replanned/);
     assert.match(finalEvents, /planner_replanned/);
+  });
+}
+
+async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const content = request.messages[0]?.content ?? '';
+        if (!content.includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Resume execution after interruption.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Resume execution after interruption.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const first = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(first.status, 'completed');
+    const simulatedInterruptedPlan = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.json'), 'utf8')) as {
+      version: '1';
+      revision: number;
+      summary: string;
+      steps: Array<Record<string, unknown>>;
+    };
+    simulatedInterruptedPlan.steps = simulatedInterruptedPlan.steps.map((step) => {
+      if (step.id !== 'step-1') {
+        return step;
+      }
+      return {
+        ...step,
+        status: 'PENDING',
+        executionState: 'running',
+        lastError: 'Interrupted during executing_wave; resuming through recovery path.',
+      };
+    });
+    await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(simulatedInterruptedPlan, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({
+      version: '1',
+      revision: 1,
+      phase: 'PATCHING',
+      outcome: 'RUNNING',
+      currentStepId: 'step-1',
+      activeStepIds: ['step-1'],
+      readyStepIds: [],
+      completedStepIds: [],
+      failedStepIds: [],
+      blockedStepIds: ['step-2'],
+      invalidResponseAttempts: 0,
+      message: 'Interrupted during executing_wave; resuming through recovery path.',
+      consistencyErrors: [],
+    }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({
+      version: '1',
+      revision: 1,
+      executionPhase: 'executing_wave',
+      plannerPhase: 'PATCHING',
+      outcome: 'RUNNING',
+      activeStepIds: ['step-1'],
+      readyStepIds: [],
+      completedStepIds: [],
+      failedStepIds: [],
+      blockedStepIds: ['step-2'],
+      currentWaveStepIds: ['step-1'],
+      lastCompletedWaveStepIds: [],
+      strategy: 'serial',
+      epoch: 2,
+      currentStepId: 'step-1',
+      message: 'Interrupted during executing_wave; resuming through recovery path.',
+      recoveryReason: 'Interrupted during executing_wave; resuming through recovery path.',
+    }, null, 2), 'utf8');
+
+    await writeFile(path.join(workspaceRoot, 'src/math.js'), 'export function add(a, b) {\n  return a - b; // BUG_MARKER\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n', 'utf8');
+
+    const resumed = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '',
+      explicitFiles: [],
+      pastedSnippets: [],
+      executeSubtasks: true,
+      resumeSessionRef: first.sessionDir,
+    });
+
+    assert.equal(resumed.status, 'completed');
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string; lastCompletedWaveStepIds: string[] };
+    assert.equal(resumedExecutionState.executionPhase, 'done');
+    assert.ok(resumedExecutionState.lastCompletedWaveStepIds.length >= 1);
   });
 }
 

@@ -6,6 +6,7 @@ import { appendSessionLog, resolveSessionDir, writeSessionArtifact, type Session
 import type { ToolDefinition } from '../tools/types.js';
 import type { PlannerExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
+import type { PlannerExecutionArtifacts, PlannerExecutionStateArtifact } from './execution-types.js';
 import type { PlannerContextPacket, PlannerPlan, PlannerRequestArtifact, PlannerSessionArtifacts, PlannerState } from './types.js';
 import { countSnippetLines } from './utils.js';
 
@@ -57,26 +58,14 @@ export async function writePlannerExecutionArtifacts(
   session: SessionRecord,
   graph: PlannerExecutionGraph,
   lockTable: ExecutionLockTable,
-  state: PlannerState,
+  executionState: PlannerExecutionStateArtifact,
 ): Promise<void> {
   await writeSessionArtifact(session, 'execution.graph.json', JSON.stringify(graph, null, 2));
   await writeSessionArtifact(session, 'execution.locks.json', JSON.stringify(lockTable, null, 2));
   await writeSessionArtifact(
     session,
     'execution.state.json',
-    JSON.stringify(
-      {
-        revision: state.revision,
-        phase: state.phase,
-        activeStepIds: state.activeStepIds,
-        readyStepIds: state.readyStepIds,
-        completedStepIds: state.completedStepIds,
-        failedStepIds: state.failedStepIds,
-        blockedStepIds: state.blockedStepIds,
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(executionState, null, 2),
   );
 }
 
@@ -119,5 +108,23 @@ export async function loadPlannerSessionArtifacts(sessionDir: string): Promise<P
     request: JSON.parse(requestRaw) as PlannerRequestArtifact,
     plan: JSON.parse(planRaw) as PlannerPlan,
     state: JSON.parse(stateRaw) as PlannerState,
+  };
+}
+
+export async function loadPlannerExecutionArtifacts(sessionDir: string): Promise<PlannerExecutionArtifacts> {
+  const [planRaw, stateRaw, graphRaw, locksRaw, executionStateRaw] = await Promise.all([
+    readFile(path.join(sessionDir, 'plan.json'), 'utf8'),
+    readFile(path.join(sessionDir, 'plan.state.json'), 'utf8'),
+    readFile(path.join(sessionDir, 'execution.graph.json'), 'utf8'),
+    readFile(path.join(sessionDir, 'execution.locks.json'), 'utf8'),
+    readFile(path.join(sessionDir, 'execution.state.json'), 'utf8'),
+  ]);
+
+  return {
+    plan: JSON.parse(planRaw) as PlannerPlan,
+    state: JSON.parse(stateRaw) as PlannerState,
+    graph: JSON.parse(graphRaw) as PlannerExecutionGraph,
+    lockTable: JSON.parse(locksRaw) as ExecutionLockTable,
+    executionState: JSON.parse(executionStateRaw) as PlannerExecutionStateArtifact,
   };
 }
