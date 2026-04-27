@@ -101,6 +101,8 @@
 - `show:planner` 能展示 fallback edge 和激活原因。
 - local replan 必须先经过 proposal artifact 和 validation，再合并进主计划。
 
+当前剩余更偏策略/语义精细化，而不再是基础设施缺失：下一步更适合转向 `conflictDomains`，然后再处理 `DEGRADED` 和 rolling planning。
+
 ### P1：引入语义冲突域 conflictDomain
 
 这是并发执行质量的关键增强，但应在状态机闭环之后推进。

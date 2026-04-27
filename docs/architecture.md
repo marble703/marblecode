@@ -260,7 +260,7 @@ Current host-side execution foundations include:
 - execution-state snapshots persisted as `execution.state.json`
 - strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
 - retry, fallback model selection, graph fallback activation with downstream dependency substitution, and proposal-validated bounded local replan with lock-compatibility checks for failed steps
-- persisted execution artifacts for TUI, offline inspection, and execution resume
+- persisted execution artifacts for TUI, offline inspection, and execution resume, with the planner view now reading `execution.state.json` phase/strategy/wave/recovery metadata directly
 
 Failure propagation is intentionally conservative:
 
