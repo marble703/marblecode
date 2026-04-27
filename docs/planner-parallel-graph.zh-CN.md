@@ -330,7 +330,7 @@ host 允许有限的写权转移，主要用于这种链路：
 
 1. 普通重试：同一 model，最多 `subtaskMaxAttempts`
 2. fallback model：切换到 `subtaskFallbackModel`
-3. local replan：对失败节点做局部重规划
+3. local replan：对失败节点做局部重规划，先写 proposal artifact，再通过校验后合并
 4. 最终失败：把步骤标记为 `FAILED`
 
 局部 replan 的目标不是重跑整个 planner，而是：
@@ -338,6 +338,34 @@ host 允许有限的写权转移，主要用于这种链路：
 - 保留已完成步骤
 - 仅对失败步骤和其下游做重新组织
 - 提高长链路执行的恢复能力
+
+### Local Replan Proposal
+
+local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
+
+当前流程是：
+
+1. planner 针对失败步骤返回一个新的完整 plan
+2. host 规范化该 plan
+3. host 写出 `replan.proposal.<stepId>.json`
+4. host 校验 proposal
+5. 如果校验失败，写出 `replan.rejected.<stepId>.json` 并尝试下一个 planner model alias
+6. 如果校验成功，才合并并写入主 `plan.json` / `plan.state.json`
+
+当前 proposal 校验规则包括：
+
+- 不能删除已完成步骤
+- 不能修改已完成步骤的关键语义字段，例如 `title`、`kind`、`dependencies`、`fileScope`、`accessMode`、`mustRunAfter`、`fallbackStepIds`、`conflictsWith`
+- 不能把已完成步骤重新激活
+- 失败步骤必须仍然存在，且不能直接变成 `DONE`
+- 新计划仍必须通过 `runPlanConsistencyChecks()`，包括引用完整性和 dependency cycle 检查
+
+相关事件包括：
+
+- `subtask_replan_proposed`
+- `subtask_replan_rejected`
+- `subtask_replan_merged`
+- `subtask_replanned`
 
 如果不是 replan 路径，而是当前执行直接停止，则 host 会把依赖失败步骤的下游节点显式标注为 blocked，方便 TUI 和 artifact 解释为什么后续步骤没有继续跑。
 
@@ -352,6 +380,8 @@ host 允许有限的写权转移，主要用于这种链路：
 - `execution.graph.json`: 执行图与 wave
 - `execution.locks.json`: 锁表与所有权
 - `execution.state.json`: 当前 ready/active/failed/blocked 集合
+- `replan.proposal.<stepId>.json`: local replan 的候选计划
+- `replan.rejected.<stepId>.json`: 被拒绝的 local replan 及原因
 
 这些文件的价值在于：
 
@@ -368,7 +398,8 @@ host 允许有限的写权转移，主要用于这种链路：
 
 - wave 并发仍以“安全优先”，不是“吞吐优先”
 - 对无 `fileScope` 的写步骤处理较保守
-- `fallback` 边类型已预留，但更多恢复逻辑仍在执行编排层，而不是完全图化
+- fallback dependency substitution 仍未实现；如果下游要依赖 fallback 成功，目前仍需 planner 显式依赖 fallback step
+- local replan 已有 proposal 校验，但尚未做 active lock compatibility 校验
 - planner 本身仍是“先规划，再执行”，还不是边规划边并发执行
 
 ## 为什么这套设计合理

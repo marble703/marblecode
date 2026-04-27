@@ -58,7 +58,7 @@
 - 所有 phase 变化都经过同一个 transition 入口。
 - `execution.state.json` 至少包含当前 phase、epoch、strategy、ready/active/completed/failed/blocked、current wave、last completed wave、recovery metadata。
 
-### P1：把 fallback/replan 变成图的一部分（fallback 基础已完成）
+### P1：把 fallback/replan 变成图的一部分（fallback 与 replan proposal 基础已完成）
 
 这是当前恢复能力最值得优先补齐的方向。
 
@@ -79,18 +79,26 @@
 5. `plan.events.jsonl` 会记录 `subtask_fallback_activated`。
 6. planner view 会展示 fallback edges。
 
-仍待完成的 replan/替代语义：
+已完成的 replan proposal 基础：
 
-1. 抽出 `mergeReplannedSubgraph(previousPlan, proposedPlan, scope)`，要求：不得删除 DONE 步骤；不得修改已完成步骤语义字段；新增节点必须有明确 dependencies/fileScope/conflict metadata；必须重新跑 consistency checks；必须重新构图并验证无 cycle。
-2. 局部 replan 不直接写 `plan.json`，而是先写 `replan.proposal.<stepId>.json`，通过校验后再写 `plan.json`。
-3. 在 execution events 中记录 `replan_proposed`、`replan_rejected`、`replan_merged`。
-4. 明确 fallback dependency substitution 语义。当前下游如果要依赖 fallback 成功，需要 planner 显式依赖 fallback step。
+1. 新增 `src/planner/replan-merge.ts`，集中处理 proposal 构建、校验和合并。
+2. local replan 会先写 `replan.proposal.<stepId>.json`，校验通过后才合并进主 `plan.json`。
+3. proposal 校验会保护已完成步骤，拒绝删除或修改其关键语义字段。
+4. proposal 校验失败时写 `replan.rejected.<stepId>.json`，并记录 `subtask_replan_rejected`。
+5. 合并成功时记录 `subtask_replan_proposed`、`subtask_replan_merged` 和兼容事件 `subtask_replanned`。
+
+仍待完成的替代/锁语义：
+
+1. 明确 fallback dependency substitution 语义。当前下游如果要依赖 fallback 成功，需要 planner 显式依赖 fallback step。
+2. 对 replan proposal 增加 active lock compatibility 校验。
+3. 将 proposal 的影响范围进一步约束到 bounded subgraph。
 
 完成标准：
 
 - `execution.graph.json` 中出现的 `fallback` edge 可影响 ready step 计算。
 - 失败节点有 fallback 时，不直接将整个 execution 标记 FAILED。
 - `show:planner` 能展示 fallback edge 和激活原因。
+- local replan 必须先经过 proposal artifact 和 validation，再合并进主计划。
 
 ### P1：引入语义冲突域 conflictDomain
 
@@ -260,6 +268,7 @@
 - TUI 展示 fallback/replan events
 - `replan.proposal.*.json`
 - bounded subgraph merge validator
+- `replan.rejected.*.json`
 
 验证：
 

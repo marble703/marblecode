@@ -259,7 +259,7 @@ Current host-side execution foundations include:
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
 - execution-state snapshots persisted as `execution.state.json`
 - strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
-- retry, fallback model selection, graph fallback activation, and local replan for failed steps
+- retry, fallback model selection, graph fallback activation, and proposal-validated local replan for failed steps
 - persisted execution artifacts for TUI, offline inspection, and execution resume
 
 Failure propagation is intentionally conservative:
@@ -295,6 +295,8 @@ Planner-specific artifacts include:
 - `execution.graph.json`
 - `execution.state.json`
 - `execution.locks.json`
+- `replan.proposal.<stepId>.json`
+- `replan.rejected.<stepId>.json`
 
 These artifacts make the runtime easier to inspect, resume, replay mentally, and debug.
 
