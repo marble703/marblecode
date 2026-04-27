@@ -148,6 +148,11 @@ export function runPlanConsistencyChecks(plan: PlannerPlan): string[] {
         errors.push(`Unknown conflict step ${conflict} referenced by ${step.id}`);
       }
     }
+    for (const domain of step.conflictDomains ?? []) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(domain)) {
+        errors.push(`Invalid conflict domain ${domain} referenced by ${step.id}`);
+      }
+    }
     for (const predecessor of step.mustRunAfter ?? []) {
       if (!ids.has(predecessor)) {
         errors.push(`Unknown predecessor ${predecessor} referenced by ${step.id}`);
@@ -216,6 +221,9 @@ function normalizePlannerStep(step: unknown, index: number, workspaceRoot: strin
       : {}),
     ...(Array.isArray(record.conflictsWith)
       ? { conflictsWith: record.conflictsWith.filter((item): item is string => typeof item === 'string') }
+      : {}),
+    ...(Array.isArray(record.conflictDomains)
+      ? { conflictDomains: record.conflictDomains.filter((item): item is string => typeof item === 'string') }
       : {}),
     ...(Array.isArray(record.mustRunAfter)
       ? { mustRunAfter: record.mustRunAfter.filter((item): item is string => typeof item === 'string') }

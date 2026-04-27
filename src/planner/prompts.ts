@@ -21,6 +21,7 @@ export function buildPlannerNodeReplanRequest(
       'Return a full type=plan object that keeps completed steps intact and replans the failed step plus any downstream steps.',
       'Do not return patches.',
       'Prefer preserving existing step ids for already completed steps.',
+      'When file paths are not enough to express write coupling, you may include conflictDomains such as api-contract, db-schema, css-theme, routing-contract, build-config, or test-fixtures.',
     ].join(' '),
     messages: [
       {
@@ -52,6 +53,7 @@ export function buildSubtaskPrompt(
   return [
     `Original objective: ${requestArtifact.promptHistory[0] ?? ''}`,
     `Planner summary: ${plan.summary}`,
+    step.conflictDomains && step.conflictDomains.length > 0 ? `Conflict domains: ${step.conflictDomains.join(', ')}` : '',
     `Execute planner step: ${step.title}`,
     step.details ? `Step details: ${step.details}` : '',
     step.relatedFiles && step.relatedFiles.length > 0 ? `Target files: ${step.relatedFiles.join(', ')}` : '',

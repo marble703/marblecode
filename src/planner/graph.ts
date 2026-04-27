@@ -4,6 +4,8 @@ export interface PlannerExecutionEdge {
   from: string;
   to: string;
   type: 'dependency' | 'must_run_after' | 'conflict' | 'fallback';
+  reason?: 'explicit' | 'conflict_domain' | 'file_scope' | 'unknown_write_scope';
+  domain?: string;
 }
 
 export interface PlannerExecutionNode {
@@ -13,6 +15,7 @@ export interface PlannerExecutionNode {
   accessMode: PlannerAccessMode;
   fileScope: string[];
   conflictsWith: string[];
+  conflictDomains: string[];
   dependencies: string[];
   mustRunAfter: string[];
   fallbackStepIds: string[];
@@ -39,6 +42,7 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
     accessMode: derivePlannerAccessMode(step),
     fileScope: derivePlannerFileScope(step),
     conflictsWith: derivePlannerConflicts(step),
+    conflictDomains: derivePlannerConflictDomains(step),
     dependencies: step.dependencies,
     mustRunAfter: step.mustRunAfter ?? [],
     fallbackStepIds: step.fallbackStepIds ?? [],
@@ -66,7 +70,8 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
     }
     for (let rightIndex = leftIndex + 1; rightIndex < nodes.length; rightIndex += 1) {
       const right = nodes[rightIndex];
-      if (!right || !nodesConflict(left, right)) {
+      const conflict = right ? getNodeConflict(left, right) : null;
+      if (!right || !conflict) {
         continue;
       }
 
@@ -74,9 +79,10 @@ export function buildExecutionGraph(plan: PlannerPlan, conflictPolicy: 'serial' 
       const explicitRight = right.conflictsWith.includes(left.stepId);
       const from = explicitRight ? right.stepId : left.stepId;
       const to = explicitRight ? left.stepId : right.stepId;
+      const reason: NonNullable<PlannerExecutionEdge['reason']> = explicitLeft || explicitRight ? 'explicit' : conflict.reason ?? 'file_scope';
       const key = `${from}->${to}`;
       if (!seenConflictEdges.has(key)) {
-        edges.push({ from, to, type: 'conflict' });
+        edges.push({ from, to, type: 'conflict', reason, ...(reason === 'conflict_domain' && conflict.domain ? { domain: conflict.domain } : {}) });
         seenConflictEdges.add(key);
       }
     }
@@ -201,22 +207,34 @@ export function derivePlannerConflicts(step: PlannerStep): string[] {
   return [...new Set(step.conflictsWith ?? [])];
 }
 
-function nodesConflict(
-  left: { stepId: string; accessMode: PlannerAccessMode; fileScope: string[] },
-  right: { stepId: string; accessMode: PlannerAccessMode; fileScope: string[] },
-): boolean {
+export function derivePlannerConflictDomains(step: PlannerStep): string[] {
+  return [...new Set(step.conflictDomains ?? [])];
+}
+
+function getNodeConflict(
+  left: { stepId: string; accessMode: PlannerAccessMode; fileScope: string[]; conflictDomains: string[] },
+  right: { stepId: string; accessMode: PlannerAccessMode; fileScope: string[]; conflictDomains: string[] },
+): { reason: PlannerExecutionEdge['reason']; domain?: string } | null {
   if (left.accessMode === 'verify' || right.accessMode === 'verify') {
-    return false;
+    return null;
   }
   if (left.accessMode === 'read' && right.accessMode === 'read') {
-    return false;
+    return null;
+  }
+
+  const rightDomains = new Set(right.conflictDomains);
+  const sharedDomain = left.conflictDomains.find((domain) => rightDomains.has(domain));
+  if (sharedDomain) {
+    return { reason: 'conflict_domain', domain: sharedDomain };
   }
   if (left.fileScope.length === 0 || right.fileScope.length === 0) {
-    return left.accessMode === 'write' || right.accessMode === 'write';
+    return left.accessMode === 'write' || right.accessMode === 'write'
+      ? { reason: 'unknown_write_scope' }
+      : null;
   }
 
   const rightScope = new Set(right.fileScope);
-  return left.fileScope.some((file) => rightScope.has(file));
+  return left.fileScope.some((file) => rightScope.has(file)) ? { reason: 'file_scope' } : null;
 }
 
 function fallbackReplacementSatisfied(plan: PlannerPlan, graph: PlannerExecutionGraph, sourceStepId: string): boolean {

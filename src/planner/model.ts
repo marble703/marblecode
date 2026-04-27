@@ -70,7 +70,8 @@ function buildPlannerSystemPrompt(maxSteps: number, executeSubtasks: boolean): s
     'Prefer step kinds search, code, test, and verify when they apply, and include relatedFiles whenever you can identify them.',
     'For executable write steps, include fileScope and accessMode when possible so the host can avoid conflicts and restrict writes safely.',
     'Use mustRunAfter or conflictsWith when two write steps should not run in the same execution wave.',
-    'You may also include optional step fields such as maxAttempts, fallbackStepIds, dependsOnFiles, producesFiles, ownershipTransfers, and conflictsWith when they help execution planning.',
+    'When different files are still logically coupled, include conflictDomains such as api-contract, db-schema, css-theme, routing-contract, build-config, or test-fixtures.',
+    'You may also include optional step fields such as maxAttempts, fallbackStepIds, dependsOnFiles, producesFiles, ownershipTransfers, conflictsWith, and conflictDomains when they help execution planning.',
     'When the user asks for a plan, produce a structured plan with ordered steps, then optionally update step statuses as you search.',
     executeSubtasks
       ? 'The host will execute your code, test, and verify steps after you provide the plan. You must return a real plan object with non-empty steps before the final summary.'

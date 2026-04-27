@@ -28,6 +28,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
+    { name: 'planner conflict domains', run: testPlannerConflictDomains },
     { name: 'planner replan proposal validation', run: testPlannerReplanProposalValidation },
     { name: 'planner replan lock compatibility', run: testPlannerReplanLockCompatibility },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
@@ -41,6 +42,8 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute chain', run: testPlannerExecuteChain },
     { name: 'planner execute concurrent wave', run: testPlannerExecuteConcurrentWave },
     { name: 'planner execute conflict policy fail', run: testPlannerExecuteConflictPolicyFail },
+    { name: 'planner execute conflict domain fail', run: testPlannerExecuteConflictDomainFail },
+    { name: 'planner execute conflict domain serial', run: testPlannerExecuteConflictDomainSerial },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
@@ -366,6 +369,24 @@ async function testPlannerExecutionStrategies(): Promise<void> {
     ],
   }, 'fail');
   assert.match(fail.checkConflicts({ version: '1', revision: 1, summary: 'conflict fixture', steps: conflictGraph.nodes.map((node) => ({ id: node.stepId, title: node.title, status: 'PENDING', kind: node.kind, attempts: 0, relatedFiles: node.fileScope, fileScope: node.fileScope, dependencies: node.dependencies, children: [] })) }, conflictGraph) ?? '', /step-1/);
+}
+
+async function testPlannerConflictDomains(): Promise<void> {
+  const graph = buildExecutionGraph({
+    version: '1',
+    revision: 1,
+    summary: 'domain conflict fixture',
+    steps: [
+      { id: 'step-1', title: 'Update API implementation', status: 'PENDING', kind: 'code', attempts: 0, relatedFiles: ['src/api.ts'], fileScope: ['src/api.ts'], conflictDomains: ['api-contract'], dependencies: [], children: [] },
+      { id: 'step-2', title: 'Update API tests', status: 'PENDING', kind: 'test', attempts: 0, relatedFiles: ['tests/api.test.ts'], fileScope: ['tests/api.test.ts'], conflictDomains: ['api-contract'], dependencies: [], children: [] },
+      { id: 'step-3', title: 'Update theme docs', status: 'PENDING', kind: 'docs', attempts: 0, relatedFiles: ['docs/theme.md'], fileScope: ['docs/theme.md'], conflictDomains: ['css-theme'], dependencies: [], children: [] },
+    ],
+  });
+
+  const domainEdge = graph.edges.find((edge) => edge.type === 'conflict' && edge.from === 'step-1' && edge.to === 'step-2');
+  assert.equal(domainEdge?.reason, 'conflict_domain');
+  assert.equal(domainEdge?.domain, 'api-contract');
+  assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.to === 'step-3'), false);
 }
 
 async function testPlannerReplanProposalValidation(): Promise<void> {
@@ -1215,6 +1236,100 @@ async function testPlannerExecuteConflictPolicyFail(): Promise<void> {
     assert.match(result.message, /conflict detected/i);
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     assert.match(events, /subtask_conflict_detected/);
+  });
+}
+
+async function testPlannerExecuteConflictDomainFail(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.routing.maxConcurrentSubtasks = 2;
+    config.routing.subtaskConflictPolicy = 'fail';
+
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Two different files still conflict on the same API contract.',
+              steps: [
+                { id: 'step-1', title: 'Update API implementation', status: 'PENDING', kind: 'code', details: 'Change the API implementation.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', conflictDomains: ['api-contract'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Update API tests', status: 'PENDING', kind: 'test', details: 'Change tests for the same API contract.', relatedFiles: ['tests/check-math.js'], fileScope: ['tests/check-math.js'], accessMode: 'write', conflictDomains: ['api-contract'], dependencies: [], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Two different files still conflict on the same API contract.' });
+      }
+
+      throw new Error('Subtask should not start when conflict-domain policy is fail');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '对同一个 API contract 做两处改动',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.match(result.message, /conflict detected/i);
+    const graph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { edges: Array<{ type: string; reason?: string; domain?: string }> };
+    assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.reason === 'conflict_domain' && edge.domain === 'api-contract'), true);
+  });
+}
+
+async function testPlannerExecuteConflictDomainSerial(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.maxConcurrentSubtasks = 2;
+    config.routing.subtaskConflictPolicy = 'serial';
+
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Serialize two domain-coupled writes, then verify.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', conflictDomains: ['api-contract'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Update API notes', status: 'PENDING', kind: 'docs', details: 'Append a note for the same API contract.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', conflictDomains: ['api-contract'], dependencies: [], children: [] },
+                { id: 'step-3', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after both steps complete.', dependencies: ['step-1', 'step-2'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Serialize two domain-coupled writes, then verify.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const content = request.messages[0]?.content ?? '';
+        if (content.includes('Update API notes')) {
+          return buildNotesOnlyStep(workspaceRoot);
+        }
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '串行执行共享 API contract 的两个步骤',
+      explicitFiles: ['src/math.js', 'src/notes.txt', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const graph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { edges: Array<{ from: string; to: string; type: string; reason?: string; domain?: string }> };
+    assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.reason === 'conflict_domain' && edge.domain === 'api-contract'), true);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8'), /FIXED_NOTE/);
   });
 }
 

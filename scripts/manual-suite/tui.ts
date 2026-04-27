@@ -144,6 +144,16 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
       }),
       'utf8',
     );
+    await writeFile(
+      path.join(sessionDir, 'execution.graph.json'),
+      JSON.stringify({
+        waves: [],
+        edges: [
+          { from: 'step-1', to: 'step-2', type: 'conflict', reason: 'conflict_domain', domain: 'api-contract' },
+        ],
+      }),
+      'utf8',
+    );
 
     const view = await loadPlannerView(sessionDir);
     assert.equal(view.summary, 'Investigate router flow');
@@ -156,6 +166,9 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.deepEqual(view.lastCompletedWaveStepIds, ['step-0']);
     assert.equal(view.recoveryStepId, 'step-1-fallback');
     assert.match(view.recoveryReason, /Activated fallback/);
+    assert.equal(view.conflictEdges.length, 1);
+    assert.equal(view.conflictEdges[0]?.reason, 'conflict_domain');
+    assert.equal(view.conflictEdges[0]?.domain, 'api-contract');
     assert.equal(view.events.length, 1);
     assert.deepEqual(view.fallbackEdges, []);
     assert.match(view.terminalSummary, /unavailable/);

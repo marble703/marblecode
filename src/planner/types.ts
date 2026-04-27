@@ -84,6 +84,7 @@ export interface PlannerStep {
   fileScope?: string[];
   accessMode?: PlannerAccessMode;
   conflictsWith?: string[];
+  conflictDomains?: string[];
   mustRunAfter?: string[];
   ownershipTransfers?: string[];
   subtaskContext?: PlannerContextPacket;

@@ -23,6 +23,7 @@ export interface PlannerViewModel {
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
   fallbackEdges: Array<{ from: string; to: string }>;
+  conflictEdges: Array<{ from: string; to: string; reason: string; domain?: string }>;
   lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>; 
   summary: string;
   steps: Array<{
@@ -103,7 +104,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   };
   const events = parseJsonLines(eventsRaw);
   const plannerLog = parseJsonLines(plannerLogRaw);
-  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [], edges: [] }) as { waves?: Array<{ index: number; stepIds: string[] }>; edges?: Array<{ from: string; to: string; type: string }> };
+  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [], edges: [] }) as { waves?: Array<{ index: number; stepIds: string[] }>; edges?: Array<{ from: string; to: string; type: string; reason?: string; domain?: string }> };
   const executionLocks = parseJsonWithFallback(executionLocksRaw, { entries: [] }) as { entries?: Array<{ path: string; mode: string; ownerStepId: string }> };
   const executionState = parseJsonWithFallback(executionStateRaw, {
     executionPhase: 'idle',
@@ -147,6 +148,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     fallbackEdges: (executionGraph.edges ?? [])
       .filter((edge) => edge.type === 'fallback')
       .map((edge) => ({ from: edge.from, to: edge.to })),
+    conflictEdges: (executionGraph.edges ?? [])
+      .filter((edge) => edge.type === 'conflict')
+      .map((edge) => ({ from: edge.from, to: edge.to, reason: edge.reason ?? 'unknown', ...(edge.domain ? { domain: edge.domain } : {}) })),
     lockEntries: executionLocks.entries ?? [],
     summary: plan.summary || state.message,
     steps: plan.steps.map((step) => ({
@@ -187,6 +191,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
     `Current wave: ${view.currentWaveStepIds.join(', ') || '(none)'}`,
     `Last completed wave: ${view.lastCompletedWaveStepIds.join(', ') || '(none)'}`,
+    `Conflicts: ${view.conflictEdges.length > 0 ? view.conflictEdges.map((edge) => `${edge.from}->${edge.to}(${edge.domain ?? edge.reason})`).join(', ') : '(none)'}`,
     `Fallbacks: ${view.fallbackEdges.length > 0 ? view.fallbackEdges.map((edge) => `${edge.from}->${edge.to}`).join(', ') : '(none)'}`,
     `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
     `Recovery: ${view.recoveryStepId ? `${view.recoveryStepId}${view.recoveryReason ? ` ${view.recoveryReason}` : ''}` : '(none)'}`,
