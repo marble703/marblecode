@@ -358,7 +358,15 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 - 不能修改已完成步骤的关键语义字段，例如 `title`、`kind`、`dependencies`、`fileScope`、`accessMode`、`mustRunAfter`、`fallbackStepIds`、`conflictsWith`
 - 不能把已完成步骤重新激活
 - 失败步骤必须仍然存在，且不能直接变成 `DONE`
+- 对于不在本次 replan scope 内的未完成步骤，不能修改其语义字段
 - 新计划仍必须通过 `runPlanConsistencyChecks()`，包括引用完整性和 dependency cycle 检查
+
+当前 replan scope 的定义是：
+
+- 失败步骤自身
+- 从失败步骤出发，沿 `dependency`、`must_run_after`、`fallback` 可达的未完成步骤
+
+这意味着 local replan 不能借机重写无关的 pending step。
 
 相关事件包括：
 

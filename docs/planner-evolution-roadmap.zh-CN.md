@@ -86,12 +86,12 @@
 3. proposal 校验会保护已完成步骤，拒绝删除或修改其关键语义字段。
 4. proposal 校验失败时写 `replan.rejected.<stepId>.json`，并记录 `subtask_replan_rejected`。
 5. 合并成功时记录 `subtask_replan_proposed`、`subtask_replan_merged` 和兼容事件 `subtask_replanned`。
+6. proposal 的影响范围已收紧到 bounded subgraph：失败节点及其通过 `dependency` / `must_run_after` / `fallback` 可达的未完成节点。
 
 仍待完成的替代/锁语义：
 
 1. 明确 fallback dependency substitution 语义。当前下游如果要依赖 fallback 成功，需要 planner 显式依赖 fallback step。
 2. 对 replan proposal 增加 active lock compatibility 校验。
-3. 将 proposal 的影响范围进一步约束到 bounded subgraph。
 
 完成标准：
 
