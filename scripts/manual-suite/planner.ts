@@ -10,7 +10,7 @@ import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
 import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
-import { collectReplanScope, mergePlanAppend, mergeReplanProposal, validatePlanAppend, validateReplanLockCompatibility, validateReplanProposal } from '../../src/planner/replan-merge.js';
+import { buildPlannerAffectedSubgraph, collectReplanScope, computeUndeclaredChangedFiles, mergePlanAppend, mergeReplanProposal, validateAppendActiveWaveConflict, validatePlanAppend, validateReplanLockCompatibility, validateReplanProposal } from '../../src/planner/replan-merge.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
@@ -49,6 +49,10 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute degraded does not unblock verify', run: testPlannerExecuteDegradedDoesNotUnblockVerify },
     { name: 'planner execute rolling window append', run: testPlannerExecuteRollingWindowAppend },
     { name: 'planner execute rolling append rejects done step mutation', run: testPlannerExecuteRollingAppendRejectsDoneStepMutation },
+    { name: 'planner execute feedback writes undeclared changes', run: testPlannerExecuteFeedbackWritesUndeclaredChanges },
+    { name: 'planner execute feedback triggers replan', run: testPlannerExecuteFeedbackTriggersReplan },
+    { name: 'planner execute affected subgraph calculator', run: testPlannerExecuteAffectedSubgraphCalculator },
+    { name: 'planner append active lock conflict', run: testPlannerAppendActiveLockConflict },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
@@ -2019,4 +2023,132 @@ async function testPlannerExecuteBlockedDependents(): Promise<void> {
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.failureKind, 'dependency');
     assert.match(plan.steps.find((step) => step.id === 'step-2')?.details ?? '', /Blocked by failed dependencies: step-1/);
   });
+}
+
+async function testPlannerExecuteFeedbackWritesUndeclaredChanges(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        return currentPlan.includes('"step-1"')
+          ? JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Single step feedback.' })
+          : JSON.stringify({
+              type: 'plan', plan: { version: '1', summary: 'Feedback test.', steps: [
+                { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', details: 'Fix add bug.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] }
+              ] }
+            });
+      }
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const current = await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8');
+        const next = current.replace('return a - b;', 'return a + b;');
+        return JSON.stringify({
+          type: 'patch', patch: { version: '1', summary: 'Fix', operations: [{ type: 'replace_file', path: 'src/math.js', diff: 'Fix', oldText: current, newText: next }] }
+        });
+      }
+      throw new Error(`Unexpected: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const feedback = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.feedback.json'), 'utf8')) as {
+      changedFiles: string[];
+      stepSummaries: Array<{ stepId: string; undeclaredChangedFiles: string[] }>;
+      triggerReplan: boolean;
+    };
+    assert.ok(feedback.changedFiles.length > 0);
+    assert.ok(feedback.stepSummaries.length > 0);
+    assert.equal(feedback.stepSummaries[0]?.stepId, 'step-1');
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+  });
+}
+
+async function testPlannerExecuteFeedbackTriggersReplan(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        return currentPlan.includes('"step-1"')
+          ? JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Single step feedback.' })
+          : JSON.stringify({
+              type: 'plan', plan: { version: '1', summary: 'Feedback replan test.', steps: [
+                { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', details: 'Fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] }
+              ] }
+            });
+      }
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const current = await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8');
+        const next = current.replace('return a - b;', 'return a + b;');
+        return JSON.stringify({
+          type: 'patch', patch: { version: '1', summary: 'Fix', operations: [{ type: 'replace_file', path: 'src/math.js', diff: 'Fix', oldText: current, newText: next }] }
+        });
+      }
+      throw new Error(`Unexpected: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const feedback = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.feedback.json'), 'utf8')) as {
+      changedFiles: string[];
+    };
+    assert.ok(feedback.changedFiles.length > 0);
+  });
+}
+
+async function testPlannerExecuteAffectedSubgraphCalculator(): Promise<void> {
+  const plan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'affected subgraph fixture',
+    steps: [
+      { id: 'step-1', title: 'Write to math', status: 'FAILED' as const, kind: 'code' as const, attempts: 1, fileScope: ['src/math.js'], accessMode: 'write' as const, conflictDomains: ['api-contract'], dependencies: [], children: [] },
+      { id: 'step-2', title: 'Write to router', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, fileScope: ['src/router.ts'], accessMode: 'write' as const, conflictDomains: ['api-contract'], dependencies: ['step-1'], children: [] },
+      { id: 'step-3', title: 'Write to docs', status: 'PENDING' as const, kind: 'docs' as const, attempts: 0, fileScope: ['docs/notes.md'], accessMode: 'write' as const, dependencies: [], children: [] },
+      { id: 'step-4', title: 'Run verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-2'], children: [] },
+    ],
+  };
+  const affected = buildPlannerAffectedSubgraph(plan, 'step-1', ['src/undeclared.js']);
+  assert.ok(affected.has('step-1'));
+  assert.ok(affected.has('step-2'));
+  assert.ok(affected.has('step-4'));
+  assert.equal(affected.has('step-3'), false);
+}
+
+async function testPlannerAppendActiveLockConflict(): Promise<void> {
+  const previousPlan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'partial plan',
+    isPartial: true,
+    steps: [
+      { id: 'step-1', title: 'Fix math', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, fileScope: ['src/math.js'], accessMode: 'write' as const, dependencies: [], children: [] },
+    ],
+  };
+  const appendPlan = {
+    version: '1' as const,
+    revision: 2,
+    summary: 'append conflict',
+    steps: [
+      { id: 'step-2', title: 'Also touch math', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, fileScope: ['src/math.js'], accessMode: 'write' as const, dependencies: [], children: [] },
+    ],
+  };
+  const lockTable = createExecutionLockTable(1);
+  const locked = acquireWriteLocks(lockTable, 'step-1', ['src/math.js'], 1);
+  const errors = validateAppendActiveWaveConflict(previousPlan, appendPlan, ['step-1'], locked);
+  assert.ok(errors.length > 0);
+  assert.match(errors.join('; '), /active lock on src\/math\.js/);
 }
