@@ -49,6 +49,19 @@ export interface PlannerTimelineEvent {
   epoch?: number;
 }
 
+export interface PlannerSessionSummary {
+  id: string;
+  dir: string;
+  isPlanner: true;
+  summary: string;
+  outcome: string;
+  phase: string;
+  currentStepId: string | null;
+  executionPhase: string;
+  planRevision: number;
+  planIsPartial: boolean;
+}
+
 export interface PlannerViewModel {
   sessionDir: string;
   outcome: string;
@@ -261,6 +274,42 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     terminalSummary: terminal ? `${String(terminal.outcome ?? '')} ${String(terminal.message ?? '')}`.trim() : 'unavailable',
     recoveryStepId: executionState.recoveryStepId ?? null,
     recoveryReason: executionState.recoveryReason ?? '',
+  };
+}
+
+export async function loadPlannerEvents(sessionDir: string): Promise<{
+  events: PlannerEventRecord[];
+  subtaskEvents: PlannerEventRecord[];
+  timeline: PlannerTimelineEvent[];
+  subtaskTimeline: PlannerTimelineEvent[];
+}> {
+  const eventsRaw = await readTextIfExists(path.join(sessionDir, 'plan.events.jsonl'));
+  const events = parseJsonLines(eventsRaw);
+  const subtaskEvents = events.filter((event) => {
+    const type = String(event.type ?? '');
+    return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
+  });
+  return {
+    events,
+    subtaskEvents,
+    timeline: normalizePlannerEvents(events),
+    subtaskTimeline: normalizePlannerEvents(subtaskEvents),
+  };
+}
+
+export async function loadPlannerSessionSummary(id: string, sessionDir: string): Promise<PlannerSessionSummary> {
+  const view = await loadPlannerView(sessionDir);
+  return {
+    id,
+    dir: sessionDir,
+    isPlanner: true,
+    summary: view.summary,
+    outcome: view.outcome,
+    phase: view.phase,
+    currentStepId: view.currentStepId,
+    executionPhase: view.executionPhase,
+    planRevision: view.planRevision,
+    planIsPartial: view.planIsPartial,
   };
 }
 

@@ -11,7 +11,7 @@ import { createProviders } from '../provider/index.js';
 import { resolvePlannerSessionDir, isPlannerSessionDir, listRecentSessions, type SessionListItem } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
-import { loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
+import { loadPlannerEvents, loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
 import { formatPlannerView, renderPlannerEvent } from './planner-view.js';
 import { watchPlannerSession } from './planner-live.js';
 
@@ -687,7 +687,8 @@ function formatSessionBadge(session: SessionListItem): string {
 async function inspectPlannerStep(sessionDir: string, stepRef: string): Promise<string> {
   const view = await loadPlannerView(sessionDir);
   const step = resolvePlannerStep(view, stepRef);
-  const latestEvent = findLatestStepEvent(view.subtaskEvents, step.id);
+  const plannerEvents = await loadPlannerEvents(sessionDir);
+  const latestEvent = findLatestStepEvent(plannerEvents.subtaskEvents, step.id);
   const artifacts = await collectPlannerStepArtifacts(sessionDir, step.id);
 
   return [

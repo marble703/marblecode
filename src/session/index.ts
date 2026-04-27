@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { access, appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
+import { loadPlannerSessionSummary } from '../planner/view-model.js';
 import { redactRecord } from '../shared/redact.js';
 
 export interface SessionRecord {
@@ -198,33 +199,8 @@ async function buildSessionListItem(id: string, dir: string): Promise<SessionLis
 }
 
 async function loadPlannerSessionListItem(id: string, dir: string): Promise<SessionListItem> {
-  const plan = await readJsonFile<{
-    summary?: string;
-  }>(path.join(dir, 'plan.json'));
-  const state = await readJsonFile<{
-    outcome?: string;
-    phase?: string;
-    currentStepId?: string | null;
-  }>(path.join(dir, 'plan.state.json'));
-  const request = await readJsonFile<{
-    promptHistory?: string[];
-  }>(path.join(dir, 'planner.request.json'));
-  const summary = compactSummary(
-    plan?.summary,
-    request?.promptHistory?.at(-1),
-    request?.promptHistory?.[0],
-    '(planner session)',
-  );
-
-  return {
-    id,
-    dir,
-    isPlanner: true,
-    summary,
-    ...(typeof state?.outcome === 'string' ? { outcome: state.outcome } : {}),
-    ...(typeof state?.phase === 'string' ? { phase: state.phase } : {}),
-    ...('currentStepId' in (state ?? {}) ? { currentStepId: state?.currentStepId ?? null } : {}),
-  };
+  const summary = await loadPlannerSessionSummary(id, dir);
+  return summary;
 }
 
 async function loadAgentSessionListItem(id: string, dir: string): Promise<SessionListItem> {
