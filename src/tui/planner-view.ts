@@ -10,6 +10,9 @@ export interface PlannerViewModel {
   sessionDir: string;
   outcome: string;
   phase: string;
+  executionPhase: string;
+  strategy: string;
+  epoch: number;
   currentStepId: string | null;
   activeStepIds: string[];
   readyStepIds: string[];
@@ -17,8 +20,10 @@ export interface PlannerViewModel {
   failedStepIds: string[];
   blockedStepIds: string[];
   executionWaves: Array<{ index: number; stepIds: string[] }>;
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
   fallbackEdges: Array<{ from: string; to: string }>;
-  lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
+  lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>; 
   summary: string;
   steps: Array<{
     id: string;
@@ -38,16 +43,19 @@ export interface PlannerViewModel {
   subtaskEvents: PlannerEventRecord[];
   consistencyErrors: string[];
   terminalSummary: string;
+  recoveryStepId: string | null;
+  recoveryReason: string;
 }
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
-  const [planRaw, stateRaw, eventsRaw, plannerLogRaw, executionGraphRaw, executionLocksRaw] = await Promise.all([
+  const [planRaw, stateRaw, eventsRaw, plannerLogRaw, executionGraphRaw, executionLocksRaw, executionStateRaw] = await Promise.all([
     readTextIfExists(path.join(sessionDir, 'plan.json')),
     readTextIfExists(path.join(sessionDir, 'plan.state.json')),
     readTextIfExists(path.join(sessionDir, 'plan.events.jsonl')),
     readTextIfExists(path.join(sessionDir, 'planner.log.jsonl')),
     readTextIfExists(path.join(sessionDir, 'execution.graph.json')),
     readTextIfExists(path.join(sessionDir, 'execution.locks.json')),
+    readTextIfExists(path.join(sessionDir, 'execution.state.json')),
   ]);
 
   const plan = parseJsonWithFallback(planRaw, {
@@ -97,6 +105,23 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   const plannerLog = parseJsonLines(plannerLogRaw);
   const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [], edges: [] }) as { waves?: Array<{ index: number; stepIds: string[] }>; edges?: Array<{ from: string; to: string; type: string }> };
   const executionLocks = parseJsonWithFallback(executionLocksRaw, { entries: [] }) as { entries?: Array<{ path: string; mode: string; ownerStepId: string }> };
+  const executionState = parseJsonWithFallback(executionStateRaw, {
+    executionPhase: 'idle',
+    strategy: 'serial',
+    epoch: 0,
+    currentWaveStepIds: [],
+    lastCompletedWaveStepIds: [],
+    recoveryStepId: null,
+    recoveryReason: '',
+  }) as {
+    executionPhase?: string;
+    strategy?: string;
+    epoch?: number;
+    currentWaveStepIds?: string[];
+    lastCompletedWaveStepIds?: string[];
+    recoveryStepId?: string | null;
+    recoveryReason?: string;
+  };
   const subtaskEvents = events.filter((event) => {
     const type = String(event.type ?? '');
     return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
@@ -107,6 +132,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     sessionDir,
     outcome: state.outcome,
     phase: state.phase,
+    executionPhase: executionState.executionPhase ?? 'idle',
+    strategy: executionState.strategy ?? 'serial',
+    epoch: executionState.epoch ?? 0,
     currentStepId: state.currentStepId,
     activeStepIds: state.activeStepIds ?? [],
     readyStepIds: state.readyStepIds ?? [],
@@ -114,6 +142,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
     executionWaves: executionGraph.waves ?? [],
+    currentWaveStepIds: executionState.currentWaveStepIds ?? [],
+    lastCompletedWaveStepIds: executionState.lastCompletedWaveStepIds ?? [],
     fallbackEdges: (executionGraph.edges ?? [])
       .filter((edge) => edge.type === 'fallback')
       .map((edge) => ({ from: edge.from, to: edge.to })),
@@ -137,6 +167,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     subtaskEvents,
     consistencyErrors: state.consistencyErrors,
     terminalSummary: terminal ? `${String(terminal.outcome ?? '')} ${String(terminal.message ?? '')}`.trim() : 'unavailable',
+    recoveryStepId: executionState.recoveryStepId ?? null,
+    recoveryReason: executionState.recoveryReason ?? '',
   };
 }
 
@@ -145,14 +177,19 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Session: ${view.sessionDir}`,
     `Outcome: ${view.outcome}`,
     `Phase: ${view.phase}`,
+    `Execution phase: ${view.executionPhase}`,
+    `Strategy: ${view.strategy}    Epoch: ${view.epoch}`,
     `Current step: ${view.currentStepId ?? '(none)'}`,
     `Active steps: ${view.activeStepIds.join(', ') || '(none)'}`,
     `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
     `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
     `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
     `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
+    `Current wave: ${view.currentWaveStepIds.join(', ') || '(none)'}`,
+    `Last completed wave: ${view.lastCompletedWaveStepIds.join(', ') || '(none)'}`,
     `Fallbacks: ${view.fallbackEdges.length > 0 ? view.fallbackEdges.map((edge) => `${edge.from}->${edge.to}`).join(', ') : '(none)'}`,
     `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
+    `Recovery: ${view.recoveryStepId ? `${view.recoveryStepId}${view.recoveryReason ? ` ${view.recoveryReason}` : ''}` : '(none)'}`,
     `Summary: ${view.summary}`,
     '',
     'Plan Steps:',

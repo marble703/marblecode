@@ -142,7 +142,8 @@ export function getReadyStepIds(plan: PlannerPlan, state: PlannerState, graph: P
 export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: PlannerExecutionGraph): string[] {
   const reasons: string[] = [];
   for (const dependency of step.dependencies) {
-    if (plan.steps.find((candidate) => candidate.id === dependency)?.status !== 'DONE') {
+    const dependencyStatus = plan.steps.find((candidate) => candidate.id === dependency)?.status;
+    if (dependencyStatus !== 'DONE' && !fallbackReplacementSatisfied(plan, graph, dependency)) {
       reasons.push(`dependency:${dependency}`);
     }
   }
@@ -150,7 +151,8 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
   const node = graph.nodes.find((candidate) => candidate.stepId === step.id);
   if (node) {
     for (const predecessor of node.mustRunAfter) {
-      if (plan.steps.find((candidate) => candidate.id === predecessor)?.status !== 'DONE') {
+      const predecessorStatus = plan.steps.find((candidate) => candidate.id === predecessor)?.status;
+      if (predecessorStatus !== 'DONE' && !fallbackReplacementSatisfied(plan, graph, predecessor)) {
         reasons.push(`must_run_after:${predecessor}`);
       }
     }
@@ -215,6 +217,12 @@ function nodesConflict(
 
   const rightScope = new Set(right.fileScope);
   return left.fileScope.some((file) => rightScope.has(file));
+}
+
+function fallbackReplacementSatisfied(plan: PlannerPlan, graph: PlannerExecutionGraph, sourceStepId: string): boolean {
+  return graph.edges.some((edge) => edge.type === 'fallback'
+    && edge.from === sourceStepId
+    && plan.steps.find((candidate) => candidate.id === edge.to)?.status === 'DONE');
 }
 
 function computeExecutionWavesFromEdges(nodes: PlannerExecutionNode[], edges: PlannerExecutionEdge[]): PlannerExecutionWave[] {

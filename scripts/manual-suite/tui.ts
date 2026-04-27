@@ -131,11 +131,31 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
       `${JSON.stringify({ type: 'planner_started', prompt: 'Inspect router flow' })}\n{"type":"partial"`,
       'utf8',
     );
+    await writeFile(
+      path.join(sessionDir, 'execution.state.json'),
+      JSON.stringify({
+        executionPhase: 'recovering',
+        strategy: 'serial',
+        epoch: 3,
+        currentWaveStepIds: ['step-1'],
+        lastCompletedWaveStepIds: ['step-0'],
+        recoveryStepId: 'step-1-fallback',
+        recoveryReason: 'Activated fallback for step-1.',
+      }),
+      'utf8',
+    );
 
     const view = await loadPlannerView(sessionDir);
     assert.equal(view.summary, 'Investigate router flow');
     assert.equal(view.phase, 'PLANNING');
     assert.equal(view.outcome, 'RUNNING');
+    assert.equal(view.executionPhase, 'recovering');
+    assert.equal(view.strategy, 'serial');
+    assert.equal(view.epoch, 3);
+    assert.deepEqual(view.currentWaveStepIds, ['step-1']);
+    assert.deepEqual(view.lastCompletedWaveStepIds, ['step-0']);
+    assert.equal(view.recoveryStepId, 'step-1-fallback');
+    assert.match(view.recoveryReason, /Activated fallback/);
     assert.equal(view.events.length, 1);
     assert.deepEqual(view.fallbackEdges, []);
     assert.match(view.terminalSummary, /unavailable/);

@@ -144,12 +144,13 @@ async function testPlannerGraphFallbackReadiness(): Promise<void> {
     steps: [
       { id: 'step-1', title: 'Primary implementation', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'], fileScope: ['src/math.js'] },
       { id: 'step-1-fallback', title: 'Fallback implementation', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'] },
+      { id: 'step-2', title: 'Downstream verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
     ],
   };
   const graph = buildExecutionGraph(plan);
   assert.equal(graph.nodes.find((node) => node.stepId === 'step-1')?.fallbackStepIds.includes('step-1-fallback'), true);
   assert.equal(graph.edges.some((edge) => edge.type === 'fallback' && edge.from === 'step-1' && edge.to === 'step-1-fallback'), true);
-  assert.deepEqual(graph.waves.map((wave) => wave.stepIds), [['step-1'], ['step-1-fallback']]);
+  assert.deepEqual(graph.waves.map((wave) => wave.stepIds), [['step-1'], ['step-1-fallback', 'step-2']]);
 
   const pendingState = {
     version: '1' as const,
@@ -173,6 +174,12 @@ async function testPlannerGraphFallbackReadiness(): Promise<void> {
     steps: plan.steps.map((step) => (step.id === 'step-1' ? { ...step, status: 'FAILED' as const, executionState: 'failed' as const } : step)),
   };
   assert.deepEqual(getReadyStepIds(failedPlan, pendingState, graph), ['step-1-fallback']);
+
+  const replacedPlan = {
+    ...failedPlan,
+    steps: failedPlan.steps.map((step) => (step.id === 'step-1-fallback' ? { ...step, status: 'DONE' as const, executionState: 'done' as const } : step)),
+  };
+  assert.deepEqual(getReadyStepIds(replacedPlan, pendingState, graph), ['step-2']);
 }
 
 async function testPlannerExecutionLocks(): Promise<void> {
@@ -1334,7 +1341,7 @@ async function testPlannerExecuteGraphFallback(): Promise<void> {
               steps: [
                 { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Try a primary implementation that will fail.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'] },
                 { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
-                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after fallback succeeds.', dependencies: ['step-1-fallback'], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after fallback replaces the failed primary step.', dependencies: ['step-1'], children: [] },
               ],
             },
           });
@@ -1372,6 +1379,7 @@ async function testPlannerExecuteGraphFallback(): Promise<void> {
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
     assert.equal(plan.steps.find((step) => step.id === 'step-1-fallback')?.status, 'DONE');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'DONE');
     assert.equal(graph.edges.some((edge) => edge.type === 'fallback' && edge.from === 'step-1' && edge.to === 'step-1-fallback'), true);
     assert.equal(state.executionPhase, 'done');
     assert.match(events, /subtask_fallback_activated/);
