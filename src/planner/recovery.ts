@@ -8,7 +8,7 @@ import { normalizePlannerPlan, parsePlannerResponse, runPlanConsistencyChecks } 
 import { buildPlannerNodeReplanRequest } from './prompts.js';
 import { buildReplanProposal, mergeReplanProposal, validateReplanLockCompatibility } from './replan-merge.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import type { PlannerPlan, PlannerRequestArtifact, PlannerState } from './types.js';
+import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState } from './types.js';
 import { buildPlannerModelAliasCandidates } from './utils.js';
 
 export async function attemptPlannerNodeReplan(
@@ -21,6 +21,7 @@ export async function attemptPlannerNodeReplan(
   failedStepId: string,
   failureMessage: string,
   lockTable: ExecutionLockTable,
+  feedback?: PlannerExecutionFeedbackArtifact,
 ): Promise<{ plan: PlannerPlan; state: PlannerState } | null> {
   const failedStep = plan.steps.find((step) => step.id === failedStepId);
   if (!failedStep) {
@@ -39,7 +40,7 @@ export async function attemptPlannerNodeReplan(
     }
 
     try {
-      const response = await invokeWithRetry(config, provider, buildPlannerNodeReplanRequest(modelConfig.provider, modelConfig.model, requestArtifact, plan, state, failedStep, failureMessage));
+      const response = await invokeWithRetry(config, provider, buildPlannerNodeReplanRequest(modelConfig.provider, modelConfig.model, requestArtifact, plan, state, failedStep, failureMessage, feedback));
       const parsed = parsePlannerResponse(response.content);
       if (parsed.type === 'final') {
         if (parsed.outcome === 'NEEDS_INPUT' || parsed.outcome === 'FAILED') {

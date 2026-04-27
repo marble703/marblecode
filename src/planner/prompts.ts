@@ -1,6 +1,6 @@
 import type { ModelRequest } from '../provider/types.js';
 import type { VerifyResult } from '../verifier/index.js';
-import type { PlannerContextPacket, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
+import type { PlannerContextPacket, PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import { countSnippetLines } from './utils.js';
 
 export function buildPlannerNodeReplanRequest(
@@ -11,7 +11,11 @@ export function buildPlannerNodeReplanRequest(
   state: PlannerState,
   failedStep: PlannerStep,
   failureMessage: string,
+  feedback?: PlannerExecutionFeedbackArtifact,
 ): ModelRequest {
+  const feedbackText = feedback
+    ? `\nExecution feedback:\nchangedFiles: ${feedback.changedFiles.join(', ')}\nundeclaredChangedFiles: ${feedback.undeclaredChangedFiles.join(', ')}\nstepSummaries: ${JSON.stringify(feedback.stepSummaries)}`
+    : '';
   return {
     providerId,
     model,
@@ -22,6 +26,7 @@ export function buildPlannerNodeReplanRequest(
       'Do not return patches.',
       'Prefer preserving existing step ids for already completed steps.',
       'When file paths are not enough to express write coupling, you may include conflictDomains such as api-contract, db-schema, css-theme, routing-contract, build-config, or test-fixtures.',
+      'When execution feedback shows undeclared changed files outside declared fileScope, expand the affected step\'s fileScope and reconsider its conflictDomains.',
     ].join(' '),
     messages: [
       {
@@ -33,8 +38,9 @@ export function buildPlannerNodeReplanRequest(
           `Current plan: ${JSON.stringify(plan, null, 2)}`,
           `Failed step: ${JSON.stringify(failedStep, null, 2)}`,
           `Failure message: ${failureMessage}`,
+          feedbackText,
           'Return a full updated plan JSON object only.',
-        ].join('\n\n'),
+        ].filter(Boolean).join('\n\n'),
       },
     ],
     stream: false,

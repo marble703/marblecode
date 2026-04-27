@@ -1,7 +1,7 @@
 import type { AppConfig } from '../config/schema.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import type { ModelProvider } from '../provider/types.js';
-import { appendPlannerEvent, appendPlannerStructuredLog } from './artifacts.js';
+import { appendPlannerEvent, appendPlannerStructuredLog, writePlannerExecutionFeedbackArtifact } from './artifacts.js';
 import { createInitialExecutionState, dispatchExecutionEvent, type PlannerExecutionEvent } from './execution-machine.js';
 import { getPlannerExecutionStrategy } from './execution-strategies.js';
 import {
@@ -10,11 +10,12 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import type { PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
+import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
 import { runPlanConsistencyChecks } from './parse.js';
+import { computeUndeclaredChangedFiles } from './replan-merge.js';
 
 type StepClassifier = (step: PlannerStep) => 'skip' | 'subagent' | 'verify';
 type StepUpdater = (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan;
@@ -184,6 +185,37 @@ export async function executePlannerPlan(
       lastCompletedWaveStepIds = currentWaveStepIds;
       currentWaveStepIds = [];
       await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
+      {
+        const feedback: PlannerExecutionFeedbackArtifact = {
+          version: '1',
+          planRevision: nextPlan.revision,
+          executionEpoch,
+          changedFiles: verifyResult.changedFiles,
+          undeclaredChangedFiles: [],
+          verifyFailures: verifyResult.stop
+            ? [{ stepId: step.id, command: '', stderr: nextState.message }]
+            : [],
+          lockViolations: [],
+          stepSummaries: [{
+            stepId: step.id,
+            title: step.title,
+            status: step.status,
+            changedFiles: verifyResult.changedFiles,
+            undeclaredChangedFiles: [],
+            message: verifyResult.stop ? nextState.message : 'verify passed',
+          }],
+          triggerReplan: verifyResult.stop,
+          replanReason: verifyResult.stop ? `Verify step ${step.id} failed` : '',
+        };
+        await writePlannerExecutionFeedbackArtifact(session, feedback);
+        if (feedback.triggerReplan) {
+          await appendPlannerEvent(session, {
+            type: 'execution_feedback_verify_failed',
+            stepId: step.id,
+            epoch: executionEpoch,
+          }, config.session.redactSecrets);
+        }
+      }
       if (verifyResult.stop) {
         return { plan: nextPlan, state: nextState };
       }
@@ -209,6 +241,51 @@ export async function executePlannerPlan(
     lockTable = waveResult.lockTable;
     for (const file of waveResult.changedFiles) {
       accumulatedChangedFiles.add(file);
+    }
+
+    {
+      const stepSummaries: PlannerExecutionFeedbackArtifact['stepSummaries'] = [];
+      const allUndeclared: string[] = [];
+      for (const step of selectedWave) {
+        const currentStep = nextPlan.steps.find((s) => s.id === step.id);
+        const declared = [...new Set([...(currentStep?.fileScope ?? []), ...(currentStep?.producesFiles ?? []), ...(currentStep?.relatedFiles ?? [])])];
+        const actual = waveResult.changedFiles;
+        const undeclared = computeUndeclaredChangedFiles(step, declared, actual);
+        if (undeclared.length > 0) {
+          allUndeclared.push(...undeclared);
+        }
+        stepSummaries.push({
+          stepId: step.id,
+          title: step.title,
+          status: currentStep?.status ?? step.status,
+          changedFiles: actual,
+          undeclaredChangedFiles: undeclared,
+          message: currentStep?.lastError ?? currentStep?.details ?? '',
+        });
+      }
+      const feedback: PlannerExecutionFeedbackArtifact = {
+        version: '1',
+        planRevision: nextPlan.revision,
+        executionEpoch,
+        changedFiles: waveResult.changedFiles,
+        undeclaredChangedFiles: [...new Set(allUndeclared)],
+        verifyFailures: [],
+        lockViolations: [],
+        stepSummaries,
+        triggerReplan: allUndeclared.length > 0,
+        replanReason: allUndeclared.length > 0
+          ? `Undeclared changed files detected in wave: ${[...new Set(allUndeclared)].join(', ')}`
+          : '',
+      };
+      await writePlannerExecutionFeedbackArtifact(session, feedback);
+      if (allUndeclared.length > 0) {
+        await appendPlannerEvent(session, {
+          type: 'execution_feedback_undeclared_files',
+          epoch: executionEpoch,
+          undeclaredFiles: feedback.undeclaredChangedFiles,
+          triggerReplan: true,
+        }, config.session.redactSecrets);
+      }
     }
     if (waveResult.fallbackActivated) {
       currentWaveStepIds = [];
