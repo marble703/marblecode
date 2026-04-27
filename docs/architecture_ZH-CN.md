@@ -214,6 +214,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `model.ts`：规划器请求构建
 - `parse.ts`：规划器响应解析和计划归一化
 - `artifacts.ts`：规划器产物写入以及会话恢复/加载辅助函数
+- `view-model.ts`：面向 TUI/WebUI 的 planner artifact 聚合与只读 DTO 构造
 - `execute.ts`：顶层 planner 执行编排和 wave 分发
 - `execute-wave.ts`：wave 选择、冲突检查和 blocked 依赖标注
 - `execute-verify.ts`：verify 步骤执行和 verify-repair 衔接
@@ -231,6 +232,8 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 ### `src/tui`
 
 提供交互式终端 UI 和规划器会话查看器。
+
+planner artifact 的读取现已收敛到 `src/planner/view-model.ts`，而 `src/tui/planner-view.ts` 主要负责终端格式化和事件渲染。
 
 TUI 不是一个独立的运行时栈，而是基于相同 `run` / `plan` / `plan --execute` 流程的前端界面。
 

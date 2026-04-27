@@ -214,6 +214,7 @@ Current internal split:
 - `model.ts`: planner request building
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
+- `view-model.ts`: planner artifact aggregation for TUI/WebUI-facing read models
 - `execute.ts`: top-level planner execution orchestration and wave handoff
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff
@@ -231,6 +232,8 @@ For the details of task graphs, waves, and file locks, see `docs/planner-paralle
 ### `src/tui`
 
 Provides the interactive terminal UI and planner-session viewers.
+
+Planner artifact loading now lives in `src/planner/view-model.ts`, while `src/tui/planner-view.ts` focuses on terminal formatting and event rendering.
 
 The TUI is not a separate runtime stack; it is a front end over the same `run` / `plan` / `plan --execute` flows.
 

@@ -254,6 +254,20 @@
 5. 暂不实现 HTTP server，先把 DTO 和事件格式稳定下来。
 6. 后续如加 server，默认只监听 localhost，并复用 policy/session 配置。
 
+已完成的 WebUI/TUI DTO 基础：
+
+1. 新增 `src/planner/view-model.ts`，集中负责 planner artifact 读取、容错和 DTO 组装。
+2. `loadPlannerView()` 已从 `src/tui/planner-view.ts` 抽离到数据层模块。
+3. `PlannerViewModel` 已开始暴露 rolling planning / execution feedback / replan artifact 摘要，包括 `planDeltas`、`latestFeedback`、`replanProposals`、`replanRejections`。
+4. `src/tui/planner-view.ts` 现在主要保留终端格式化和 `renderPlannerEvent()`。
+5. `planner-live.ts`、`agent-repl.ts`、manual-suite TUI tests 已切换到共享 loader。
+
+仍待完成的 WebUI/TUI 细化：
+
+1. 目前仍未抽出正式的 event normalizer 层，`renderPlannerEvent()` 仍直接消费原始事件记录。
+2. 当前只读取 latest `execution.feedback.json`，还没有 feedback history / delta history API 语义。
+3. 未来 WebUI 只读接口形状（`/sessions` / `/planner-view` / `/events`）还只是文档目标，尚未固化为独立模块边界。
+
 完成标准：
 
 - `show:planner`、live TUI、未来 WebUI 可复用同一个 view model。
