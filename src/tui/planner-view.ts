@@ -27,6 +27,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Recovery: ${view.recoveryStepId ? `${view.recoveryStepId}${view.recoveryReason ? ` ${view.recoveryReason}` : ''}` : '(none)'}`,
     `Plan deltas: ${view.planDeltas.length > 0 ? view.planDeltas.map((delta) => `${delta.nextRevision}:${delta.addedStepIds.join(',') || '(none)'}`).join(' | ') : '(none)'}`,
     `Latest feedback: ${view.latestFeedback ? `${view.latestFeedback.executionEpoch}:${view.latestFeedback.undeclaredChangedFiles.join(',') || 'none'}${view.latestFeedback.triggerReplan ? ' replan' : ''}` : '(none)'}`,
+    `Feedback history: ${view.feedbackHistory.length}`,
     `Replan rejections: ${view.replanRejections.length > 0 ? view.replanRejections.map((item) => `${item.stepId}`).join(', ') : '(none)'}`,
     `Summary: ${view.summary}`,
     '',
@@ -54,16 +55,16 @@ export function formatPlannerView(view: PlannerViewModel): string {
   }
 
   lines.push('', 'Execution Timeline:');
-  for (const event of view.events) {
-    lines.push(`- ${renderPlannerEvent(event)}`);
+  for (const event of view.timeline) {
+    lines.push(`- ${event.label}`);
   }
 
   lines.push('', 'Subtask Results:');
   if (view.subtaskEvents.length === 0) {
     lines.push('- none recorded yet');
   } else {
-    for (const event of view.subtaskEvents) {
-      lines.push(`- ${renderPlannerEvent(event)}`);
+    for (const event of view.subtaskTimeline) {
+      lines.push(`- ${event.label}`);
     }
   }
 

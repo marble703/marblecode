@@ -41,6 +41,14 @@ export interface PlannerReplanRejectionSummary {
   errors: string[];
 }
 
+export interface PlannerTimelineEvent {
+  type: string;
+  label: string;
+  stepId?: string;
+  revision?: number;
+  epoch?: number;
+}
+
 export interface PlannerViewModel {
   sessionDir: string;
   outcome: string;
@@ -66,8 +74,11 @@ export interface PlannerViewModel {
   lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
   planDeltas: PlannerPlanDeltaSummary[];
   latestFeedback: PlannerFeedbackSummary | null;
+  feedbackHistory: PlannerFeedbackSummary[];
+  deltaHistory: PlannerPlanDeltaSummary[];
   replanProposals: PlannerReplanProposalSummary[];
   replanRejections: PlannerReplanRejectionSummary[];
+  replanHistory: Array<PlannerReplanProposalSummary | PlannerReplanRejectionSummary>;
   summary: string;
   steps: Array<{
     id: string;
@@ -85,6 +96,8 @@ export interface PlannerViewModel {
   }>;
   events: PlannerEventRecord[];
   subtaskEvents: PlannerEventRecord[];
+  timeline: PlannerTimelineEvent[];
+  subtaskTimeline: PlannerTimelineEvent[];
   consistencyErrors: string[];
   terminalSummary: string;
   recoveryStepId: string | null;
@@ -191,6 +204,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     const type = String(event.type ?? '');
     return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
   });
+  const timeline = normalizePlannerEvents(events);
+  const subtaskTimeline = normalizePlannerEvents(subtaskEvents);
   const terminal = findLastMatching(plannerLog, (entry) => entry.type === 'planner_terminal');
 
   return {
@@ -218,8 +233,11 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lockEntries: executionLocks.entries ?? [],
     planDeltas,
     latestFeedback,
+    feedbackHistory: latestFeedback ? [latestFeedback] : [],
+    deltaHistory: planDeltas,
     replanProposals,
     replanRejections,
+    replanHistory: [...replanProposals, ...replanRejections],
     summary: plan.summary || state.message,
     steps: plan.steps.map((step) => ({
       id: step.id,
@@ -237,6 +255,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     })),
     events,
     subtaskEvents,
+    timeline,
+    subtaskTimeline,
     consistencyErrors: state.consistencyErrors,
     terminalSummary: terminal ? `${String(terminal.outcome ?? '')} ${String(terminal.message ?? '')}`.trim() : 'unavailable',
     recoveryStepId: executionState.recoveryStepId ?? null,
@@ -256,6 +276,64 @@ export function parseJsonLines(content: string): PlannerEventRecord[] {
         return [];
       }
     });
+}
+
+export function normalizePlannerEvents(events: PlannerEventRecord[]): PlannerTimelineEvent[] {
+  return events.map(normalizePlannerEvent);
+}
+
+export function normalizePlannerEvent(event: PlannerEventRecord): PlannerTimelineEvent {
+  const type = String(event.type ?? 'event');
+  if (type === 'plan_appended') {
+    return {
+      type,
+      label: `plan appended (revision ${String(event.revision ?? '')}, ${String(event.stepCount ?? '')} steps)`,
+      ...(typeof event.revision === 'number' ? { revision: event.revision } : {}),
+    };
+  }
+  if (type === 'planner_partial_execution_completed') {
+    return {
+      type,
+      label: `partial execution window completed (revision ${String(event.revision ?? '')})`,
+      ...(typeof event.revision === 'number' ? { revision: event.revision } : {}),
+    };
+  }
+  if (type === 'planner_execution_window_completed') {
+    return {
+      type,
+      label: `execution window completed (${String(event.executedWaveCount ?? '')} wave)`,
+      ...(typeof event.revision === 'number' ? { revision: event.revision } : {}),
+    };
+  }
+  if (type === 'execution_feedback_undeclared_files') {
+    return {
+      type,
+      label: `execution feedback undeclared files: ${Array.isArray(event.undeclaredFiles) ? event.undeclaredFiles.join(', ') : ''}`,
+      ...(typeof event.epoch === 'number' ? { epoch: event.epoch } : {}),
+    };
+  }
+  if (type === 'execution_feedback_verify_failed') {
+    return {
+      type,
+      label: `execution feedback verify failed: ${String(event.stepId ?? '')}`,
+      ...(typeof event.epoch === 'number' ? { epoch: event.epoch } : {}),
+      ...(typeof event.stepId === 'string' ? { stepId: event.stepId } : {}),
+    };
+  }
+  if (type === 'execution_feedback_replan_scope') {
+    return {
+      type,
+      label: `execution feedback replan scope: ${Array.isArray(event.affectedStepIds) ? event.affectedStepIds.join(', ') : ''}`,
+      ...(typeof event.stepId === 'string' ? { stepId: event.stepId } : {}),
+    };
+  }
+  return {
+    type,
+    label: `${type}: ${JSON.stringify(event)}`,
+    ...(typeof event.stepId === 'string' ? { stepId: event.stepId } : {}),
+    ...(typeof event.revision === 'number' ? { revision: event.revision } : {}),
+    ...(typeof event.epoch === 'number' ? { epoch: event.epoch } : {}),
+  };
 }
 
 function findLastMatching<T>(items: T[], predicate: (item: T) => boolean): T | undefined {
