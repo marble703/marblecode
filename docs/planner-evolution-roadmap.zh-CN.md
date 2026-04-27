@@ -166,6 +166,19 @@
 5. `executePlannerWave()` 聚合结果时：optional step failed -> 标记 degraded，继续处理同 wave 其他结果；required step failed -> 走 fallback/replan/fail。
 6. verify step 默认不可 degraded，除非用户或 planner 明确标记为非关键验证。
 
+已完成的 DEGRADED 基础：
+
+1. `PlannerStep` 已支持 `failureTolerance?: 'none' | 'degrade'`。
+2. `PlannerState` / `execution.state.json` 已支持 `degradedStepIds`。
+3. wave 聚合时，`failureTolerance=degrade` 的步骤失败后不会立即阻断整个执行，而会记录为 degraded。
+4. `plan.events.jsonl` 已记录 `subtask_degraded`。
+5. planner view 已可展示 degraded steps。
+
+仍待完成的 DEGRADED 细化：
+
+1. 当前仍沿用 `status: FAILED` + `degradedStepIds` 的组合语义，后续如需更强表达可考虑独立 status/outcome 细分。
+2. dependency-level optional / degraded acceptance 还没做成显式边语义。
+
 完成标准：
 
 - 文档更新失败不会阻塞代码和测试步骤。

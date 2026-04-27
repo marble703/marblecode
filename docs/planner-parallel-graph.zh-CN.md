@@ -222,6 +222,7 @@ host 会先根据：
 - host 会等待该 wave 的 `Promise.allSettled()` 结果全部返回
 - 如果其中任一步骤失败，host 会优先检查是否存在可激活的 graph fallback step
 - 如果 fallback step 被激活，执行进入 `recovering` 并继续下一轮调度
+- 如果某个步骤声明了 `failureTolerance=degrade`，则 host 会把它记为 degraded，并允许当前执行继续推进
 - 如果没有 fallback step 可用，当前执行会在本 wave 结束后停止
 - 依赖失败步骤的下游节点不会被静默跳过，而是会被标注为 `blocked`，并带上 `dependency` 失败原因
 
