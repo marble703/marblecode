@@ -359,6 +359,7 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 - 不能把已完成步骤重新激活
 - 失败步骤必须仍然存在，且不能直接变成 `DONE`
 - 对于不在本次 replan scope 内的未完成步骤，不能修改其语义字段
+- 如果 proposal 中的写步骤会写入当前仍被其他 owner 持有的锁文件，且不存在合法 ownership transfer 路径，则 proposal 会被拒绝
 - 新计划仍必须通过 `runPlanConsistencyChecks()`，包括引用完整性和 dependency cycle 检查
 
 当前 replan scope 的定义是：
@@ -407,7 +408,6 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 - wave 并发仍以“安全优先”，不是“吞吐优先”
 - 对无 `fileScope` 的写步骤处理较保守
 - fallback dependency substitution 仍未实现；如果下游要依赖 fallback 成功，目前仍需 planner 显式依赖 fallback step
-- local replan 已有 proposal 校验，但尚未做 active lock compatibility 校验
 - planner 本身仍是“先规划，再执行”，还不是边规划边并发执行
 
 ## 为什么这套设计合理
