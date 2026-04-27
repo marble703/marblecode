@@ -10,7 +10,7 @@ import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
 import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
-import { mergeReplanProposal, validateReplanProposal } from '../../src/planner/replan-merge.js';
+import { collectReplanScope, mergeReplanProposal, validateReplanProposal } from '../../src/planner/replan-merge.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
@@ -368,6 +368,7 @@ async function testPlannerReplanProposalValidation(): Promise<void> {
       { id: 'step-0', title: 'Inspect math', status: 'DONE' as const, kind: 'search' as const, attempts: 1, executionState: 'done' as const, dependencies: [], children: [], relatedFiles: ['src/math.js'] },
       { id: 'step-1', title: 'Fix add', status: 'FAILED' as const, kind: 'code' as const, attempts: 1, dependencies: ['step-0'], children: [], fileScope: ['src/math.js'] },
       { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+      { id: 'step-3', title: 'Unrelated docs update', status: 'PENDING' as const, kind: 'docs' as const, attempts: 0, dependencies: [], children: [], relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'] },
     ],
   };
   const proposedPlan = {
@@ -378,8 +379,13 @@ async function testPlannerReplanProposalValidation(): Promise<void> {
       { id: 'step-0', title: 'Inspect math', status: 'DONE' as const, kind: 'search' as const, attempts: 0, dependencies: [], children: [], relatedFiles: ['src/math.js'] },
       { id: 'step-1', title: 'Retry add fix', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: ['step-0'], children: [], fileScope: ['src/math.js'] },
       { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+      { id: 'step-3', title: 'Unrelated docs update', status: 'PENDING' as const, kind: 'docs' as const, attempts: 0, dependencies: [], children: [], relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'] },
     ],
   };
+
+  const scope = collectReplanScope(previousPlan, 'step-1');
+  assert.deepEqual([...scope.allowedStepIds].sort(), ['step-1', 'step-2']);
+  assert.deepEqual([...scope.protectedStepIds].sort(), ['step-3']);
 
   const merged = mergeReplanProposal(previousPlan, proposedPlan, 'step-1', 'original failure');
   assert.equal(merged.validation.ok, true);
@@ -392,11 +398,11 @@ async function testPlannerReplanProposalValidation(): Promise<void> {
 
   const invalidPlan = {
     ...proposedPlan,
-    steps: proposedPlan.steps.map((step) => (step.id === 'step-0' ? { ...step, title: 'Mutated completed step' } : step)),
+    steps: proposedPlan.steps.map((step) => (step.id === 'step-3' ? { ...step, title: 'Mutated protected pending step' } : step)),
   };
   const validation = validateReplanProposal(previousPlan, invalidPlan, 'step-1');
   assert.equal(validation.ok, false);
-  assert.equal(validation.errors.some((error) => /completed step step-0 title/.test(error)), true);
+  assert.equal(validation.errors.some((error) => /protected step step-3 title outside replan scope/.test(error)), true);
 }
 
 async function testPlannerExecuteEntryHelper(): Promise<void> {
@@ -1430,11 +1436,12 @@ async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
             type: 'plan',
             plan: {
               version: '1',
-              summary: 'Invalid replan mutates a completed step.',
+              summary: 'Invalid replan mutates an out-of-scope pending step.',
               steps: [
-                { id: 'step-0', title: 'Mutated completed search', status: 'DONE', kind: 'search', details: 'This should be rejected.', dependencies: [], children: [] },
+                { id: 'step-0', title: 'Inspect math before editing', status: 'DONE', kind: 'search', details: 'Read the math file.', dependencies: [], children: [] },
                 { id: 'step-1', title: 'Retry impossible change', status: 'PENDING', kind: 'code', details: 'Still impossible.', relatedFiles: ['src/math.js'], dependencies: ['step-0'], children: [] },
                 { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+                { id: 'step-3', title: 'Mutated unrelated docs step', status: 'PENDING', kind: 'docs', details: 'This out-of-scope step should not change.', relatedFiles: ['src/notes.txt'], dependencies: [], children: [] },
               ],
             },
           });
@@ -1449,6 +1456,7 @@ async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
                 { id: 'step-0', title: 'Inspect math before editing', status: 'PENDING', kind: 'search', details: 'Read the math file.', dependencies: [], children: [] },
                 { id: 'step-1', title: 'Do impossible thing', status: 'PENDING', kind: 'code', details: 'Do impossible thing before replanning.', relatedFiles: ['src/math.js'], dependencies: ['step-0'], children: [] },
                 { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+                { id: 'step-3', title: 'Unrelated docs step', status: 'PENDING', kind: 'docs', details: 'Should stay outside local replan scope.', relatedFiles: ['src/notes.txt'], dependencies: [], children: [] },
               ],
             },
           });
@@ -1476,7 +1484,7 @@ async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
     const rejection = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.rejected.step-1.json'), 'utf8')) as { failedStepId: string; errors: string[] };
     assert.equal(proposal.failedStepId, 'step-1');
     assert.equal(rejection.failedStepId, 'step-1');
-    assert.equal(rejection.errors.some((error) => /completed step step-0 title/.test(error)), true);
+    assert.equal(rejection.errors.some((error) => /protected step step-3 title outside replan scope/.test(error)), true);
     assert.match(events, /subtask_replan_proposed/);
     assert.match(events, /subtask_replan_rejected/);
     assert.match(events, /subtask_replan_failed/);

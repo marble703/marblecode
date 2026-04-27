@@ -1,3 +1,4 @@
+import { buildExecutionGraph, type PlannerExecutionEdge } from './graph.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import type { PlannerPlan, PlannerStep } from './types.js';
 import { mergeStringLists } from './utils.js';
@@ -34,7 +35,26 @@ const COMPLETED_STEP_LOCKED_FIELDS = [
   'conflictsWith',
 ] as const;
 
+const SCOPE_LOCKED_FIELDS = [
+  'title',
+  'kind',
+  'details',
+  'relatedFiles',
+  'dependencies',
+  'fileScope',
+  'accessMode',
+  'mustRunAfter',
+  'fallbackStepIds',
+  'conflictsWith',
+] as const;
+
 type CompletedStepLockedField = typeof COMPLETED_STEP_LOCKED_FIELDS[number];
+type ScopeLockedField = typeof SCOPE_LOCKED_FIELDS[number];
+
+export interface PlannerReplanScope {
+  allowedStepIds: Set<string>;
+  protectedStepIds: Set<string>;
+}
 
 export function buildReplanProposal(input: {
   failedStepId: string;
@@ -63,6 +83,7 @@ export function validateReplanProposal(
   const previousSteps = new Map(previousPlan.steps.map((step) => [step.id, step]));
   const proposedSteps = new Map(proposedPlan.steps.map((step) => [step.id, step]));
   const failedStep = proposedSteps.get(failedStepId);
+  const scope = collectReplanScope(previousPlan, failedStepId);
 
   if (!failedStep) {
     errors.push(`Replanned plan removed failed step ${failedStepId}`);
@@ -96,10 +117,72 @@ export function validateReplanProposal(
     }
   }
 
+  for (const previous of previousPlan.steps) {
+    if (!scope.protectedStepIds.has(previous.id)) {
+      continue;
+    }
+    const proposed = proposedSteps.get(previous.id);
+    if (!proposed) {
+      errors.push(`Replanned plan removed protected step ${previous.id}`);
+      continue;
+    }
+    for (const field of SCOPE_LOCKED_FIELDS) {
+      if (!sameScopeField(previous, proposed, field)) {
+        errors.push(`Replanned plan changed protected step ${previous.id} ${field} outside replan scope`);
+      }
+    }
+  }
+
   return {
     ok: errors.length === 0,
     errors,
   };
+}
+
+export function collectReplanScope(previousPlan: PlannerPlan, failedStepId: string): PlannerReplanScope {
+  const graph = buildExecutionGraph(previousPlan);
+  const adjacency = new Map<string, string[]>();
+  for (const step of previousPlan.steps) {
+    adjacency.set(step.id, []);
+  }
+  for (const edge of graph.edges) {
+    if (!isScopedEdge(edge)) {
+      continue;
+    }
+    const next = adjacency.get(edge.from);
+    if (next) {
+      next.push(edge.to);
+    }
+  }
+
+  const allowedStepIds = new Set<string>();
+  const queue = [failedStepId];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || allowedStepIds.has(current)) {
+      continue;
+    }
+    const currentStep = previousPlan.steps.find((step) => step.id === current);
+    if (!currentStep) {
+      continue;
+    }
+    if (currentStep.status !== 'DONE') {
+      allowedStepIds.add(current);
+    }
+    for (const next of adjacency.get(current) ?? []) {
+      if (!allowedStepIds.has(next)) {
+        queue.push(next);
+      }
+    }
+  }
+
+  const protectedStepIds = new Set(
+    previousPlan.steps
+      .filter((step) => step.status !== 'DONE' && !allowedStepIds.has(step.id))
+      .map((step) => step.id),
+  );
+
+  return { allowedStepIds, protectedStepIds };
 }
 
 export function mergeReplanProposal(
@@ -151,4 +234,12 @@ export function mergeReplanProposal(
 
 function sameLockedField(left: PlannerStep, right: PlannerStep, field: CompletedStepLockedField): boolean {
   return JSON.stringify(left[field] ?? null) === JSON.stringify(right[field] ?? null);
+}
+
+function sameScopeField(left: PlannerStep, right: PlannerStep, field: ScopeLockedField): boolean {
+  return JSON.stringify(left[field] ?? null) === JSON.stringify(right[field] ?? null);
+}
+
+function isScopedEdge(edge: PlannerExecutionEdge): boolean {
+  return edge.type === 'dependency' || edge.type === 'must_run_after' || edge.type === 'fallback';
 }
