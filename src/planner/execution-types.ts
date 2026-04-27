@@ -17,6 +17,7 @@ export interface PlannerExecutionStateArtifact {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
+  degradedStepIds: string[];
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
   strategy: PlannerExecutionStrategyMode;

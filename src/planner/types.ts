@@ -42,6 +42,8 @@ export type PlannerFailureKind = 'tool' | 'model' | 'verify' | 'dependency' | 'p
 
 export type PlannerAccessMode = 'read' | 'write' | 'verify';
 
+export type PlannerFailureTolerance = 'none' | 'degrade';
+
 export interface PlannerContextPacket {
   version: '1';
   objective: string;
@@ -83,6 +85,7 @@ export interface PlannerStep {
   producesFiles?: string[];
   fileScope?: string[];
   accessMode?: PlannerAccessMode;
+  failureTolerance?: PlannerFailureTolerance;
   conflictsWith?: string[];
   conflictDomains?: string[];
   mustRunAfter?: string[];
@@ -121,6 +124,7 @@ export interface PlannerState {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
+  degradedStepIds?: string[];
   invalidResponseAttempts: number;
   message: string;
   consistencyErrors: string[];

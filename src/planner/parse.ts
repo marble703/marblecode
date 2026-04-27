@@ -3,6 +3,7 @@ import { buildExecutionGraph as buildPlannerExecutionGraph, hasDependencyCycle }
 import type {
   PlannerContextPacket,
   PlannerFailureKind,
+  PlannerFailureTolerance,
   PlannerPlan,
   PlannerPlanPayload,
   PlannerResponse,
@@ -219,6 +220,7 @@ function normalizePlannerStep(step: unknown, index: number, workspaceRoot: strin
     ...(typeof record.accessMode === 'string' && (record.accessMode === 'read' || record.accessMode === 'write' || record.accessMode === 'verify')
       ? { accessMode: record.accessMode }
       : {}),
+    ...(typeof record.failureTolerance === 'string' ? { failureTolerance: normalizeFailureTolerance(record.failureTolerance) } : {}),
     ...(Array.isArray(record.conflictsWith)
       ? { conflictsWith: record.conflictsWith.filter((item): item is string => typeof item === 'string') }
       : {}),
@@ -263,6 +265,10 @@ function normalizeFailureKind(value: string): PlannerFailureKind {
   return value === 'tool' || value === 'model' || value === 'verify' || value === 'dependency' || value === 'policy' || value === 'conflict' || value === 'replan_required'
     ? value
     : 'model';
+}
+
+function normalizeFailureTolerance(value: string): PlannerFailureTolerance {
+  return value === 'degrade' ? 'degrade' : 'none';
 }
 
 function withOptionalThought<T extends PlannerResponse>(step: T, thought: unknown): T {

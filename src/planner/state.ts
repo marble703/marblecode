@@ -1,5 +1,5 @@
 import { buildExecutionGraph as buildPlannerExecutionGraph, getBlockedReasons, type PlannerExecutionGraph } from './graph.js';
-import type { PlannerPhase, PlannerPlan, PlannerState, PlannerStep, PlannerStepExecutionState, PlannerStepStatus } from './types.js';
+import type { PlannerFailureTolerance, PlannerPhase, PlannerPlan, PlannerState, PlannerStep, PlannerStepExecutionState, PlannerStepStatus } from './types.js';
 
 export function statusToPhase(status: PlannerStepStatus): PlannerPhase {
   if (status === 'PENDING') {
@@ -26,6 +26,7 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
       completedStepIds: [],
       failedStepIds: [],
       blockedStepIds: [],
+      degradedStepIds: [],
     };
   }
 
@@ -35,8 +36,13 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
   const completedStepIds: string[] = [];
   const failedStepIds: string[] = [];
   const blockedStepIds: string[] = [];
+  const degradedStepIds: string[] = [];
 
   for (const step of plan.steps) {
+    if (step.status === 'FAILED' && step.failureTolerance === 'degrade') {
+      degradedStepIds.push(step.id);
+      continue;
+    }
     const executionState = deriveExecutionState(step, plan, graph);
     if (executionState === 'running' || executionState === 'retrying' || executionState === 'fallback') {
       activeStepIds.push(step.id);
@@ -66,6 +72,7 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
     completedStepIds,
     failedStepIds,
     blockedStepIds,
+    degradedStepIds,
     currentStepId: activeStepIds[0] ?? readyStepIds[0] ?? null,
   };
 }
@@ -84,4 +91,12 @@ function deriveExecutionState(step: PlannerStep, plan: PlannerPlan, graph: Plann
     return 'blocked';
   }
   return 'ready';
+}
+
+export function isPlannerStepDegraded(step: PlannerStep): boolean {
+  return step.status === 'FAILED' && effectiveFailureTolerance(step.failureTolerance) === 'degrade';
+}
+
+function effectiveFailureTolerance(value: PlannerFailureTolerance | undefined): PlannerFailureTolerance {
+  return value ?? 'none';
 }

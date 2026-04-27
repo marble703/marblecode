@@ -24,6 +24,7 @@ export function createPlannerExecutionState(
     completedStepIds: state.completedStepIds,
     failedStepIds: state.failedStepIds,
     blockedStepIds: state.blockedStepIds,
+    degradedStepIds: state.degradedStepIds ?? [],
     currentWaveStepIds: extras?.currentWaveStepIds ?? [],
     lastCompletedWaveStepIds: extras?.lastCompletedWaveStepIds ?? [],
     strategy,

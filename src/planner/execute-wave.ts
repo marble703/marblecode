@@ -198,14 +198,28 @@ export async function executePlannerWave(
         lastError: message,
         details: message,
       });
-      nextState = refreshPlannerStateFromPlan(nextPlan, {
-        ...nextState,
-        outcome: 'FAILED',
-        currentStepId: step.id,
-        message,
-      });
-      failedStepIds.add(step.id);
-      stop = true;
+      if (step.failureTolerance === 'degrade') {
+        nextState = refreshPlannerStateFromPlan(nextPlan, {
+          ...nextState,
+          outcome: 'RUNNING',
+          currentStepId: step.id,
+          message: `Degraded step ${step.id}: ${message}`,
+        });
+        await appendPlannerEvent(session, {
+          type: 'subtask_degraded',
+          stepId: step.id,
+          reason: message,
+        }, config.session.redactSecrets);
+      } else {
+        nextState = refreshPlannerStateFromPlan(nextPlan, {
+          ...nextState,
+          outcome: 'FAILED',
+          currentStepId: step.id,
+          message,
+        });
+        failedStepIds.add(step.id);
+        stop = true;
+      }
       continue;
     }
 
@@ -228,9 +242,23 @@ export async function executePlannerWave(
       changedFiles.add(file);
     }
     if (value.stop) {
-      failedStepIds.add(step.id);
+      if (step.failureTolerance === 'degrade') {
+        nextState = refreshPlannerStateFromPlan(nextPlan, {
+          ...nextState,
+          outcome: 'RUNNING',
+          currentStepId: step.id,
+          message: `Degraded step ${step.id}: ${value.state.message}`,
+        });
+        await appendPlannerEvent(session, {
+          type: 'subtask_degraded',
+          stepId: step.id,
+          reason: value.state.message,
+        }, config.session.redactSecrets);
+      } else {
+        failedStepIds.add(step.id);
+      }
     }
-    stop ||= value.stop;
+    stop ||= value.stop && step.failureTolerance !== 'degrade';
     replanned ||= value.replanned;
   }
 

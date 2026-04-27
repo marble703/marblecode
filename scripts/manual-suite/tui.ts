@@ -127,6 +127,11 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
       'utf8',
     );
     await writeFile(
+      path.join(sessionDir, 'plan.state.json'),
+      JSON.stringify({ phase: 'PLANNING', outcome: 'RUNNING', message: 'Searching', currentStepId: 'step-1', degradedStepIds: ['step-2'], consistencyErrors: [] }),
+      'utf8',
+    );
+    await writeFile(
       path.join(sessionDir, 'plan.events.jsonl'),
       `${JSON.stringify({ type: 'planner_started', prompt: 'Inspect router flow' })}\n{"type":"partial"`,
       'utf8',
@@ -166,6 +171,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.deepEqual(view.lastCompletedWaveStepIds, ['step-0']);
     assert.equal(view.recoveryStepId, 'step-1-fallback');
     assert.match(view.recoveryReason, /Activated fallback/);
+    assert.deepEqual(view.degradedStepIds, ['step-2']);
     assert.equal(view.conflictEdges.length, 1);
     assert.equal(view.conflictEdges[0]?.reason, 'conflict_domain');
     assert.equal(view.conflictEdges[0]?.domain, 'api-contract');

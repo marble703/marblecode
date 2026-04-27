@@ -246,7 +246,9 @@ export async function executePlannerPlan(
     phase: 'PENDING',
     outcome: 'DONE',
     currentStepId: null,
-    message: 'Planner executed all subtasks and verifier passed.',
+    message: nextState.degradedStepIds && nextState.degradedStepIds.length > 0
+      ? `Planner executed core subtasks and verifier passed with degraded steps: ${nextState.degradedStepIds.join(', ')}.`
+      : 'Planner executed all subtasks and verifier passed.',
     consistencyErrors: runPlanConsistencyChecks(nextPlan),
   });
 

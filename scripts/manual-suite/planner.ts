@@ -44,6 +44,8 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute conflict policy fail', run: testPlannerExecuteConflictPolicyFail },
     { name: 'planner execute conflict domain fail', run: testPlannerExecuteConflictDomainFail },
     { name: 'planner execute conflict domain serial', run: testPlannerExecuteConflictDomainSerial },
+    { name: 'planner execute degraded optional docs', run: testPlannerExecuteDegradedOptionalDocs },
+    { name: 'planner execute degraded does not unblock verify', run: testPlannerExecuteDegradedDoesNotUnblockVerify },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
@@ -1330,6 +1332,98 @@ async function testPlannerExecuteConflictDomainSerial(): Promise<void> {
     assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.reason === 'conflict_domain' && edge.domain === 'api-contract'), true);
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
     assert.match(await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8'), /FIXED_NOTE/);
+  });
+}
+
+async function testPlannerExecuteDegradedOptionalDocs(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Allow a docs step to degrade while core work still verifies.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Update release notes', status: 'PENDING', kind: 'docs', details: 'Non-critical docs update that may fail.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', failureTolerance: 'degrade', dependencies: [], children: [] },
+                { id: 'step-3', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier after the code step.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Allow a docs step to degrade while core work still verifies.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const content = request.messages[0]?.content ?? '';
+        if (content.includes('Update release notes')) {
+          throw new Error('Docs update failed intentionally');
+        }
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '允许非关键文档步骤降级，但核心修复和 verify 仍需完成',
+      explicitFiles: ['src/math.js', 'src/notes.txt', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { degradedStepIds?: string[]; message: string; outcome: string };
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string; failureTolerance?: string }> };
+    assert.equal(state.outcome, 'DONE');
+    assert.deepEqual(state.degradedStepIds, ['step-2']);
+    assert.match(state.message, /degraded steps: step-2/i);
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'FAILED');
+    assert.match(events, /subtask_degraded/);
+  });
+}
+
+async function testPlannerExecuteDegradedDoesNotUnblockVerify(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'A degraded core step must not unblock verify.',
+              steps: [
+                { id: 'step-1', title: 'Run flaky prerequisite test step', status: 'PENDING', kind: 'test', details: 'This step degrades but verify still depends on it.', relatedFiles: ['tests/check-math.js'], fileScope: ['tests/check-math.js'], accessMode: 'write', failureTolerance: 'degrade', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Verify must not continue after a degraded dependency.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'A degraded core step must not unblock verify.' });
+      }
+
+      throw new Error('Flaky prerequisite failed intentionally');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '降级步骤不能放行 verify',
+      explicitFiles: ['tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string; executionState?: string; failureKind?: string }> };
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'PENDING');
   });
 }
 

@@ -19,6 +19,7 @@ export interface PlannerViewModel {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
+  degradedStepIds: string[];
   executionWaves: Array<{ index: number; stepIds: string[] }>;
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
@@ -100,6 +101,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds?: string[];
     failedStepIds?: string[];
     blockedStepIds?: string[];
+    degradedStepIds?: string[];
     consistencyErrors: string[];
   };
   const events = parseJsonLines(eventsRaw);
@@ -142,6 +144,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds: state.completedStepIds ?? [],
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
+    degradedStepIds: state.degradedStepIds ?? [],
     executionWaves: executionGraph.waves ?? [],
     currentWaveStepIds: executionState.currentWaveStepIds ?? [],
     lastCompletedWaveStepIds: executionState.lastCompletedWaveStepIds ?? [],
@@ -188,6 +191,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
     `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
     `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
+    `Degraded steps: ${view.degradedStepIds.join(', ') || '(none)'}`,
     `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
     `Current wave: ${view.currentWaveStepIds.join(', ') || '(none)'}`,
     `Last completed wave: ${view.lastCompletedWaveStepIds.join(', ') || '(none)'}`,
@@ -297,6 +301,9 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
   }
   if (type === 'subtask_fallback_activated') {
     return `${String(event.failedStepId ?? '')} activated fallback ${String(event.fallbackStepId ?? '')}: ${String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_degraded') {
+    return `${String(event.stepId ?? '')} degraded: ${String(event.reason ?? '')}`;
   }
   if (type === 'planner_failed') {
     return `failed: ${String(event.reason ?? '')}`;
