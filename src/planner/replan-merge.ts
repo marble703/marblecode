@@ -1,8 +1,8 @@
-import { buildExecutionGraph, type PlannerExecutionEdge } from './graph.js';
+import { buildExecutionGraph, hasDependencyCycle, type PlannerExecutionEdge } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import { canTransferOwnership } from './ownership.js';
 import { runPlanConsistencyChecks } from './parse.js';
-import type { PlannerPlan, PlannerStep } from './types.js';
+import type { PlannerPlan, PlannerPlanDeltaArtifact, PlannerStep } from './types.js';
 import { mergeStringLists } from './utils.js';
 
 export interface PlannerReplanProposal {
@@ -23,6 +23,11 @@ export interface PlannerReplanValidationResult {
 export interface PlannerReplanMergeResult {
   plan: PlannerPlan;
   validation: PlannerReplanValidationResult;
+}
+
+export interface PlannerPlanAppendValidationResult {
+  ok: boolean;
+  errors: string[];
 }
 
 const COMPLETED_STEP_LOCKED_FIELDS = [
@@ -232,6 +237,87 @@ export function mergeReplanProposal(
   };
 
   return { plan, validation };
+}
+
+export function validatePlanAppend(
+  previousPlan: PlannerPlan,
+  appendPlan: PlannerPlan,
+  lockTable?: ExecutionLockTable,
+): PlannerPlanAppendValidationResult {
+  const errors: string[] = [];
+  const previousSteps = new Map(previousPlan.steps.map((step) => [step.id, step]));
+
+  for (const previous of previousPlan.steps) {
+    if (appendPlan.steps.some((step) => step.id === previous.id)) {
+      errors.push(`Plan append cannot redefine existing step ${previous.id}`);
+    }
+  }
+
+  const mergedPlan = mergePlanAppend(previousPlan, appendPlan);
+  errors.push(...runPlanConsistencyChecks(mergedPlan));
+  const mergedGraph = buildExecutionGraph(mergedPlan);
+  if (hasDependencyCycle(mergedGraph)) {
+    errors.push('Plan append introduces a dependency cycle.');
+  }
+
+  for (const step of appendPlan.steps) {
+    if (step.accessMode !== 'write') {
+      continue;
+    }
+    for (const filePath of step.fileScope ?? []) {
+      if (!lockTable) {
+        continue;
+      }
+      const entry = lockTable.entries.find((candidate) => candidate.path === filePath);
+      if (!entry) {
+        continue;
+      }
+      const owner = previousSteps.get(entry.ownerStepId);
+      if (owner?.status === 'DONE' && canTransferOwnership(mergedPlan, entry.ownerStepId, step.id)) {
+        continue;
+      }
+      errors.push(`Plan append step ${step.id} conflicts with active lock on ${filePath} owned by ${entry.ownerStepId}`);
+    }
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+  };
+}
+
+export function mergePlanAppend(previousPlan: PlannerPlan, appendPlan: PlannerPlan): PlannerPlan {
+  return {
+    ...previousPlan,
+    revision: appendPlan.revision,
+    summary: appendPlan.summary || previousPlan.summary,
+    steps: [...previousPlan.steps, ...appendPlan.steps],
+    ...(appendPlan.isPartial === true ? { isPartial: true } : {}),
+    ...(appendPlan.isPartial === false || appendPlan.isPartial === undefined ? { isPartial: false } : {}),
+    ...(appendPlan.planningHorizon ? { planningHorizon: appendPlan.planningHorizon } : {}),
+    ...(appendPlan.openQuestions ? { openQuestions: appendPlan.openQuestions } : {}),
+    ...(appendPlan.nextPlanningTriggers ? { nextPlanningTriggers: appendPlan.nextPlanningTriggers } : {}),
+  };
+}
+
+export function buildPlanAppendDeltaArtifact(input: {
+  previousPlan: PlannerPlan;
+  appendPlan: PlannerPlan;
+  mergedPlan: PlannerPlan;
+  planningWindowWaves: number;
+  reason: string;
+}): PlannerPlanDeltaArtifact {
+  return {
+    version: '1',
+    baseRevision: input.previousPlan.revision,
+    nextRevision: input.mergedPlan.revision,
+    reason: input.reason,
+    planningWindowWaves: input.planningWindowWaves,
+    addedStepIds: input.appendPlan.steps.map((step) => step.id),
+    addedSteps: input.appendPlan.steps,
+    summary: input.mergedPlan.summary,
+    combinedIsPartial: input.mergedPlan.isPartial === true,
+  };
 }
 
 export function validateReplanLockCompatibility(

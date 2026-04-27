@@ -47,6 +47,7 @@ export async function executePlannerPlan(
   let currentWaveStepIds: string[] = [];
   let lastCompletedWaveStepIds: string[] = [];
   let executionEpoch = 0;
+  let executedWaveCount = 0;
 
   const dispatchExecution = async (
     event: PlannerExecutionEvent,
@@ -238,7 +239,27 @@ export async function executePlannerPlan(
     }
     lastCompletedWaveStepIds = currentWaveStepIds;
     currentWaveStepIds = [];
+    executedWaveCount += 1;
     await dispatchExecution({ type: 'WAVE_CONVERGED' });
+    if (nextPlan.isPartial === true && executedWaveCount >= config.routing.planningWindowWaves) {
+      nextState = refreshPlannerStateFromPlan(nextPlan, {
+        ...nextState,
+        phase: 'PENDING',
+        outcome: 'DONE',
+        currentStepId: null,
+        message: `Executed ${executedWaveCount} planning wave${executedWaveCount === 1 ? '' : 's'} from partial plan revision ${nextPlan.revision}.`,
+        consistencyErrors: runPlanConsistencyChecks(nextPlan),
+      });
+      await appendPlannerEvent(session, {
+        type: 'planner_execution_window_completed',
+        revision: nextPlan.revision,
+        executedWaveCount,
+        planningWindowWaves: config.routing.planningWindowWaves,
+      }, config.session.redactSecrets);
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+      return { plan: nextPlan, state: nextState };
+    }
   }
 
   nextState = refreshPlannerStateFromPlan(nextPlan, {

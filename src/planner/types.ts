@@ -19,6 +19,11 @@ export type PlannerResponse =
       plan: PlannerPlanPayload;
     }
   | {
+      type: 'plan_append';
+      thought?: string;
+      plan: PlannerPlanPayload;
+    }
+  | {
       type: 'plan_update';
       thought?: string;
       stepId: string;
@@ -98,6 +103,24 @@ export interface PlannerPlan {
   revision: number;
   summary: string;
   steps: PlannerStep[];
+  isPartial?: boolean;
+  planningHorizon?: {
+    waveCount: number;
+  };
+  openQuestions?: string[];
+  nextPlanningTriggers?: string[];
+}
+
+export interface PlannerPlanDeltaArtifact {
+  version: '1';
+  baseRevision: number;
+  nextRevision: number;
+  reason: string;
+  planningWindowWaves: number;
+  addedStepIds: string[];
+  addedSteps: PlannerStep[];
+  summary: string;
+  combinedIsPartial: boolean;
 }
 
 export interface PlannerRequestArtifact {

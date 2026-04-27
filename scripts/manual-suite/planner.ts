@@ -10,7 +10,7 @@ import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
 import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
-import { collectReplanScope, mergeReplanProposal, validateReplanLockCompatibility, validateReplanProposal } from '../../src/planner/replan-merge.js';
+import { collectReplanScope, mergePlanAppend, mergeReplanProposal, validatePlanAppend, validateReplanLockCompatibility, validateReplanProposal } from '../../src/planner/replan-merge.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
@@ -30,6 +30,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
     { name: 'planner conflict domains', run: testPlannerConflictDomains },
     { name: 'planner replan proposal validation', run: testPlannerReplanProposalValidation },
+    { name: 'planner plan append validation', run: testPlannerPlanAppendValidation },
     { name: 'planner replan lock compatibility', run: testPlannerReplanLockCompatibility },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
@@ -46,6 +47,8 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute conflict domain serial', run: testPlannerExecuteConflictDomainSerial },
     { name: 'planner execute degraded optional docs', run: testPlannerExecuteDegradedOptionalDocs },
     { name: 'planner execute degraded does not unblock verify', run: testPlannerExecuteDegradedDoesNotUnblockVerify },
+    { name: 'planner execute rolling window append', run: testPlannerExecuteRollingWindowAppend },
+    { name: 'planner execute rolling append rejects done step mutation', run: testPlannerExecuteRollingAppendRejectsDoneStepMutation },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
@@ -211,6 +214,43 @@ async function testPlannerExecutionLocks(): Promise<void> {
     ['src/math.js'],
   );
   assert.doesNotThrow(() => assertStepCanWrite(transferred, 'step-2', 'src/math.js'));
+}
+
+async function testPlannerPlanAppendValidation(): Promise<void> {
+  const previousPlan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'partial plan',
+    isPartial: true,
+    steps: [
+      { id: 'step-1', title: 'Fix math', status: 'DONE' as const, kind: 'code' as const, attempts: 1, fileScope: ['src/math.js'], accessMode: 'write' as const, dependencies: [], children: [] },
+    ],
+  };
+  const appendPlan = {
+    version: '1' as const,
+    revision: 2,
+    summary: 'finish plan',
+    isPartial: false,
+    steps: [
+      { id: 'step-2', title: 'Run verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  };
+  const validation = validatePlanAppend(previousPlan, appendPlan);
+  assert.equal(validation.ok, true);
+  const merged = mergePlanAppend(previousPlan, appendPlan);
+  assert.equal(merged.revision, 2);
+  assert.equal(merged.isPartial, false);
+  assert.deepEqual(merged.steps.map((step) => step.id), ['step-1', 'step-2']);
+
+  const invalidAppend = {
+    ...appendPlan,
+    steps: [
+      { id: 'step-1', title: 'Rewrite done step', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [] },
+    ],
+  };
+  const invalidValidation = validatePlanAppend(previousPlan, invalidAppend);
+  assert.equal(invalidValidation.ok, false);
+  assert.match(invalidValidation.errors.join('; '), /redefine existing step step-1/);
 }
 
 async function testPlannerRuntimeHelpers(): Promise<void> {
@@ -1196,6 +1236,121 @@ async function testPlannerExecuteConcurrentWave(): Promise<void> {
     assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read'), true);
     assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/notes.txt' && entry.mode === 'guarded_read'), true);
     assert.match(await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8'), /FIXED_NOTE/);
+  });
+}
+
+async function testPlannerExecuteRollingWindowAppend(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.planningWindowWaves = 1;
+    let plannerCalls = 0;
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        plannerCalls += 1;
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Fix the add bug in rolling windows.',
+              isPartial: true,
+              planningHorizon: { waveCount: 1 },
+              nextPlanningTriggers: ['after step-2 succeeds'],
+              steps: [
+                { id: 'step-1', title: 'Inspect math bug', status: 'PENDING', kind: 'search', details: 'Review math and tests.', relatedFiles: ['src/math.js', 'tests/check-math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        if (!currentPlan.includes('"id": "step-3"') && !currentPlan.includes('"id":"step-3"')) {
+          return JSON.stringify({
+            type: 'plan_append',
+            plan: {
+              version: '1',
+              summary: 'Append final verification wave.',
+              isPartial: false,
+              steps: [
+                { id: 'step-3', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run the project verifier.', dependencies: ['step-2'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Rolling planning completed.' });
+      }
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        return buildMathFixStep(workspaceRoot);
+      }
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js 中的 add 错误并通过 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.equal(plannerCalls >= 3, true);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const delta = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.delta.2.json'), 'utf8')) as { addedStepIds: string[]; planningWindowWaves: number; combinedIsPartial: boolean };
+    assert.deepEqual(delta.addedStepIds, ['step-3']);
+    assert.equal(delta.planningWindowWaves, 1);
+    assert.equal(delta.combinedIsPartial, false);
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.match(events, /planner_partial_execution_completed/);
+    assert.match(events, /planner_execution_window_completed/);
+    assert.match(events, /plan_appended/);
+  });
+}
+
+async function testPlannerExecuteRollingAppendRejectsDoneStepMutation(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.routing.planningWindowWaves = 1;
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Initial partial plan.',
+              isPartial: true,
+              planningHorizon: { waveCount: 1 },
+              steps: [
+                { id: 'step-1', title: 'Planning note only', status: 'PENDING', kind: 'search', details: 'No-op planning step.', dependencies: [], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({
+          type: 'plan_append',
+          plan: {
+            version: '1',
+            summary: 'Invalid append.',
+            isPartial: false,
+            steps: [
+              { id: 'step-1', title: 'Mutate done step', status: 'PENDING', kind: 'code', details: 'Should be rejected.', dependencies: [], children: [] },
+            ],
+          },
+        });
+      }
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    await assert.rejects(
+      runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+        prompt: '生成一个滚动规划并故意返回非法 append',
+        explicitFiles: ['src/math.js'],
+        pastedSnippets: [],
+        executeSubtasks: true,
+      }),
+      /plan append is invalid/i,
+    );
   });
 }
 

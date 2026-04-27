@@ -71,6 +71,7 @@ export async function loadConfig(configPath?: string, workspaceOverride?: string
       codeModel: projectConfig.routing?.codeModel ?? parsed.routing?.codeModel ?? 'code',
       planningModel: projectConfig.routing?.planningModel ?? parsed.routing?.planningModel ?? 'strong',
       maxSteps: projectConfig.routing?.maxSteps ?? parsed.routing?.maxSteps ?? 8,
+      planningWindowWaves: projectConfig.routing?.planningWindowWaves ?? parsed.routing?.planningWindowWaves ?? 1,
       maxAutoRepairAttempts: projectConfig.routing?.maxAutoRepairAttempts ?? parsed.routing?.maxAutoRepairAttempts ?? 2,
       maxConcurrentSubtasks: projectConfig.routing?.maxConcurrentSubtasks ?? parsed.routing?.maxConcurrentSubtasks ?? 1,
       subtaskMaxAttempts: projectConfig.routing?.subtaskMaxAttempts ?? parsed.routing?.subtaskMaxAttempts ?? 2,
@@ -244,5 +245,9 @@ function validateConfig(config: AppConfig): void {
     if (!config.providers[model.provider]) {
       throw new Error(`Model ${modelAlias} references unknown provider ${model.provider}`);
     }
+  }
+
+  if (!Number.isInteger(config.routing.planningWindowWaves) || config.routing.planningWindowWaves < 1) {
+    throw new Error('routing.planningWindowWaves must be an integer >= 1');
   }
 }

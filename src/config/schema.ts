@@ -25,6 +25,7 @@ export interface RoutingConfig {
   codeModel: string;
   planningModel: string;
   maxSteps: number;
+  planningWindowWaves: number;
   maxAutoRepairAttempts: number;
   maxConcurrentSubtasks: number;
   subtaskMaxAttempts: number;

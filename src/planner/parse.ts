@@ -46,6 +46,20 @@ export function parsePlannerResponse(content: string): PlannerResponse {
     );
   }
 
+  if (type === 'plan_append') {
+    const rawPlan = parsed.plan;
+    if (!rawPlan || typeof rawPlan !== 'object') {
+      throw new Error('Planner response did not contain a valid append plan object.');
+    }
+    return withOptionalThought(
+      {
+        type: 'plan_append',
+        plan: rawPlan as PlannerPlanPayload,
+      },
+      parsed.thought,
+    );
+  }
+
   if (type === 'plan_update') {
     return withOptionalThought(
       {
@@ -86,12 +100,43 @@ export function normalizePlannerPlan(input: PlannerPlanPayload, revision: number
     revision: typeof input.revision === 'number' ? input.revision : revision,
     summary: String(input.summary ?? ''),
     steps,
+    ...(input.isPartial === true ? { isPartial: true } : {}),
+    ...(input.planningHorizon && typeof input.planningHorizon === 'object' && typeof input.planningHorizon.waveCount === 'number'
+      ? { planningHorizon: { waveCount: Math.max(1, Math.floor(input.planningHorizon.waveCount)) } }
+      : {}),
+    ...(Array.isArray(input.openQuestions)
+      ? { openQuestions: input.openQuestions.filter((item): item is string => typeof item === 'string') }
+      : {}),
+    ...(Array.isArray(input.nextPlanningTriggers)
+      ? { nextPlanningTriggers: input.nextPlanningTriggers.filter((item): item is string => typeof item === 'string') }
+      : {}),
   };
   const errors = runPlanConsistencyChecks(plan);
   if (errors.length > 0) {
     throw new Error(`Planner plan is invalid: ${errors.join('; ')}`);
   }
   return plan;
+}
+
+export function normalizePlannerPlanAppend(input: PlannerPlanPayload, revision: number, workspaceRoot: string): PlannerPlan {
+  const stepsInput = Array.isArray(input.steps) ? input.steps : [];
+  const steps = stepsInput.map((step: unknown, index: number) => normalizePlannerStep(step, index, workspaceRoot));
+  return {
+    version: '1',
+    revision,
+    summary: String(input.summary ?? ''),
+    steps,
+    ...(input.isPartial === true ? { isPartial: true } : {}),
+    ...(input.planningHorizon && typeof input.planningHorizon === 'object' && typeof input.planningHorizon.waveCount === 'number'
+      ? { planningHorizon: { waveCount: Math.max(1, Math.floor(input.planningHorizon.waveCount)) } }
+      : {}),
+    ...(Array.isArray(input.openQuestions)
+      ? { openQuestions: input.openQuestions.filter((item): item is string => typeof item === 'string') }
+      : {}),
+    ...(Array.isArray(input.nextPlanningTriggers)
+      ? { nextPlanningTriggers: input.nextPlanningTriggers.filter((item): item is string => typeof item === 'string') }
+      : {}),
+  };
 }
 
 export function applyPlanUpdate(plan: PlannerPlan, update: Extract<PlannerResponse, { type: 'plan_update' }>): PlannerPlan {
