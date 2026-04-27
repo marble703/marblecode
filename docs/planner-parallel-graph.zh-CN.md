@@ -54,9 +54,9 @@
 - `stepSummaries`
 - `triggerReplan` / `replanReason`
 
-当检测到 undeclared changed files 时，会标记 `triggerReplan=true` 并记录 `execution_feedback_undeclared_files` 事件。局部 replan 请求现在会包含这些反馈信息，并且受影响子图会通过 `buildPlannerAffectedSubgraph()` 根据依赖关系、conflict domains 和未声明文件交集来限定范围。
+当检测到 undeclared changed files 时，会标记 `triggerReplan=true` 并记录 `execution_feedback_undeclared_files` 事件。当前实现按 step 级 changedFiles 计算该信号，而不是把整轮 wave 的 changedFiles 误归到每个步骤上。局部 replan 请求现在会包含这些反馈信息，并且受影响子图会通过 `buildPlannerAffectedSubgraph()` 根据依赖关系、conflict domains 和未声明文件交集做闭包扩展后再限定范围。
 
-Append 校验现在也通过 `validateAppendActiveWaveConflict()` 检查 writer step 是否与 active lock / active wave 冲突。
+Append 校验现在也通过 `validateAppendActiveWaveConflict()` 在 `plan_append` 主流程中检查 writer step 是否与 active lock / active wave 冲突。
 
 可以把当前模型理解成：
 

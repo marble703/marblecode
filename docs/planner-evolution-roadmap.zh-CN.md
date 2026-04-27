@@ -219,12 +219,12 @@
 
  仍待完成的滚动式规划细化：
 
-1. 当前 append 校验已覆盖结构与 cycle，active lock / active wave conflict 校验已通过 `validateAppendActiveWaveConflict()` 落地。
+1. 当前 append 校验已覆盖结构与 cycle，active lock / active wave conflict 校验已通过 `validateAppendActiveWaveConflict()` 接入 `plan_append` 主流程。
 2. 当前 delta artifact 还是 step-level `plan.delta.*`，未来如需更强图级审计可继续补 `graph.delta.*`。
-3. execution feedback packet 已通过 `execution.feedback.json` 落地，host 现在支持检测 undeclared changed files 并在 feedback 标记 `triggerReplan`。
+3. execution feedback packet 已通过 `execution.feedback.json` 落地，host 现在支持按 step 级 changedFiles 检测 undeclared changed files，并在 feedback 标记 `triggerReplan`。
 4. 受影响子图计算已通过 `buildPlannerAffectedSubgraph()` 落地。
 5. feedback 已接入 `buildPlannerNodeReplanRequest()`，planner replan 提示词现在包含执行反馈信息（changedFiles / undeclaredChangedFiles / stepSummaries）。
-6. `subtaskReplanOnFailure` 且 feedback 存在时，局部 replan 仍优先使用 proposal-first merge。
+6. `subtaskReplanOnFailure` 且 feedback 存在时，局部 replan 现在会把 feedback 传入 planner prompt，并继续走 proposal-first merge。
 7. manual suite 已覆盖 feedback artifact 生成、affected subgraph 计算、active lock append 冲突校验。
 
 完成标准：
