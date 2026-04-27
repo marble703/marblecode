@@ -21,11 +21,11 @@
 - `execution.state.json` 记录了阶段和集合快照，但还不是所有调度决策的唯一来源。
 - artifact resume 目前基本是重置非 DONE 步骤再重跑，没有精确恢复 active wave、fallback path 或局部子图状态。
 - 冲突检测主要基于 `fileScope` 路径字符串、空 scope 写步骤保守冲突、以及显式 `conflictsWith`。
-- graph fallback 已支持基础激活，但局部 replan 仍未 proposal-first，fallback 也还没有替代依赖改写语义。
-- 局部 replan 由 `attemptPlannerNodeReplan()` 直接调用 planner 并 merge，新计划校验和图级合并边界还不够严格。
+- graph fallback 已支持基础激活，并且 fallback 成功后已可替代失败 source step 满足下游依赖。
+- 局部 replan 已经是 proposal-first，并具备 completed-step 保护、bounded scope 和 active lock compatibility 校验；更严格的 future graph-delta / rolling-merge 约束仍待后续阶段补齐。
 - wave 失败处理仍偏“一失败则停止 wave/全局失败”，没有 `DEGRADED` 或可容忍失败语义。
 - 工具系统目前是内置 `ToolRegistry`，没有 LSP/MCP provider 层。
-- TUI/viewer 还没读取 `execution.state.json`，也没有稳定的 WebUI DTO 或事件协议。
+- TUI/viewer 已开始读取 `execution.state.json` 的 phase/strategy/epoch/wave/recovery metadata，但还没有稳定的 WebUI DTO 或事件协议。
 - planner 一次性产出完整计划，无法根据执行反馈滚动追加后续 wave。
 
 ## 优先级判断
@@ -78,6 +78,7 @@
 4. `FALLBACK_ACTIVATED` 已纳入 execution machine，进入 `recovering` phase。
 5. `plan.events.jsonl` 会记录 `subtask_fallback_activated`。
 6. planner view 会展示 fallback edges。
+7. fallback 成功后，下游依赖原失败步骤时可由 fallback 节点替代满足。
 
 已完成的 replan proposal 基础：
 
@@ -91,7 +92,7 @@
 
 仍待完成的替代/锁语义：
 
-1. 明确 fallback dependency substitution 语义。当前下游如果要依赖 fallback 成功，需要 planner 显式依赖 fallback step。
+1. 当前 replacement 语义是隐式的：只要 fallback target `DONE`，依赖 source step 的下游就可继续。后续如果需要区分 `alternative` / `replacement` 模式，还需要明确 step-level 或 edge-level 表达。
 
 完成标准：
 

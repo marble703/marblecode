@@ -259,7 +259,7 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 - 由 `maxConcurrentSubtasks` 限制的、冲突感知的并发控制
 - 持久化到 `execution.state.json` 的 execution-state 快照
 - 通过 `serial`、`fail`、`aggressive`、`deterministic` 策略模式驱动的调度选择
-- 针对失败步骤的重试、备用模型选择、graph fallback 激活以及经过 proposal 校验、受 bounded scope 约束并带有锁兼容性检查的本地重新规划
+- 针对失败步骤的重试、备用模型选择、带有下游依赖替代语义的 graph fallback 激活，以及经过 proposal 校验、受 bounded scope 约束并带有锁兼容性检查的本地重新规划
 - 持久化的执行产物，用于 TUI、离线检查以及 execution resume
 
 失败传播语义目前刻意保持保守：

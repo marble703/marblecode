@@ -259,7 +259,7 @@ Current host-side execution foundations include:
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
 - execution-state snapshots persisted as `execution.state.json`
 - strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
-- retry, fallback model selection, graph fallback activation, and proposal-validated bounded local replan with lock-compatibility checks for failed steps
+- retry, fallback model selection, graph fallback activation with downstream dependency substitution, and proposal-validated bounded local replan with lock-compatibility checks for failed steps
 - persisted execution artifacts for TUI, offline inspection, and execution resume
 
 Failure propagation is intentionally conservative:

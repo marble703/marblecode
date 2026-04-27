@@ -369,6 +369,8 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 
 这意味着 local replan 不能借机重写无关的 pending step。
 
+当前 fallback 也开始具备 replacement 语义：如果 source step 已失败，而其 fallback target 已成功完成，则依赖 source step 的下游步骤现在可以继续进入 ready 路径，而不必总是由 planner 预先把依赖显式改写到 fallback step。
+
 相关事件包括：
 
 - `subtask_replan_proposed`
@@ -407,7 +409,6 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 
 - wave 并发仍以“安全优先”，不是“吞吐优先”
 - 对无 `fileScope` 的写步骤处理较保守
-- fallback dependency substitution 仍未实现；如果下游要依赖 fallback 成功，目前仍需 planner 显式依赖 fallback step
 - planner 本身仍是“先规划，再执行”，还不是边规划边并发执行
 
 ## 为什么这套设计合理
