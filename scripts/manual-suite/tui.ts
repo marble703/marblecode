@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { applyTuiCommand, createInitialTuiState } from '../../src/tui/agent-repl.js';
-import { loadPlannerView } from '../../src/planner/view-model.js';
+import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
 import { withWorkspace } from './helpers.js';
 import type { ManualSuiteCase } from './types.js';
@@ -16,6 +16,8 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner view loads delta and feedback artifacts', run: testPlannerViewLoadsDeltaAndFeedbackArtifacts },
     { name: 'planner view loads replan rejection artifacts', run: testPlannerViewLoadsReplanRejectionArtifacts },
     { name: 'planner view normalizes timeline events', run: testPlannerViewNormalizesTimelineEvents },
+    { name: 'planner read-model api exposes raw and normalized events', run: testPlannerReadModelApiExposesRawAndNormalizedEvents },
+    { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
   ];
 }
 
@@ -249,5 +251,59 @@ async function testPlannerViewNormalizesTimelineEvents(): Promise<void> {
     assert.match(view.timeline[1]?.label ?? '', /execution window completed/);
     assert.match(view.timeline[2]?.label ?? '', /undeclared files/);
     assert.equal(view.timeline[2]?.epoch, 3);
+  });
+}
+
+async function testPlannerReadModelApiExposesRawAndNormalizedEvents(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-06-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      path.join(sessionDir, 'plan.events.jsonl'),
+      [
+        JSON.stringify({ type: 'subtask_started', stepId: 'step-1', executor: 'coder' }),
+        JSON.stringify({ type: 'execution_feedback_verify_failed', stepId: 'step-2', epoch: 4 }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+
+    const events = await loadPlannerEvents(sessionDir);
+    assert.equal(events.events.length, 2);
+    assert.equal(events.subtaskEvents.length, 1);
+    assert.equal(events.timeline.length, 2);
+    assert.match(events.timeline[1]?.label ?? '', /verify failed/);
+  });
+}
+
+async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-07-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      path.join(sessionDir, 'plan.json'),
+      JSON.stringify({ revision: 5, summary: 'Session summary metadata', isPartial: true, steps: [] }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(sessionDir, 'plan.state.json'),
+      JSON.stringify({ phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-3', consistencyErrors: [] }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(sessionDir, 'plan.events.jsonl'),
+      `${JSON.stringify({ type: 'planner_started', prompt: 'metadata' })}\n`,
+      'utf8',
+    );
+    await writeFile(
+      path.join(sessionDir, 'execution.state.json'),
+      JSON.stringify({ executionPhase: 'executing_wave', strategy: 'serial', epoch: 2, currentWaveStepIds: ['step-3'], lastCompletedWaveStepIds: [] }),
+      'utf8',
+    );
+
+    const summary = await loadPlannerSessionSummary('2026-04-20T10-00-07-000Z', sessionDir);
+    assert.equal(summary.executionPhase, 'executing_wave');
+    assert.equal(summary.planRevision, 5);
+    assert.equal(summary.planIsPartial, true);
+    assert.equal(summary.currentStepId, 'step-3');
   });
 }
