@@ -15,6 +15,7 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
     { name: 'planner view loads delta and feedback artifacts', run: testPlannerViewLoadsDeltaAndFeedbackArtifacts },
     { name: 'planner view loads replan rejection artifacts', run: testPlannerViewLoadsReplanRejectionArtifacts },
+    { name: 'planner view normalizes timeline events', run: testPlannerViewNormalizesTimelineEvents },
   ];
 }
 
@@ -223,5 +224,30 @@ async function testPlannerViewLoadsReplanRejectionArtifacts(): Promise<void> {
     assert.equal(view.replanRejections.length, 1);
     assert.equal(view.replanRejections[0]?.stepId, 'step-2');
     assert.deepEqual(view.replanRejections[0]?.errors, ['lock conflict', 'scope mismatch']);
+  });
+}
+
+async function testPlannerViewNormalizesTimelineEvents(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-05-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 2, summary: 'Timeline session', steps: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2', consistencyErrors: [] }), 'utf8');
+    await writeFile(
+      path.join(sessionDir, 'plan.events.jsonl'),
+      [
+        JSON.stringify({ type: 'plan_appended', revision: 2, stepCount: 1 }),
+        JSON.stringify({ type: 'planner_execution_window_completed', revision: 2, executedWaveCount: 1 }),
+        JSON.stringify({ type: 'execution_feedback_undeclared_files', epoch: 3, undeclaredFiles: ['src/notes.txt'] }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+
+    const view = await loadPlannerView(sessionDir);
+    assert.equal(view.timeline.length, 3);
+    assert.match(view.timeline[0]?.label ?? '', /plan appended/);
+    assert.match(view.timeline[1]?.label ?? '', /execution window completed/);
+    assert.match(view.timeline[2]?.label ?? '', /undeclared files/);
+    assert.equal(view.timeline[2]?.epoch, 3);
   });
 }
