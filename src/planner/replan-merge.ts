@@ -320,6 +320,127 @@ export function buildPlanAppendDeltaArtifact(input: {
   };
 }
 
+export function computeUndeclaredChangedFiles(
+  step: PlannerStep,
+  declaredWritePaths: string[],
+  actualChangedFiles: string[],
+): string[] {
+  const declared = new Set(declaredWritePaths);
+  return actualChangedFiles.filter((file) => !declared.has(file));
+}
+
+export function buildPlannerAffectedSubgraph(
+  plan: PlannerPlan,
+  triggerStepId: string,
+  undeclaredFiles: string[],
+): Set<string> {
+  const graph = buildExecutionGraph(plan);
+  const affected = new Set<string>();
+  const queue = [triggerStepId];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || affected.has(current)) {
+      continue;
+    }
+    const step = plan.steps.find((candidate) => candidate.id === current);
+    if (!step || step.status === 'DONE') {
+      continue;
+    }
+    affected.add(current);
+
+    for (const edge of graph.edges) {
+      const isScoped = edge.type === 'dependency' || edge.type === 'must_run_after' || edge.type === 'fallback';
+      if (!isScoped) {
+        continue;
+      }
+      if (edge.from === current && !affected.has(edge.to)) {
+        queue.push(edge.to);
+      }
+    }
+  }
+
+  for (const step of plan.steps) {
+    if (step.status === 'DONE') {
+      continue;
+    }
+    if (affected.has(step.id)) {
+      continue;
+    }
+    if (step.conflictDomains && step.conflictDomains.length > 0) {
+      for (const affectedId of affected) {
+        const affectedStep = plan.steps.find((candidate) => candidate.id === affectedId);
+        if (affectedStep?.conflictDomains?.some((domain) => step.conflictDomains?.includes(domain))) {
+          affected.add(step.id);
+          queue.push(step.id);
+          break;
+        }
+      }
+    }
+    if (undeclaredFiles.length > 0 && (step.fileScope ?? []).some((file) => undeclaredFiles.includes(file))) {
+      affected.add(step.id);
+      queue.push(step.id);
+    }
+  }
+
+  return affected;
+}
+
+export function validateAppendActiveWaveConflict(
+  previousPlan: PlannerPlan,
+  appendPlan: PlannerPlan,
+  activeWaveStepIds: string[],
+  lockTable: ExecutionLockTable,
+): string[] {
+  const errors: string[] = [];
+  const mergedPlan = mergePlanAppend(previousPlan, appendPlan);
+
+  for (const step of appendPlan.steps) {
+    if (step.accessMode !== 'write') {
+      continue;
+    }
+    for (const filePath of step.fileScope ?? []) {
+      const entry = lockTable.entries.find((candidate) => candidate.path === filePath);
+      if (!entry) {
+        continue;
+      }
+      const previousSteps = new Map(previousPlan.steps.map((s) => [s.id, s]));
+      const owner = previousSteps.get(entry.ownerStepId);
+      if (owner?.status === 'DONE' && canTransferOwnership(mergedPlan, entry.ownerStepId, step.id)) {
+        continue;
+      }
+      errors.push(`Plan append step ${step.id} conflicts with active lock on ${filePath} owned by ${entry.ownerStepId}`);
+    }
+  }
+
+  const mergedGraph = buildExecutionGraph(mergedPlan);
+  for (const step of appendPlan.steps) {
+    if (step.accessMode !== 'write') {
+      continue;
+    }
+    for (const activeStepId of activeWaveStepIds) {
+      const activeStep = previousPlan.steps.find((s) => s.id === activeStepId);
+      if (!activeStep || activeStep.status === 'DONE' || activeStep.status === 'FAILED') {
+        continue;
+      }
+      const activeNode = mergedGraph.nodes.find((n) => n.stepId === activeStepId);
+      const appendNode = mergedGraph.nodes.find((n) => n.stepId === step.id);
+      if (!activeNode || !appendNode) {
+        continue;
+      }
+      if (activeNode.conflictDomains.some((d) => appendNode.conflictDomains.includes(d))) {
+        errors.push(`Plan append step ${step.id} conflict domain collides with active step ${activeStepId}`);
+      }
+      const scopeOverlap = (step.fileScope ?? []).some((f) => (activeStep.fileScope ?? []).includes(f));
+      if (scopeOverlap) {
+        errors.push(`Plan append step ${step.id} file scope collides with active step ${activeStepId}`);
+      }
+    }
+  }
+
+  return errors;
+}
+
 export function validateReplanLockCompatibility(
   previousPlan: PlannerPlan,
   proposedPlan: PlannerPlan,

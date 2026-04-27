@@ -136,6 +136,36 @@ export interface PlannerSessionArtifacts {
   state: PlannerState;
 }
 
+export interface PlannerStepSummary {
+  stepId: string;
+  title: string;
+  status: PlannerStepStatus;
+  changedFiles: string[];
+  undeclaredChangedFiles: string[];
+  message: string;
+}
+
+export interface PlannerExecutionFeedbackArtifact {
+  version: '1';
+  planRevision: number;
+  executionEpoch: number;
+  changedFiles: string[];
+  undeclaredChangedFiles: string[];
+  verifyFailures: Array<{
+    stepId: string;
+    command: string;
+    stderr: string;
+  }>;
+  lockViolations: Array<{
+    stepId: string;
+    path: string;
+    ownerStepId: string;
+  }>;
+  stepSummaries: PlannerStepSummary[];
+  triggerReplan: boolean;
+  replanReason: string;
+}
+
 export interface PlannerState {
   version: '1';
   revision: number;

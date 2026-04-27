@@ -7,7 +7,7 @@ import type { ToolDefinition } from '../tools/types.js';
 import type { PlannerExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerExecutionArtifacts, PlannerExecutionStateArtifact } from './execution-types.js';
-import type { PlannerContextPacket, PlannerPlan, PlannerPlanDeltaArtifact, PlannerRequestArtifact, PlannerSessionArtifacts, PlannerState } from './types.js';
+import type { PlannerContextPacket, PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerPlanDeltaArtifact, PlannerRequestArtifact, PlannerSessionArtifacts, PlannerState } from './types.js';
 import { countSnippetLines } from './utils.js';
 
 export function buildContextPacket(
@@ -76,6 +76,13 @@ export async function writePlannerDeltaArtifact(
   const fileName = `plan.delta.${delta.nextRevision}.json`;
   await writeSessionArtifact(session, fileName, JSON.stringify(delta, null, 2));
   return fileName;
+}
+
+export async function writePlannerExecutionFeedbackArtifact(
+  session: SessionRecord,
+  feedback: PlannerExecutionFeedbackArtifact,
+): Promise<void> {
+  await writeSessionArtifact(session, 'execution.feedback.json', JSON.stringify(feedback, null, 2));
 }
 
 export async function appendPlannerEvent(
