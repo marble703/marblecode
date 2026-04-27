@@ -207,6 +207,22 @@
 6. 局部 replan 只允许影响一个 bounded subgraph：失败节点、依赖它的未完成节点、同 conflict domain 的未完成节点。
 7. Replan proposal 必须通过合并校验后才能进入主 plan。
 
+已完成的滚动式规划基础：
+
+1. `routing.planningWindowWaves` 已落地，默认值为 `1`。
+2. planner prompt / schema 已支持 `isPartial`、`planningHorizon`、`openQuestions`、`nextPlanningTriggers`。
+3. planner loop 已支持 `plan_append` 响应类型，用于在已有部分计划后追加新步骤。
+4. 新增 `plan.delta.<revision>.json`，记录 append 来源、追加步骤和窗口大小。
+5. host 已支持 append 校验：禁止重定义既有步骤、禁止引入 cycle，并保留锁兼容校验入口。
+6. `executePlannerPlan()` 已支持在 partial plan 下仅执行前 `planningWindowWaves` 个 wave，然后回到 planner 继续规划。
+7. manual suite 已覆盖 rolling window append 成功路径和非法 append 拒绝路径。
+
+仍待完成的滚动式规划细化：
+
+1. 当前 append 校验已覆盖结构与 cycle，但 active lock / active wave conflict 还未升级成完整增量图约束体系。
+2. 当前 delta artifact 还是 step-level `plan.delta.*`，未来如需更强图级审计可继续补 `graph.delta.*`。
+3. execution feedback packet 尚未引入，host 目前仍主要依据 partial-plan 边界而非真实执行偏差自动触发再规划。
+
 完成标准：
 
 - 长任务可以先产出前 1-2 个 wave 并执行，再追加后续 wave。

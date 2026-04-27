@@ -32,19 +32,19 @@ The read-only planner loop.
 
 1. Planner receives explicit files, pasted snippets, and bounded context.
 2. Planner may search with read-only tools.
-3. Planner returns structured `plan`, `plan_update`, `tool_call`, or `final` responses.
+3. Planner returns structured `plan`, `plan_append`, `plan_update`, `tool_call`, or `final` responses.
 4. The host persists plan artifacts and planner logs for later inspection or resume.
 
 ### `plan --execute`
 
 The planner-driven execution flow.
 
-1. Planner produces a structured plan.
-2. Host normalizes the plan and builds an execution graph.
-3. The graph is converted into execution waves.
+1. Planner produces a structured plan, optionally as a partial planning window.
+2. Host normalizes the plan, builds an execution graph, and may execute only the next configured window of waves.
+3. Additional waves can be appended later through `plan_append` plus `plan.delta.<revision>.json` artifacts.
 4. Code/test/docs steps run through coder subagents.
 5. Verify steps run through the verifier path.
-6. Failed steps may retry, switch to a fallback model, or trigger local replan.
+6. Failed steps may retry, switch to a fallback model, trigger local replan, or leave the host waiting for another planning window.
 
 ### `tui`
 
@@ -73,13 +73,13 @@ Planner execute extends that flow:
 
 ```text
 planner loop
-  -> normalized plan
+  -> normalized / appended plan
   -> execution graph
-  -> wave selection
+  -> wave selection window
   -> file locks / ownership
   -> coder subagents
   -> verifier step
-  -> retry / fallback / local replan
+  -> retry / fallback / local replan / next planning window
 ```
 
 ## Module Map

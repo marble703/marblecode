@@ -43,6 +43,8 @@
 8. 失败时进入 retry、fallback model、local replan 等恢复路径
 9. 通过 execution machine 持续更新 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json`、`execution.state.json` 和事件日志
 
+在 rolling planning 基础下，如果当前计划声明了 `isPartial=true`，host 也可以只执行前若干个 wave，然后回到 planner 请求 `plan_append`，并通过 `plan.delta.<revision>.json` 记录新增步骤。
+
 可以把当前模型理解成：
 
 - planner 负责“提出可执行的步骤和依赖”
