@@ -10,6 +10,7 @@ import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
 import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
+import { mergeReplanProposal, validateReplanProposal } from '../../src/planner/replan-merge.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
@@ -27,6 +28,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
+    { name: 'planner replan proposal validation', run: testPlannerReplanProposalValidation },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
@@ -42,6 +44,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
     { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
+    { name: 'planner execute rejects invalid local replan', run: testPlannerExecuteRejectsInvalidLocalReplan },
     { name: 'planner execute blocked dependents', run: testPlannerExecuteBlockedDependents },
   ];
 }
@@ -354,6 +357,46 @@ async function testPlannerExecutionStrategies(): Promise<void> {
     ],
   }, 'fail');
   assert.match(fail.checkConflicts({ version: '1', revision: 1, summary: 'conflict fixture', steps: conflictGraph.nodes.map((node) => ({ id: node.stepId, title: node.title, status: 'PENDING', kind: node.kind, attempts: 0, relatedFiles: node.fileScope, fileScope: node.fileScope, dependencies: node.dependencies, children: [] })) }, conflictGraph) ?? '', /step-1/);
+}
+
+async function testPlannerReplanProposalValidation(): Promise<void> {
+  const previousPlan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'previous plan',
+    steps: [
+      { id: 'step-0', title: 'Inspect math', status: 'DONE' as const, kind: 'search' as const, attempts: 1, executionState: 'done' as const, dependencies: [], children: [], relatedFiles: ['src/math.js'] },
+      { id: 'step-1', title: 'Fix add', status: 'FAILED' as const, kind: 'code' as const, attempts: 1, dependencies: ['step-0'], children: [], fileScope: ['src/math.js'] },
+      { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  };
+  const proposedPlan = {
+    version: '1' as const,
+    revision: 2,
+    summary: 'valid replan',
+    steps: [
+      { id: 'step-0', title: 'Inspect math', status: 'DONE' as const, kind: 'search' as const, attempts: 0, dependencies: [], children: [], relatedFiles: ['src/math.js'] },
+      { id: 'step-1', title: 'Retry add fix', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: ['step-0'], children: [], fileScope: ['src/math.js'] },
+      { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  };
+
+  const merged = mergeReplanProposal(previousPlan, proposedPlan, 'step-1', 'original failure');
+  assert.equal(merged.validation.ok, true);
+  assert.equal(merged.plan.revision, 2);
+  assert.equal(merged.plan.steps.find((step) => step.id === 'step-0')?.attempts, 1);
+  assert.equal(merged.plan.steps.find((step) => step.id === 'step-0')?.executionState, 'done');
+  assert.equal(merged.plan.steps.find((step) => step.id === 'step-1')?.status, 'PENDING');
+  assert.equal(merged.plan.steps.find((step) => step.id === 'step-1')?.failureKind, 'replan_required');
+  assert.match(merged.plan.steps.find((step) => step.id === 'step-1')?.lastError ?? '', /original failure/);
+
+  const invalidPlan = {
+    ...proposedPlan,
+    steps: proposedPlan.steps.map((step) => (step.id === 'step-0' ? { ...step, title: 'Mutated completed step' } : step)),
+  };
+  const validation = validateReplanProposal(previousPlan, invalidPlan, 'step-1');
+  assert.equal(validation.ok, false);
+  assert.equal(validation.errors.some((error) => /completed step step-0 title/.test(error)), true);
 }
 
 async function testPlannerExecuteEntryHelper(): Promise<void> {
@@ -1360,8 +1403,83 @@ async function testPlannerExecuteLocalReplan(): Promise<void> {
     assert.equal(result.status, 'completed');
     const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { lastReplanReason?: string };
+    const proposal = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.proposal.step-1.json'), 'utf8')) as { failedStepId: string; previousRevision: number; proposedRevision: number };
+    assert.equal(proposal.failedStepId, 'step-1');
+    assert.equal(proposal.previousRevision, 1);
+    assert.equal(proposal.proposedRevision, 2);
+    assert.match(events, /subtask_replan_proposed/);
+    assert.match(events, /subtask_replan_merged/);
     assert.match(events, /subtask_replanned/);
     assert.match(state.lastReplanReason ?? '', /step-1/);
+  });
+}
+
+async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    config.routing.defaultModel = 'code';
+    config.routing.subtaskMaxAttempts = 1;
+    config.routing.subtaskReplanOnFailure = true;
+    config.models.strong = { provider: 'primary', model: 'planner-model' };
+    config.models.code = { provider: 'primary', model: 'code-model' };
+
+    const primaryProvider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (content.includes('Failed step:')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Invalid replan mutates a completed step.',
+              steps: [
+                { id: 'step-0', title: 'Mutated completed search', status: 'DONE', kind: 'search', details: 'This should be rejected.', dependencies: [], children: [] },
+                { id: 'step-1', title: 'Retry impossible change', status: 'PENDING', kind: 'code', details: 'Still impossible.', relatedFiles: ['src/math.js'], dependencies: ['step-0'], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        if (!content.includes('"id": "step-0"') && !content.includes('"id":"step-0"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Initial plan with a completed search before failing code.',
+              steps: [
+                { id: 'step-0', title: 'Inspect math before editing', status: 'PENDING', kind: 'search', details: 'Read the math file.', dependencies: [], children: [] },
+                { id: 'step-1', title: 'Do impossible thing', status: 'PENDING', kind: 'code', details: 'Do impossible thing before replanning.', relatedFiles: ['src/math.js'], dependencies: ['step-0'], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Initial plan with a completed search before failing code.' });
+      }
+
+      if (content.includes('Do impossible thing')) {
+        throw new Error('Subtask could not complete with the original approach');
+      }
+      throw new Error('Unexpected request during invalid local replan fixture');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['primary', primaryProvider]]), plannerRegistry, {
+      prompt: '模拟失败后返回非法 replan',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const proposal = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.proposal.step-1.json'), 'utf8')) as { failedStepId: string };
+    const rejection = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.rejected.step-1.json'), 'utf8')) as { failedStepId: string; errors: string[] };
+    assert.equal(proposal.failedStepId, 'step-1');
+    assert.equal(rejection.failedStepId, 'step-1');
+    assert.equal(rejection.errors.some((error) => /completed step step-0 title/.test(error)), true);
+    assert.match(events, /subtask_replan_proposed/);
+    assert.match(events, /subtask_replan_rejected/);
+    assert.match(events, /subtask_replan_failed/);
   });
 }
 
