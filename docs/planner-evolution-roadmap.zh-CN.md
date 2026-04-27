@@ -266,7 +266,7 @@
 
 1. 当前已在 `src/planner/view-model.ts` 引入 normalized `timeline` / `subtaskTimeline`，但未来如需更严格协议仍可进一步抽出独立 event normalizer 模块。
 2. 当前 view model 已开始暴露 `feedbackHistory`、`deltaHistory`、`replanHistory` 摘要，但仍主要基于现有 artifact 组织，而不是专门的 history artifact 协议。
-3. 未来 WebUI 只读接口形状（`/sessions` / `/planner-view` / `/events`）还只是文档目标，尚未固化为独立模块边界。
+3. 只读接口边界已开始固化，`loadPlannerView()`、`loadPlannerEvents()`、`loadPlannerSessionSummary()` 现已形成 shared read-model API；未来 WebUI 的 `/sessions` / `/planner-view` / `/events` 仍待进一步产品化。
 
 完成标准：
 

@@ -233,7 +233,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 提供交互式终端 UI 和规划器会话查看器。
 
-planner artifact 的读取和事件归一化现已收敛到 `src/planner/view-model.ts`，而 `src/tui/planner-view.ts` 主要负责终端格式化和归一化后的 timeline 渲染。
+planner artifact 的读取、事件归一化以及 planner read-model API 现已收敛到 `src/planner/view-model.ts`，而 `src/tui/planner-view.ts` 主要负责终端格式化和归一化后的 timeline 渲染。
 
 TUI 不是一个独立的运行时栈，而是基于相同 `run` / `plan` / `plan --execute` 流程的前端界面。
 

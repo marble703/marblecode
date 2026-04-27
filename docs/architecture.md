@@ -233,7 +233,7 @@ For the details of task graphs, waves, and file locks, see `docs/planner-paralle
 
 Provides the interactive terminal UI and planner-session viewers.
 
-Planner artifact loading and event normalization now live in `src/planner/view-model.ts`, while `src/tui/planner-view.ts` focuses on terminal formatting and rendering normalized timeline entries.
+Planner artifact loading, event normalization, and planner read-model APIs now live in `src/planner/view-model.ts`, while `src/tui/planner-view.ts` focuses on terminal formatting and rendering normalized timeline entries.
 
 The TUI is not a separate runtime stack; it is a front end over the same `run` / `plan` / `plan --execute` flows.
 
