@@ -1,183 +1,6 @@
-import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import type { PlannerEventRecord, PlannerViewModel } from '../planner/view-model.js';
 
-export interface PlannerEventRecord {
-  type?: string;
-  [key: string]: unknown;
-}
-
-export interface PlannerViewModel {
-  sessionDir: string;
-  outcome: string;
-  phase: string;
-  executionPhase: string;
-  strategy: string;
-  epoch: number;
-  currentStepId: string | null;
-  activeStepIds: string[];
-  readyStepIds: string[];
-  completedStepIds: string[];
-  failedStepIds: string[];
-  blockedStepIds: string[];
-  degradedStepIds: string[];
-  executionWaves: Array<{ index: number; stepIds: string[] }>;
-  currentWaveStepIds: string[];
-  lastCompletedWaveStepIds: string[];
-  fallbackEdges: Array<{ from: string; to: string }>;
-  conflictEdges: Array<{ from: string; to: string; reason: string; domain?: string }>;
-  lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>; 
-  summary: string;
-  steps: Array<{
-    id: string;
-    title: string;
-    status: string;
-    kind: string;
-    attempts: number;
-    details?: string;
-    relatedFiles: string[];
-    children: string[];
-    assignee?: string;
-    executionState?: string;
-    lastError?: string;
-    failureKind?: string;
-  }>;
-  events: PlannerEventRecord[];
-  subtaskEvents: PlannerEventRecord[];
-  consistencyErrors: string[];
-  terminalSummary: string;
-  recoveryStepId: string | null;
-  recoveryReason: string;
-}
-
-export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
-  const [planRaw, stateRaw, eventsRaw, plannerLogRaw, executionGraphRaw, executionLocksRaw, executionStateRaw] = await Promise.all([
-    readTextIfExists(path.join(sessionDir, 'plan.json')),
-    readTextIfExists(path.join(sessionDir, 'plan.state.json')),
-    readTextIfExists(path.join(sessionDir, 'plan.events.jsonl')),
-    readTextIfExists(path.join(sessionDir, 'planner.log.jsonl')),
-    readTextIfExists(path.join(sessionDir, 'execution.graph.json')),
-    readTextIfExists(path.join(sessionDir, 'execution.locks.json')),
-    readTextIfExists(path.join(sessionDir, 'execution.state.json')),
-  ]);
-
-  const plan = parseJsonWithFallback(planRaw, {
-    summary: 'Planner session has not produced a plan yet.',
-    steps: [],
-  }) as {
-    summary: string;
-    steps: Array<{
-      id: string;
-      title: string;
-      status: string;
-      kind: string;
-      attempts?: number;
-      details?: string;
-      relatedFiles?: string[];
-      children: string[];
-      assignee?: string;
-      executionState?: string;
-      lastError?: string;
-      failureKind?: string;
-    }>;
-  };
-  const state = parseJsonWithFallback(stateRaw, {
-    phase: 'PENDING',
-    outcome: 'RUNNING',
-    message: 'Planner session is still initializing.',
-    currentStepId: null,
-    activeStepIds: [],
-    readyStepIds: [],
-    completedStepIds: [],
-    failedStepIds: [],
-    blockedStepIds: [],
-    consistencyErrors: [],
-  }) as {
-    phase: string;
-    outcome: string;
-    message: string;
-    currentStepId: string | null;
-    activeStepIds?: string[];
-    readyStepIds?: string[];
-    completedStepIds?: string[];
-    failedStepIds?: string[];
-    blockedStepIds?: string[];
-    degradedStepIds?: string[];
-    consistencyErrors: string[];
-  };
-  const events = parseJsonLines(eventsRaw);
-  const plannerLog = parseJsonLines(plannerLogRaw);
-  const executionGraph = parseJsonWithFallback(executionGraphRaw, { waves: [], edges: [] }) as { waves?: Array<{ index: number; stepIds: string[] }>; edges?: Array<{ from: string; to: string; type: string; reason?: string; domain?: string }> };
-  const executionLocks = parseJsonWithFallback(executionLocksRaw, { entries: [] }) as { entries?: Array<{ path: string; mode: string; ownerStepId: string }> };
-  const executionState = parseJsonWithFallback(executionStateRaw, {
-    executionPhase: 'idle',
-    strategy: 'serial',
-    epoch: 0,
-    currentWaveStepIds: [],
-    lastCompletedWaveStepIds: [],
-    recoveryStepId: null,
-    recoveryReason: '',
-  }) as {
-    executionPhase?: string;
-    strategy?: string;
-    epoch?: number;
-    currentWaveStepIds?: string[];
-    lastCompletedWaveStepIds?: string[];
-    recoveryStepId?: string | null;
-    recoveryReason?: string;
-  };
-  const subtaskEvents = events.filter((event) => {
-    const type = String(event.type ?? '');
-    return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
-  });
-  const terminal = findLastMatching(plannerLog, (entry) => entry.type === 'planner_terminal');
-
-  return {
-    sessionDir,
-    outcome: state.outcome,
-    phase: state.phase,
-    executionPhase: executionState.executionPhase ?? 'idle',
-    strategy: executionState.strategy ?? 'serial',
-    epoch: executionState.epoch ?? 0,
-    currentStepId: state.currentStepId,
-    activeStepIds: state.activeStepIds ?? [],
-    readyStepIds: state.readyStepIds ?? [],
-    completedStepIds: state.completedStepIds ?? [],
-    failedStepIds: state.failedStepIds ?? [],
-    blockedStepIds: state.blockedStepIds ?? [],
-    degradedStepIds: state.degradedStepIds ?? [],
-    executionWaves: executionGraph.waves ?? [],
-    currentWaveStepIds: executionState.currentWaveStepIds ?? [],
-    lastCompletedWaveStepIds: executionState.lastCompletedWaveStepIds ?? [],
-    fallbackEdges: (executionGraph.edges ?? [])
-      .filter((edge) => edge.type === 'fallback')
-      .map((edge) => ({ from: edge.from, to: edge.to })),
-    conflictEdges: (executionGraph.edges ?? [])
-      .filter((edge) => edge.type === 'conflict')
-      .map((edge) => ({ from: edge.from, to: edge.to, reason: edge.reason ?? 'unknown', ...(edge.domain ? { domain: edge.domain } : {}) })),
-    lockEntries: executionLocks.entries ?? [],
-    summary: plan.summary || state.message,
-    steps: plan.steps.map((step) => ({
-      id: step.id,
-      title: step.title,
-      status: step.status,
-      kind: step.kind,
-      attempts: step.attempts ?? 0,
-      ...(step.details ? { details: step.details } : {}),
-      relatedFiles: step.relatedFiles ?? [],
-      children: step.children,
-      ...(step.assignee ? { assignee: step.assignee } : {}),
-      ...(step.executionState ? { executionState: step.executionState } : {}),
-      ...(step.lastError ? { lastError: step.lastError } : {}),
-      ...(step.failureKind ? { failureKind: step.failureKind } : {}),
-    })),
-    events,
-    subtaskEvents,
-    consistencyErrors: state.consistencyErrors,
-    terminalSummary: terminal ? `${String(terminal.outcome ?? '')} ${String(terminal.message ?? '')}`.trim() : 'unavailable',
-    recoveryStepId: executionState.recoveryStepId ?? null,
-    recoveryReason: executionState.recoveryReason ?? '',
-  };
-}
+export { loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
 
 export function formatPlannerView(view: PlannerViewModel): string {
   const lines: string[] = [
@@ -186,6 +9,9 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Phase: ${view.phase}`,
     `Execution phase: ${view.executionPhase}`,
     `Strategy: ${view.strategy}    Epoch: ${view.epoch}`,
+    `Plan revision: ${view.planRevision}`,
+    `Plan partial: ${view.planIsPartial ? 'yes' : 'no'}`,
+    `Planning horizon: ${view.planningHorizonWaveCount ?? '(none)'}`,
     `Current step: ${view.currentStepId ?? '(none)'}`,
     `Active steps: ${view.activeStepIds.join(', ') || '(none)'}`,
     `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
@@ -199,6 +25,9 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Fallbacks: ${view.fallbackEdges.length > 0 ? view.fallbackEdges.map((edge) => `${edge.from}->${edge.to}`).join(', ') : '(none)'}`,
     `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
     `Recovery: ${view.recoveryStepId ? `${view.recoveryStepId}${view.recoveryReason ? ` ${view.recoveryReason}` : ''}` : '(none)'}`,
+    `Plan deltas: ${view.planDeltas.length > 0 ? view.planDeltas.map((delta) => `${delta.nextRevision}:${delta.addedStepIds.join(',') || '(none)'}`).join(' | ') : '(none)'}`,
+    `Latest feedback: ${view.latestFeedback ? `${view.latestFeedback.executionEpoch}:${view.latestFeedback.undeclaredChangedFiles.join(',') || 'none'}${view.latestFeedback.triggerReplan ? ' replan' : ''}` : '(none)'}`,
+    `Replan rejections: ${view.replanRejections.length > 0 ? view.replanRejections.map((item) => `${item.stepId}`).join(', ') : '(none)'}`,
     `Summary: ${view.summary}`,
     '',
     'Plan Steps:',
@@ -247,20 +76,6 @@ export function formatPlannerView(view: PlannerViewModel): string {
   return lines.join('\n');
 }
 
-export function parseJsonLines(content: string): PlannerEventRecord[] {
-  return content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line) as PlannerEventRecord];
-      } catch {
-        return [];
-      }
-    });
-}
-
 export function renderPlannerEvent(event: PlannerEventRecord): string {
   const type = String(event.type ?? 'event');
   if (type === 'plan_set') {
@@ -289,6 +104,24 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
   }
   if (type === 'planner_execution_finished') {
     return `subtask execution finished: ${String(event.outcome ?? '')}`;
+  }
+  if (type === 'plan_appended') {
+    return `plan appended (revision ${String(event.revision ?? '')}, ${String(event.stepCount ?? '')} steps)`;
+  }
+  if (type === 'planner_partial_execution_completed') {
+    return `partial execution window completed (revision ${String(event.revision ?? '')})`;
+  }
+  if (type === 'planner_execution_window_completed') {
+    return `execution window completed (${String(event.executedWaveCount ?? '')} wave)`;
+  }
+  if (type === 'execution_feedback_undeclared_files') {
+    return `execution feedback undeclared files: ${Array.isArray(event.undeclaredFiles) ? event.undeclaredFiles.join(', ') : ''}`;
+  }
+  if (type === 'execution_feedback_verify_failed') {
+    return `execution feedback verify failed: ${String(event.stepId ?? '')}`;
+  }
+  if (type === 'execution_feedback_replan_scope') {
+    return `execution feedback replan scope: ${Array.isArray(event.affectedStepIds) ? event.affectedStepIds.join(', ') : ''}`;
   }
   if (type === 'subtask_retry_scheduled') {
     return `${String(event.stepId ?? '')} retry scheduled ${String(event.attempt ?? '')}/${String(event.maxAttempts ?? '')}: ${String(event.reason ?? '')}`;
@@ -341,35 +174,4 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
     return `${type}: ${String(event.prompt ?? '')}`;
   }
   return `${type}: ${JSON.stringify(event)}`;
-}
-
-function findLastMatching<T>(items: T[], predicate: (item: T) => boolean): T | undefined {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item && predicate(item)) {
-      return item;
-    }
-  }
-
-  return undefined;
-}
-
-async function readTextIfExists(filePath: string): Promise<string> {
-  try {
-    return await readFile(filePath, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function parseJsonWithFallback<T>(content: string, fallback: T): T {
-  if (!content.trim()) {
-    return fallback;
-  }
-
-  try {
-    return JSON.parse(content) as T;
-  } catch {
-    return fallback;
-  }
 }

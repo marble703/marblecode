@@ -11,7 +11,8 @@ import { createProviders } from '../provider/index.js';
 import { resolvePlannerSessionDir, isPlannerSessionDir, listRecentSessions, type SessionListItem } from '../session/index.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
-import { loadPlannerView, formatPlannerView, renderPlannerEvent, type PlannerEventRecord, type PlannerViewModel } from './planner-view.js';
+import { loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
+import { formatPlannerView, renderPlannerEvent } from './planner-view.js';
 import { watchPlannerSession } from './planner-live.js';
 
 export type TuiMode = 'run' | 'plan' | 'execute';

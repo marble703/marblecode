@@ -1,6 +1,7 @@
 import readline from 'node:readline';
 import { stdin as input, stdout as output } from 'node:process';
-import { loadPlannerView, renderPlannerEvent, type PlannerViewModel } from './planner-view.js';
+import { loadPlannerView, type PlannerViewModel } from '../planner/view-model.js';
+import { renderPlannerEvent } from './planner-view.js';
 
 export async function watchPlannerSession(sessionDir: string, pollMs = 1000): Promise<void> {
   const refreshMs = Math.max(250, pollMs);
