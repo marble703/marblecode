@@ -15,7 +15,8 @@ import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
 import { runPlanConsistencyChecks } from './parse.js';
-import { computeUndeclaredChangedFiles } from './replan-merge.js';
+import { buildPlannerAffectedSubgraph, computeUndeclaredChangedFiles } from './replan-merge.js';
+import { attemptPlannerNodeReplan } from './recovery.js';
 
 type StepClassifier = (step: PlannerStep) => 'skip' | 'subagent' | 'verify';
 type StepUpdater = (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan;
@@ -186,6 +187,7 @@ export async function executePlannerPlan(
       currentWaveStepIds = [];
       await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
       {
+        const verifyStep = nextPlan.steps.find((candidate) => candidate.id === step.id) ?? step;
         const feedback: PlannerExecutionFeedbackArtifact = {
           version: '1',
           planRevision: nextPlan.revision,
@@ -199,7 +201,7 @@ export async function executePlannerPlan(
           stepSummaries: [{
             stepId: step.id,
             title: step.title,
-            status: step.status,
+            status: verifyStep.status,
             changedFiles: verifyResult.changedFiles,
             undeclaredChangedFiles: [],
             message: verifyResult.stop ? nextState.message : 'verify passed',
@@ -246,21 +248,26 @@ export async function executePlannerPlan(
     {
       const stepSummaries: PlannerExecutionFeedbackArtifact['stepSummaries'] = [];
       const allUndeclared: string[] = [];
-      for (const step of selectedWave) {
-        const currentStep = nextPlan.steps.find((s) => s.id === step.id);
+      for (const stepResult of waveResult.stepFeedback) {
+        const step = selectedWave.find((candidate) => candidate.id === stepResult.stepId);
+        const currentStep = nextPlan.steps.find((s) => s.id === stepResult.stepId);
+        if (!step) {
+          continue;
+        }
         const declared = [...new Set([...(currentStep?.fileScope ?? []), ...(currentStep?.producesFiles ?? []), ...(currentStep?.relatedFiles ?? [])])];
-        const actual = waveResult.changedFiles;
+        const actual = stepResult.changedFiles;
         const undeclared = computeUndeclaredChangedFiles(step, declared, actual);
         if (undeclared.length > 0) {
           allUndeclared.push(...undeclared);
         }
+        stepResult.undeclaredChangedFiles = undeclared;
         stepSummaries.push({
-          stepId: step.id,
+          stepId: stepResult.stepId,
           title: step.title,
-          status: currentStep?.status ?? step.status,
+          status: currentStep?.status ?? stepResult.status,
           changedFiles: actual,
           undeclaredChangedFiles: undeclared,
-          message: currentStep?.lastError ?? currentStep?.details ?? '',
+          message: stepResult.message,
         });
       }
       const feedback: PlannerExecutionFeedbackArtifact = {
@@ -285,6 +292,37 @@ export async function executePlannerPlan(
           undeclaredFiles: feedback.undeclaredChangedFiles,
           triggerReplan: true,
         }, config.session.redactSecrets);
+        const firstFailed = stepSummaries[0];
+        if (firstFailed && config.routing.subtaskReplanOnFailure) {
+          const affected = buildPlannerAffectedSubgraph(nextPlan, firstFailed.stepId, feedback.undeclaredChangedFiles);
+          await appendPlannerEvent(session, {
+            type: 'execution_feedback_replan_scope',
+            stepId: firstFailed.stepId,
+            affectedStepIds: [...affected],
+          }, config.session.redactSecrets);
+          const replanned = await attemptPlannerNodeReplan(
+            config,
+            providers,
+            session,
+            requestArtifact,
+            nextPlan,
+            nextState,
+            firstFailed.stepId,
+            feedback.replanReason,
+            lockTable,
+            feedback,
+          );
+          if (replanned) {
+            nextPlan = replanned.plan;
+            nextState = replanned.state;
+            currentWaveStepIds = [];
+            await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
+              recoveryStepId: firstFailed.stepId,
+              recoveryReason: feedback.replanReason,
+            });
+            continue;
+          }
+        }
       }
     }
     if (waveResult.fallbackActivated) {

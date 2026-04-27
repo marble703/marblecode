@@ -33,6 +33,7 @@ interface PlannerVerifyDependencies {
     lockTable: ExecutionLockTable,
     manageLocksInternally: boolean,
     updatePlannerStep: (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
+    feedback?: import('./types.js').PlannerExecutionFeedbackArtifact,
   ) => Promise<{
     plan: PlannerPlan;
     state: PlannerState;

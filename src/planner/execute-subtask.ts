@@ -17,7 +17,7 @@ import {
 import { canTransferOwnership } from './ownership.js';
 import { buildStepContextPacket } from './prompts.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import type { PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep, PlannerStepExecutionState } from './types.js';
+import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep, PlannerStepExecutionState } from './types.js';
 import { appendPlannerEvent } from './artifacts.js';
 import { attemptPlannerNodeReplan } from './recovery.js';
 import { deriveFailureKind, mergeStringLists, resolveSubtaskFallbackModel } from './utils.js';
@@ -165,6 +165,7 @@ export async function executePlannerSubtaskWithRecovery(
   lockTable: ExecutionLockTable,
   manageLocksInternally: boolean,
   updatePlannerStep: (plan: PlannerPlan, targetStepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
+  feedback?: PlannerExecutionFeedbackArtifact,
 ): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; lockTable: ExecutionLockTable }> {
   let nextPlan = plan;
   let nextState = state;
@@ -356,7 +357,7 @@ export async function executePlannerSubtaskWithRecovery(
   }
 
   if (allowReplan && config.routing.subtaskReplanOnFailure && latestFailure) {
-    const replanned = await attemptPlannerNodeReplan(config, providers, session, requestArtifact, nextPlan, nextState, step.id, latestFailure.result.message, lockTable);
+    const replanned = await attemptPlannerNodeReplan(config, providers, session, requestArtifact, nextPlan, nextState, step.id, latestFailure.result.message, lockTable, feedback);
     if (replanned) {
       return { plan: replanned.plan, state: replanned.state, changedFiles: [], stop: false, replanned: true, lockTable };
     }

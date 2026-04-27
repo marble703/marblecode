@@ -10,7 +10,8 @@ import {
 import { executePlannerPlan } from './execute.js';
 import { buildPlannerModelRequest } from './model.js';
 import { applyPlanUpdate, normalizePlannerPlan, normalizePlannerPlanAppend, parsePlannerResponse, runPlanConsistencyChecks } from './parse.js';
-import { buildPlanAppendDeltaArtifact, mergePlanAppend, validatePlanAppend } from './replan-merge.js';
+import { buildPlanAppendDeltaArtifact, mergePlanAppend, validateAppendActiveWaveConflict, validatePlanAppend } from './replan-merge.js';
+import { loadPlannerExecutionArtifacts } from './artifacts.js';
 import { refreshPlannerStateFromPlan, statusToPhase } from './state.js';
 import type { PlannerContextPacket, PlannerPlan, PlannerResponse, PlannerState } from './types.js';
 import {
@@ -261,8 +262,20 @@ export async function runPlannerLoop(
     if (step.type === 'plan_append') {
       const appendPlan = normalizePlannerPlanAppend(step.plan, plan.revision + 1, config.workspaceRoot);
       const appendValidation = validatePlanAppend(plan, appendPlan);
-      if (!appendValidation.ok) {
-        throw new Error(`Planner plan append is invalid: ${appendValidation.errors.join('; ')}`);
+      let appendConflictErrors: string[] = [];
+      try {
+        const executionArtifacts = await loadPlannerExecutionArtifacts(session.dir);
+        appendConflictErrors = validateAppendActiveWaveConflict(
+          plan,
+          appendPlan,
+          executionArtifacts.executionState.currentWaveStepIds,
+          executionArtifacts.lockTable,
+        );
+      } catch {
+        appendConflictErrors = [];
+      }
+      if (!appendValidation.ok || appendConflictErrors.length > 0) {
+        throw new Error(`Planner plan append is invalid: ${[...appendValidation.errors, ...appendConflictErrors].join('; ')}`);
       }
       const mergedPlan = mergePlanAppend(plan, appendPlan);
       const delta = buildPlanAppendDeltaArtifact({

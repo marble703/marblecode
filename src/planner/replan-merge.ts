@@ -360,26 +360,50 @@ export function buildPlannerAffectedSubgraph(
     }
   }
 
-  for (const step of plan.steps) {
-    if (step.status === 'DONE') {
-      continue;
-    }
-    if (affected.has(step.id)) {
-      continue;
-    }
-    if (step.conflictDomains && step.conflictDomains.length > 0) {
-      for (const affectedId of affected) {
-        const affectedStep = plan.steps.find((candidate) => candidate.id === affectedId);
-        if (affectedStep?.conflictDomains?.some((domain) => step.conflictDomains?.includes(domain))) {
-          affected.add(step.id);
-          queue.push(step.id);
-          break;
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const step of plan.steps) {
+      if (step.status === 'DONE' || affected.has(step.id)) {
+        continue;
+      }
+      let shouldAdd = false;
+      if (step.conflictDomains && step.conflictDomains.length > 0) {
+        for (const affectedId of affected) {
+          const affectedStep = plan.steps.find((candidate) => candidate.id === affectedId);
+          if (affectedStep?.conflictDomains?.some((domain) => step.conflictDomains?.includes(domain))) {
+            shouldAdd = true;
+            break;
+          }
         }
       }
-    }
-    if (undeclaredFiles.length > 0 && (step.fileScope ?? []).some((file) => undeclaredFiles.includes(file))) {
+      if (!shouldAdd && undeclaredFiles.length > 0 && (step.fileScope ?? []).some((file) => undeclaredFiles.includes(file))) {
+        shouldAdd = true;
+      }
+      if (!shouldAdd) {
+        continue;
+      }
       affected.add(step.id);
       queue.push(step.id);
+      expanded = true;
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) {
+          continue;
+        }
+        for (const edge of graph.edges) {
+          const isScoped = edge.type === 'dependency' || edge.type === 'must_run_after' || edge.type === 'fallback';
+          if (!isScoped || edge.from !== current || affected.has(edge.to)) {
+            continue;
+          }
+          const downstreamStep = plan.steps.find((candidate) => candidate.id === edge.to);
+          if (!downstreamStep || downstreamStep.status === 'DONE') {
+            continue;
+          }
+          affected.add(edge.to);
+          queue.push(edge.to);
+        }
+      }
     }
   }
 

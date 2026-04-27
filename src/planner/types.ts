@@ -145,6 +145,14 @@ export interface PlannerStepSummary {
   message: string;
 }
 
+export interface PlannerStepExecutionFeedback {
+  stepId: string;
+  changedFiles: string[];
+  undeclaredChangedFiles: string[];
+  message: string;
+  status: PlannerStepStatus;
+}
+
 export interface PlannerExecutionFeedbackArtifact {
   version: '1';
   planRevision: number;

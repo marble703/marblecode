@@ -6,7 +6,7 @@ import { derivePlannerAccessMode, derivePlannerFileScope, type PlannerExecutionG
 import { downgradeToGuardedRead, type ExecutionLockTable } from './locks.js';
 import { buildSubtaskPrompt } from './prompts.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import type { PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
+import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep, PlannerStepExecutionFeedback } from './types.js';
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from './execute-subtask.js';
 
 export function selectExecutionWave(
@@ -135,11 +135,12 @@ export async function executePlannerWave(
   graph: PlannerExecutionGraph,
   lockTable: ExecutionLockTable,
   updatePlannerStep: (plan: PlannerPlan, stepId: string, updates: Partial<PlannerStep>) => PlannerPlan,
-): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stop: boolean; replanned: boolean; fallbackActivated: boolean; activatedFallbackStepIds: string[]; lockTable: ExecutionLockTable }> {
+): Promise<{ plan: PlannerPlan; state: PlannerState; changedFiles: string[]; stepFeedback: PlannerStepExecutionFeedback[]; stop: boolean; replanned: boolean; fallbackActivated: boolean; activatedFallbackStepIds: string[]; lockTable: ExecutionLockTable }> {
   let nextPlan = plan;
   let nextState = state;
   let nextLockTable = lockTable;
   const changedFiles = new Set<string>();
+  const stepFeedback: PlannerStepExecutionFeedback[] = [];
   const concurrent = wave.length > 1;
 
   for (const step of wave) {
@@ -172,6 +173,7 @@ export async function executePlannerWave(
         nextLockTable,
         false,
         updatePlannerStep,
+        undefined,
       );
     }),
   );
@@ -241,6 +243,13 @@ export async function executePlannerWave(
     for (const file of value.changedFiles) {
       changedFiles.add(file);
     }
+    stepFeedback.push({
+      stepId: step.id,
+      changedFiles: value.changedFiles,
+      undeclaredChangedFiles: [],
+      message: value.state.message,
+      status: nextPlan.steps.find((candidate) => candidate.id === step.id)?.status ?? step.status,
+    });
     if (value.stop) {
       if (step.failureTolerance === 'degrade') {
         nextState = refreshPlannerStateFromPlan(nextPlan, {
@@ -308,6 +317,7 @@ export async function executePlannerWave(
     plan: nextPlan,
     state: nextState,
     changedFiles: [...changedFiles],
+    stepFeedback,
     stop,
     replanned,
     fallbackActivated,
