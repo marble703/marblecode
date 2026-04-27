@@ -108,6 +108,15 @@ Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
 
 `conflict` 边尤其重要，因为它把“这两个步骤不能同时推进”从隐式约定变成了显式图结构。
 
+当前 `conflict` 边还会带解释元数据：
+
+- `reason: explicit`
+- `reason: file_scope`
+- `reason: unknown_write_scope`
+- `reason: conflict_domain`
+
+如果是 `conflict_domain`，edge 上还会记录 `domain`。
+
 `fallback` 边不会像普通 dependency 一样参与 wave 入度计算。它表示“当 source step 失败时，target step 可以作为恢复路径被激活”。在 source step 未失败前，fallback target 会被视为 `fallback_inactive`，不会进入 ready set。
 
 ### accessMode
@@ -144,6 +153,7 @@ Planner execute 的阶段推进由 `src/planner/execution-machine.ts` 管理。
 除了自动冲突外，planner 也可以显式给出：
 
 - `conflictsWith`
+- `conflictDomains`
 - `mustRunAfter`
 
 这让模型可以表达“逻辑上不该并行”的场景，而不只依赖文件路径重叠。

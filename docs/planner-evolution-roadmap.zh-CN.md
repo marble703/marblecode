@@ -20,7 +20,7 @@
 - 状态机已有 transition table 和 dispatch 入口，但还没有把 wave/lock/replan 等所有运行时决策都纳入 reducer。
 - `execution.state.json` 记录了阶段和集合快照，但还不是所有调度决策的唯一来源。
 - artifact resume 目前基本是重置非 DONE 步骤再重跑，没有精确恢复 active wave、fallback path 或局部子图状态。
-- 冲突检测主要基于 `fileScope` 路径字符串、空 scope 写步骤保守冲突、以及显式 `conflictsWith`。
+- 冲突检测现在已开始同时支持 `fileScope`、显式 `conflictsWith` 和 `conflictDomains`，但语义域 taxonomy 仍是第一版。
 - graph fallback 已支持基础激活，并且 fallback 成功后已可替代失败 source step 满足下游依赖。
 - 局部 replan 已经是 proposal-first，并具备 completed-step 保护、bounded scope 和 active lock compatibility 校验；更严格的 future graph-delta / rolling-merge 约束仍待后续阶段补齐。
 - wave 失败处理仍偏“一失败则停止 wave/全局失败”，没有 `DEGRADED` 或可容忍失败语义。
@@ -124,6 +124,20 @@
 5. 给 `PlannerExecutionEdge` 增加可选 `reason` 或 `domain` 字段，避免 UI 只能看到两个 step 冲突但不知道原因。
 6. 支持显式 `conflictsWith` 继续生效，且优先级最高。
 7. 引入简单 domain registry 文档，不做过早复杂配置。初期允许自由字符串，但在 consistency check 中校验格式：小写 kebab-case。
+
+已完成的 conflictDomains 基础：
+
+1. `PlannerStep` 已支持 `conflictDomains?: string[]`。
+2. planner normalize / consistency check 已支持 `conflictDomains`，并校验 `kebab-case` 格式。
+3. `PlannerExecutionNode` 已携带 `conflictDomains`。
+4. graph 构图时已支持 `conflict_domain` 冲突边，并在 edge 上写出 `reason` / `domain` 元数据。
+5. planner system prompt 已提示模型在文件路径不足以表达耦合时声明 `conflictDomains`。
+6. planner view 已可展示 conflict summary，并区分 `file_scope` / `conflict_domain` / `explicit`。
+
+仍待完成的 conflictDomains 细化：
+
+1. 如需更强约束，后续可引入项目级 domain registry，而不只是格式校验。
+2. 未来 rolling planning / delta merge 还需要继承 domain-level 校验。
 
 完成标准：
 

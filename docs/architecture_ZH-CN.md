@@ -253,7 +253,7 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 当前主机端执行的基础能力包括：
 
 - 带有显式依赖和文件作用域的归一化规划器步骤
-- 包含 `dependency`、`must_run_after`、`conflict` 和 `fallback` 边的执行图
+- 包含 `dependency`、`must_run_after`、`conflict` 和 `fallback` 边的执行图，并带有用于语义写入耦合的 conflict reason/domain 元数据
 - 从执行图中派生的执行波次
 - 带有写所有权和降级为受保护读的文件锁表
 - 由 `maxConcurrentSubtasks` 限制的、冲突感知的并发控制

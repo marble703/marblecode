@@ -253,7 +253,7 @@ Planner execute is the main place where the architecture has grown beyond the or
 Current host-side execution foundations include:
 
 - normalized planner steps with explicit dependencies and file scopes
-- execution graphs with `dependency`, `must_run_after`, `conflict`, and `fallback` edges
+- execution graphs with `dependency`, `must_run_after`, `conflict`, and `fallback` edges, including conflict reason/domain metadata for semantic write coupling
 - execution waves derived from the graph
 - file lock tables with write ownership and guarded-read downgrade
 - conflict-aware concurrency bounded by `maxConcurrentSubtasks`
