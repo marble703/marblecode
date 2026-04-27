@@ -44,7 +44,7 @@
 3. 后续 wave 可以通过 `plan_append` 和 `plan.delta.<revision>.json` 产物继续追加。
 4. 代码/测试/文档步骤通过 coder 子代理运行。
 5. 验证步骤通过验证器路径运行。
-6. 失败的步骤可以重试、切换到备用模型、触发本地重新规划，或者等待下一轮 planning window。
+6. 失败的步骤可以重试、切换到备用模型、基于执行反馈（undeclared changed files / affected subgraph）触发局部重新规划，或者等待下一轮 planning window。
 
 ### `tui`
 

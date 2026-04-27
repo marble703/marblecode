@@ -44,7 +44,7 @@ The planner-driven execution flow.
 3. Additional waves can be appended later through `plan_append` plus `plan.delta.<revision>.json` artifacts.
 4. Code/test/docs steps run through coder subagents.
 5. Verify steps run through the verifier path.
-6. Failed steps may retry, switch to a fallback model, trigger local replan, or leave the host waiting for another planning window.
+6. Failed steps may retry, switch to a fallback model, trigger local replan with execution feedback (undeclared changed files, affected subgraph), or leave the host waiting for another planning window.
 
 ### `tui`
 

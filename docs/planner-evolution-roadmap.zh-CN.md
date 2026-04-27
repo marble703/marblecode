@@ -217,11 +217,15 @@
 6. `executePlannerPlan()` 已支持在 partial plan 下仅执行前 `planningWindowWaves` 个 wave，然后回到 planner 继续规划。
 7. manual suite 已覆盖 rolling window append 成功路径和非法 append 拒绝路径。
 
-仍待完成的滚动式规划细化：
+ 仍待完成的滚动式规划细化：
 
-1. 当前 append 校验已覆盖结构与 cycle，但 active lock / active wave conflict 还未升级成完整增量图约束体系。
+1. 当前 append 校验已覆盖结构与 cycle，active lock / active wave conflict 校验已通过 `validateAppendActiveWaveConflict()` 落地。
 2. 当前 delta artifact 还是 step-level `plan.delta.*`，未来如需更强图级审计可继续补 `graph.delta.*`。
-3. execution feedback packet 尚未引入，host 目前仍主要依据 partial-plan 边界而非真实执行偏差自动触发再规划。
+3. execution feedback packet 已通过 `execution.feedback.json` 落地，host 现在支持检测 undeclared changed files 并在 feedback 标记 `triggerReplan`。
+4. 受影响子图计算已通过 `buildPlannerAffectedSubgraph()` 落地。
+5. feedback 已接入 `buildPlannerNodeReplanRequest()`，planner replan 提示词现在包含执行反馈信息（changedFiles / undeclaredChangedFiles / stepSummaries）。
+6. `subtaskReplanOnFailure` 且 feedback 存在时，局部 replan 仍优先使用 proposal-first merge。
+7. manual suite 已覆盖 feedback artifact 生成、affected subgraph 计算、active lock append 冲突校验。
 
 完成标准：
 

@@ -45,6 +45,19 @@
 
 在 rolling planning 基础下，如果当前计划声明了 `isPartial=true`，host 也可以只执行前若干个 wave，然后回到 planner 请求 `plan_append`，并通过 `plan.delta.<revision>.json` 记录新增步骤。
 
+## 执行反馈与反馈驱动 replan
+
+当前 host 在每轮 wave 完成后会写出 `execution.feedback.json`，包含：
+
+- `changedFiles` / `undeclaredChangedFiles`
+- `verifyFailures`
+- `stepSummaries`
+- `triggerReplan` / `replanReason`
+
+当检测到 undeclared changed files 时，会标记 `triggerReplan=true` 并记录 `execution_feedback_undeclared_files` 事件。局部 replan 请求现在会包含这些反馈信息，并且受影响子图会通过 `buildPlannerAffectedSubgraph()` 根据依赖关系、conflict domains 和未声明文件交集来限定范围。
+
+Append 校验现在也通过 `validateAppendActiveWaveConflict()` 检查 writer step 是否与 active lock / active wave 冲突。
+
 可以把当前模型理解成：
 
 - planner 负责“提出可执行的步骤和依赖”
