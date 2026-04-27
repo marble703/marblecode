@@ -264,8 +264,8 @@
 
 仍待完成的 WebUI/TUI 细化：
 
-1. 目前仍未抽出正式的 event normalizer 层，`renderPlannerEvent()` 仍直接消费原始事件记录。
-2. 当前只读取 latest `execution.feedback.json`，还没有 feedback history / delta history API 语义。
+1. 当前已在 `src/planner/view-model.ts` 引入 normalized `timeline` / `subtaskTimeline`，但未来如需更严格协议仍可进一步抽出独立 event normalizer 模块。
+2. 当前 view model 已开始暴露 `feedbackHistory`、`deltaHistory`、`replanHistory` 摘要，但仍主要基于现有 artifact 组织，而不是专门的 history artifact 协议。
 3. 未来 WebUI 只读接口形状（`/sessions` / `/planner-view` / `/events`）还只是文档目标，尚未固化为独立模块边界。
 
 完成标准：
