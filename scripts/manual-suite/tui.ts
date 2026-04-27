@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { applyTuiCommand, createInitialTuiState } from '../../src/tui/agent-repl.js';
-import { loadPlannerView } from '../../src/tui/planner-view.js';
+import { loadPlannerView } from '../../src/planner/view-model.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
 import { withWorkspace } from './helpers.js';
 import type { ManualSuiteCase } from './types.js';
@@ -13,6 +13,8 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'interactive tui command parsing', run: testInteractiveTuiCommandParsing },
     { name: 'recent session summaries', run: testRecentSessionSummaries },
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
+    { name: 'planner view loads delta and feedback artifacts', run: testPlannerViewLoadsDeltaAndFeedbackArtifacts },
+    { name: 'planner view loads replan rejection artifacts', run: testPlannerViewLoadsReplanRejectionArtifacts },
   ];
 }
 
@@ -177,6 +179,49 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.conflictEdges[0]?.domain, 'api-contract');
     assert.equal(view.events.length, 1);
     assert.deepEqual(view.fallbackEdges, []);
+    assert.deepEqual(view.planDeltas, []);
+    assert.equal(view.latestFeedback, null);
+    assert.deepEqual(view.replanRejections, []);
     assert.match(view.terminalSummary, /unavailable/);
+  });
+}
+
+async function testPlannerViewLoadsDeltaAndFeedbackArtifacts(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-03-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 3, summary: 'Rolling plan', isPartial: false, planningHorizon: { waveCount: 1 }, steps: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'PENDING', outcome: 'DONE', message: 'done', currentStepId: null, consistencyErrors: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), `${JSON.stringify({ type: 'plan_appended', revision: 3, stepCount: 1 })}\n`, 'utf8');
+    await writeFile(path.join(sessionDir, 'planner.log.jsonl'), `${JSON.stringify({ type: 'planner_terminal', outcome: 'DONE', message: 'done' })}\n`, 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.delta.2.json'), JSON.stringify({ baseRevision: 1, nextRevision: 2, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-2'], combinedIsPartial: true }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.delta.3.json'), JSON.stringify({ baseRevision: 2, nextRevision: 3, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-3'], combinedIsPartial: false }), 'utf8');
+    await writeFile(path.join(sessionDir, 'execution.feedback.json'), JSON.stringify({ planRevision: 3, executionEpoch: 2, changedFiles: ['src/math.js'], undeclaredChangedFiles: ['src/notes.txt'], verifyFailures: [], triggerReplan: true, replanReason: 'Undeclared changed files detected in wave: src/notes.txt' }), 'utf8');
+
+    const view = await loadPlannerView(sessionDir);
+    assert.equal(view.planRevision, 3);
+    assert.equal(view.planIsPartial, false);
+    assert.equal(view.planningHorizonWaveCount, 1);
+    assert.equal(view.planDeltas.length, 2);
+    assert.deepEqual(view.planDeltas.map((delta) => delta.nextRevision), [2, 3]);
+    assert.equal(view.latestFeedback?.executionEpoch, 2);
+    assert.deepEqual(view.latestFeedback?.undeclaredChangedFiles, ['src/notes.txt']);
+    assert.equal(view.events.length, 1);
+  });
+}
+
+async function testPlannerViewLoadsReplanRejectionArtifacts(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-04-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 2, summary: 'Replan session', steps: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2', consistencyErrors: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), '', 'utf8');
+    await writeFile(path.join(sessionDir, 'replan.rejected.step-2.json'), JSON.stringify({ failedStepId: 'step-2', errors: ['lock conflict', 'scope mismatch'] }), 'utf8');
+
+    const view = await loadPlannerView(sessionDir);
+    assert.equal(view.replanRejections.length, 1);
+    assert.equal(view.replanRejections[0]?.stepId, 'step-2');
+    assert.deepEqual(view.replanRejections[0]?.errors, ['lock conflict', 'scope mismatch']);
   });
 }
