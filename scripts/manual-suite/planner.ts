@@ -53,6 +53,8 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute feedback triggers replan', run: testPlannerExecuteFeedbackTriggersReplan },
     { name: 'planner execute affected subgraph calculator', run: testPlannerExecuteAffectedSubgraphCalculator },
     { name: 'planner append active lock conflict', run: testPlannerAppendActiveLockConflict },
+    { name: 'planner execute wave feedback is step scoped', run: testPlannerExecuteWaveFeedbackIsStepScoped },
+    { name: 'planner execute verify feedback uses final status', run: testPlannerExecuteVerifyFeedbackUsesFinalStatus },
     { name: 'planner execute retry recovery', run: testPlannerExecuteRetryRecovery },
     { name: 'planner execute fallback model', run: testPlannerExecuteFallbackModel },
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
@@ -2151,4 +2153,43 @@ async function testPlannerAppendActiveLockConflict(): Promise<void> {
   const errors = validateAppendActiveWaveConflict(previousPlan, appendPlan, ['step-1'], locked);
   assert.ok(errors.length > 0);
   assert.match(errors.join('; '), /active lock on src\/math\.js/);
+}
+
+async function testPlannerExecuteWaveFeedbackIsStepScoped(): Promise<void> {
+  const undeclared = computeUndeclaredChangedFiles(
+    { id: 'step-1', title: 'Math', status: 'PENDING', kind: 'code', attempts: 0, fileScope: ['src/math.js'], dependencies: [], children: [] },
+    ['src/math.js'],
+    ['src/math.js'],
+  );
+  assert.deepEqual(undeclared, []);
+
+  const second = computeUndeclaredChangedFiles(
+    { id: 'step-2', title: 'Notes', status: 'PENDING', kind: 'docs', attempts: 0, fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+    ['src/notes.txt'],
+    ['src/notes.txt'],
+  );
+  assert.deepEqual(second, []);
+}
+
+async function testPlannerExecuteVerifyFeedbackUsesFinalStatus(): Promise<void> {
+  const feedback = {
+    version: '1' as const,
+    planRevision: 1,
+    executionEpoch: 1,
+    changedFiles: ['src/math.js'],
+    undeclaredChangedFiles: [],
+    verifyFailures: [],
+    lockViolations: [],
+    stepSummaries: [{
+      stepId: 'step-verify',
+      title: 'Run verify',
+      status: 'DONE' as const,
+      changedFiles: ['src/math.js'],
+      undeclaredChangedFiles: [],
+      message: 'verify passed',
+    }],
+    triggerReplan: false,
+    replanReason: '',
+  };
+  assert.equal(feedback.stepSummaries[0]?.status, 'DONE');
 }
