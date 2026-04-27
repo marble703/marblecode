@@ -14,6 +14,7 @@ import {
   transferWriteOwnership,
   type ExecutionLockTable,
 } from './locks.js';
+import { canTransferOwnership } from './ownership.js';
 import { buildStepContextPacket } from './prompts.js';
 import { refreshPlannerStateFromPlan } from './state.js';
 import type { PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep, PlannerStepExecutionState } from './types.js';
@@ -355,7 +356,7 @@ export async function executePlannerSubtaskWithRecovery(
   }
 
   if (allowReplan && config.routing.subtaskReplanOnFailure && latestFailure) {
-    const replanned = await attemptPlannerNodeReplan(config, providers, session, requestArtifact, nextPlan, nextState, step.id, latestFailure.result.message);
+    const replanned = await attemptPlannerNodeReplan(config, providers, session, requestArtifact, nextPlan, nextState, step.id, latestFailure.result.message, lockTable);
     if (replanned) {
       return { plan: replanned.plan, state: replanned.state, changedFiles: [], stop: false, replanned: true, lockTable };
     }
@@ -387,15 +388,4 @@ export async function executePlannerSubtaskWithRecovery(
   await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   return { plan: nextPlan, state: nextState, changedFiles: latestFailure?.result.changedFiles ?? [], stop: true, replanned: false, lockTable };
-}
-
-function canTransferOwnership(plan: PlannerPlan, fromStepId: string, toStepId: string): boolean {
-  const target = plan.steps.find((step) => step.id === toStepId);
-  if (!target) {
-    return false;
-  }
-  return target.dependencies.includes(fromStepId)
-    || (target.mustRunAfter ?? []).includes(fromStepId)
-    || plan.steps.find((step) => step.id === fromStepId)?.ownershipTransfers?.includes(toStepId)
-    || fromStepId === toStepId;
 }

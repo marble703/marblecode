@@ -10,7 +10,7 @@ import { executePlannerVerifyStep } from '../../src/planner/execute-verify.js';
 import { buildExecutionGraph, getReadyStepIds } from '../../src/planner/graph.js';
 import { runPlanner } from '../../src/planner/index.js';
 import { acquireWriteLocks, assertStepCanWrite, createExecutionLockTable, downgradeToGuardedRead, transferWriteOwnership } from '../../src/planner/locks.js';
-import { collectReplanScope, mergeReplanProposal, validateReplanProposal } from '../../src/planner/replan-merge.js';
+import { collectReplanScope, mergeReplanProposal, validateReplanLockCompatibility, validateReplanProposal } from '../../src/planner/replan-merge.js';
 import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerState, mapPlannerResult, updatePlannerStep } from '../../src/planner/runtime.js';
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
@@ -29,6 +29,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execution strategies', run: testPlannerExecutionStrategies },
     { name: 'planner replan proposal validation', run: testPlannerReplanProposalValidation },
+    { name: 'planner replan lock compatibility', run: testPlannerReplanLockCompatibility },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
@@ -45,6 +46,7 @@ export function createPlannerCases(): ManualSuiteCase[] {
     { name: 'planner execute graph fallback', run: testPlannerExecuteGraphFallback },
     { name: 'planner execute local replan', run: testPlannerExecuteLocalReplan },
     { name: 'planner execute rejects invalid local replan', run: testPlannerExecuteRejectsInvalidLocalReplan },
+    { name: 'planner execute rejects lock-incompatible local replan', run: testPlannerExecuteRejectsLockIncompatibleLocalReplan },
     { name: 'planner execute blocked dependents', run: testPlannerExecuteBlockedDependents },
   ];
 }
@@ -403,6 +405,37 @@ async function testPlannerReplanProposalValidation(): Promise<void> {
   const validation = validateReplanProposal(previousPlan, invalidPlan, 'step-1');
   assert.equal(validation.ok, false);
   assert.equal(validation.errors.some((error) => /protected step step-3 title outside replan scope/.test(error)), true);
+}
+
+async function testPlannerReplanLockCompatibility(): Promise<void> {
+  const previousPlan = {
+    version: '1' as const,
+    revision: 2,
+    summary: 'lock compatibility plan',
+    steps: [
+      { id: 'step-1', title: 'Fix add', status: 'FAILED' as const, kind: 'code' as const, attempts: 1, dependencies: [], children: [], fileScope: ['src/math.js'] },
+      { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+      { id: 'step-9', title: 'Earlier notes writer', status: 'DONE' as const, kind: 'docs' as const, attempts: 1, executionState: 'done' as const, dependencies: [], children: [], fileScope: ['src/notes.txt'] },
+    ],
+  };
+  const proposedPlan = {
+    ...previousPlan,
+    revision: 3,
+    steps: [
+      { id: 'step-1', title: 'Retry add by editing notes', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/notes.txt'], accessMode: 'write' as const },
+      { id: 'step-2', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+      { id: 'step-9', title: 'Earlier notes writer', status: 'DONE' as const, kind: 'docs' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/notes.txt'] },
+    ],
+  };
+  const lockTable = downgradeToGuardedRead(acquireWriteLocks(createExecutionLockTable(2), 'step-9', ['src/notes.txt'], 2), 'step-9', ['src/notes.txt'], 2);
+  const lockErrors = validateReplanLockCompatibility(previousPlan, proposedPlan, 'step-1', lockTable);
+  assert.equal(lockErrors.some((error) => /step-1 cannot write locked path src\/notes.txt; current owner is step-9/.test(error)), true);
+
+  const transferablePlan = {
+    ...proposedPlan,
+    steps: proposedPlan.steps.map((step) => (step.id === 'step-9' ? { ...step, ownershipTransfers: ['step-1'] } : step)),
+  };
+  assert.deepEqual(validateReplanLockCompatibility(previousPlan, transferablePlan, 'step-1', lockTable), []);
 }
 
 async function testPlannerExecuteEntryHelper(): Promise<void> {
@@ -1486,6 +1519,76 @@ async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
     assert.equal(rejection.failedStepId, 'step-1');
     assert.equal(rejection.errors.some((error) => /protected step step-3 title outside replan scope/.test(error)), true);
     assert.match(events, /subtask_replan_proposed/);
+    assert.match(events, /subtask_replan_rejected/);
+    assert.match(events, /subtask_replan_failed/);
+  });
+}
+
+async function testPlannerExecuteRejectsLockIncompatibleLocalReplan(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.defaultModel = 'code';
+    config.routing.subtaskMaxAttempts = 1;
+    config.routing.subtaskReplanOnFailure = true;
+    config.models.strong = { provider: 'primary', model: 'planner-model' };
+    config.models.code = { provider: 'primary', model: 'code-model' };
+
+    const primaryProvider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (content.includes('Failed step:')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Invalid replan conflicts with an existing notes lock.',
+              steps: [
+                { id: 'step-0', title: 'Inspect math before editing', status: 'DONE', kind: 'search', details: 'Read the math file.', dependencies: [], children: [] },
+                { id: 'step-9', title: 'Earlier notes writer', status: 'DONE', kind: 'docs', details: 'Already touched notes.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+                { id: 'step-1', title: 'Retry by editing notes', status: 'PENDING', kind: 'code', details: 'This should be rejected by lock compatibility.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', dependencies: ['step-0'], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        if (!content.includes('"id": "step-0"') && !content.includes('"id":"step-0"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Initial plan for lock-incompatible replan.',
+              steps: [
+                { id: 'step-0', title: 'Inspect math before editing', status: 'PENDING', kind: 'search', details: 'Read the math file.', dependencies: [], children: [] },
+                { id: 'step-9', title: 'Write notes first', status: 'PENDING', kind: 'docs', details: 'Write notes so a lock exists.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', dependencies: [], children: [] },
+                { id: 'step-1', title: 'Do impossible thing', status: 'PENDING', kind: 'code', details: 'Do impossible thing before replanning.', relatedFiles: ['src/math.js'], dependencies: ['step-0'], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Initial plan for lock-incompatible replan.' });
+      }
+
+      if (content.includes('Execute planner step: Write notes first')) {
+        return buildNotesOnlyStep(workspaceRoot);
+      }
+      if (content.includes('Execute planner step: Do impossible thing')) {
+        throw new Error('Subtask could not complete with the original approach');
+      }
+      throw new Error('Unexpected request during lock-incompatible local replan fixture');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['primary', primaryProvider]]), plannerRegistry, {
+      prompt: '模拟 local replan 与现有 notes 锁冲突',
+      explicitFiles: ['src/math.js', 'src/notes.txt', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
+    const rejection = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.rejected.step-1.json'), 'utf8')) as { errors: string[] };
+    assert.equal(rejection.errors.length > 0, true);
     assert.match(events, /subtask_replan_rejected/);
     assert.match(events, /subtask_replan_failed/);
   });

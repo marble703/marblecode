@@ -3,9 +3,10 @@ import type { ModelProvider } from '../provider/types.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import type { AppConfig } from '../config/schema.js';
 import { appendPlannerEvent, appendPlannerStructuredLog } from './artifacts.js';
+import type { ExecutionLockTable } from './locks.js';
 import { normalizePlannerPlan, parsePlannerResponse, runPlanConsistencyChecks } from './parse.js';
 import { buildPlannerNodeReplanRequest } from './prompts.js';
-import { buildReplanProposal, mergeReplanProposal } from './replan-merge.js';
+import { buildReplanProposal, mergeReplanProposal, validateReplanLockCompatibility } from './replan-merge.js';
 import { refreshPlannerStateFromPlan } from './state.js';
 import type { PlannerPlan, PlannerRequestArtifact, PlannerState } from './types.js';
 import { buildPlannerModelAliasCandidates } from './utils.js';
@@ -19,6 +20,7 @@ export async function attemptPlannerNodeReplan(
   state: PlannerState,
   failedStepId: string,
   failureMessage: string,
+  lockTable: ExecutionLockTable,
 ): Promise<{ plan: PlannerPlan; state: PlannerState } | null> {
   const failedStep = plan.steps.find((step) => step.id === failedStepId);
   if (!failedStep) {
@@ -67,12 +69,16 @@ export async function attemptPlannerNodeReplan(
       }, config.session.redactSecrets);
 
       const merged = mergeReplanProposal(plan, replanned, failedStepId, failureMessage);
-      if (!merged.validation.ok) {
+      const lockErrors = merged.validation.ok
+        ? validateReplanLockCompatibility(plan, replanned, failedStepId, lockTable)
+        : [];
+      if (!merged.validation.ok || lockErrors.length > 0) {
+        const errors = [...merged.validation.errors, ...lockErrors];
         const rejectionArtifact = `replan.rejected.${failedStepId}.json`;
         await writeSessionArtifact(session, rejectionArtifact, JSON.stringify({
           version: '1',
           failedStepId,
-          errors: merged.validation.errors,
+          errors,
           proposalArtifact,
         }, null, 2));
         await appendPlannerEvent(session, {
@@ -81,13 +87,13 @@ export async function attemptPlannerNodeReplan(
           modelAlias: alias,
           proposalArtifact,
           rejectionArtifact,
-          errors: merged.validation.errors,
+          errors,
         }, config.session.redactSecrets);
         await appendPlannerEvent(session, {
           type: 'subtask_replan_failed',
           stepId: failedStepId,
           modelAlias: alias,
-          reason: merged.validation.errors.join('; '),
+          reason: errors.join('; '),
         }, config.session.redactSecrets);
         continue;
       }

@@ -1,4 +1,6 @@
 import { buildExecutionGraph, type PlannerExecutionEdge } from './graph.js';
+import type { ExecutionLockTable } from './locks.js';
+import { canTransferOwnership } from './ownership.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import type { PlannerPlan, PlannerStep } from './types.js';
 import { mergeStringLists } from './utils.js';
@@ -230,6 +232,38 @@ export function mergeReplanProposal(
   };
 
   return { plan, validation };
+}
+
+export function validateReplanLockCompatibility(
+  previousPlan: PlannerPlan,
+  proposedPlan: PlannerPlan,
+  failedStepId: string,
+  lockTable: ExecutionLockTable,
+): string[] {
+  const scope = collectReplanScope(previousPlan, failedStepId);
+  const errors: string[] = [];
+
+  for (const stepId of scope.allowedStepIds) {
+    const step = proposedPlan.steps.find((candidate) => candidate.id === stepId);
+    if (!step || step.accessMode !== 'write') {
+      continue;
+    }
+    for (const filePath of step.fileScope ?? []) {
+      const entry = lockTable.entries.find((candidate) => candidate.path === filePath);
+      if (!entry) {
+        continue;
+      }
+      if (entry.ownerStepId === step.id || entry.ownerStepId === failedStepId) {
+        continue;
+      }
+      if (canTransferOwnership(proposedPlan, entry.ownerStepId, step.id) || canTransferOwnership(previousPlan, entry.ownerStepId, step.id)) {
+        continue;
+      }
+      errors.push(`Replanned step ${step.id} cannot write locked path ${filePath}; current owner is ${entry.ownerStepId}`);
+    }
+  }
+
+  return errors;
 }
 
 function sameLockedField(left: PlannerStep, right: PlannerStep, field: CompletedStepLockedField): boolean {
