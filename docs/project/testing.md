@@ -106,6 +106,7 @@ Purpose:
 - event dispatch artifacts
 - planner resume behavior
 - recovery snapshot initialization helpers
+- recovery lock-strategy metadata
 - planner model retry behavior
 
 Representative cases:

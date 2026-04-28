@@ -142,6 +142,7 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
   assert.equal(context.recoverySourceStepId, 'step-1');
   assert.deepEqual(context.recoverySubgraphStepIds, ['step-1', 'step-2', 'step-3']);
   assert.equal(context.lockResumeMode, 'drop_unrelated_writes');
+  assert.equal(context.lockTable.entries.some((entry) => entry.ownerStepId === 'step-2' && entry.mode === 'write_locked'), true);
 }
 
 async function testPlannerExecutionStateMachineTransitions(): Promise<void> {
@@ -758,6 +759,7 @@ async function testPlannerResumeRecoversFallbackPath(): Promise<void> {
     assert.match(events, /step-1-fallback/);
     assert.match(events, /subtask_completed/);
     const resumedLocks = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string; ownerStepId: string }> };
+    assert.equal(resumedLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read'), true);
     assert.equal(resumedLocks.entries.some((entry) => entry.ownerStepId === 'step-unrelated'), false);
   });
 }
