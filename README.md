@@ -2,7 +2,7 @@
 
 ## Current Status
 
-This repository now contains a runnable MVP that can complete one basic patch-driven coding task end to end.
+This repository now contains a runnable local coding-agent runtime with patch-driven edits, a read-only planner plus planner execution flow, shared verifier plans, rollback support, and terminal inspection/TUI tools.
 
 Implemented today:
 
@@ -15,20 +15,16 @@ Implemented today:
 - context building
 - pasted-snippet and keyword-search context inputs
 - tool registry
+- provider-backed agent loop, planner loop, and planner execution flow
 - structured patch preview/apply/rollback
 - automatic source-file backups before replace/delete operations
 - path and shell policy enforcement
-- verifier execution
-- markdown verifier plans with project-local storage
+- verifier execution with manual/config/markdown/discovery command resolution and failure analysis
 - local session logging with retention cleanup
+- planner session summaries, terminal inspection, and interactive TUI views
+- split runtime modules for planner, TUI, verifier, and agent internals
 - model connectivity check script
 - a local smoke test that proves the patch-driven edit loop works once end to end
-
-Validated in this repository:
-
-- provider connectivity check returned `MODEL_OK`
-- one real coding task modified `src/router/index.ts`
-- project build succeeded after the real edit
 
 ## Current Capabilities
 
@@ -48,6 +44,9 @@ Validated in this repository:
 - Resolve verifier plans from `.marblecode/verifier.md`
 - Allow per-run verifier overrides with `--verify`
 - Persist request, context, model, tool, patch, and verifier artifacts in local session directories
+- Inspect planner sessions with `show:planner`, `tui:planner`, and the interactive TUI
+- Resume planner sessions, inspect individual steps, and open child coder sessions from the TUI
+- Use planner execution waves, lock artifacts, fallback edges, bounded local replan, rolling append windows, and execution feedback artifacts
 
 ## Current Limits
 
@@ -314,9 +313,14 @@ node dist/index.js rollback --last
 
 ## Refactor Notes
 
-- the first structural cleanup pass has already extracted shared JSON parsing and file-walk helpers plus the planner request/parse/artifact/prompt/state/recovery helpers into focused modules
-- the planner runtime and manual suite split passes have landed; the main remaining large-file hotspots are `src/tui/agent-repl.ts`, `src/agent/index.ts`, and `src/verifier/index.ts`
+- shared JSON parsing and file-walk helpers are centralized in `src/shared`
+- planner, TUI, verifier, and agent runtime hotspots have now been split into focused internal modules
 - `docs/plans/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
+
+## Next Steps
+
+- introduce a `ToolProvider` abstraction so builtin tools stop being wired directly at each callsite
+- use that boundary as the base for read-only LSP diagnostics and local MCP experiments later
 
 ## Verifier Markdown
 

@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-当前仓库已经不是纯骨架，而是一个可以跑通基础闭环的 MVP：
+当前仓库已经不是纯骨架，而是一个可运行的本地 coding-agent runtime，支持 patch 驱动改码、只读 planner 与 planner execute、共享 verifier、回滚，以及终端检查/TUI 工具。
 
 - 支持 CLI 入口
 - 支持配置加载
@@ -17,20 +17,16 @@
 - 支持上下文构建
 - 支持粘贴代码片段和关键词检索上下文
 - 支持工具注册和调用
+- 支持 provider 驱动的 agent loop、planner loop 和 planner execute 流程
 - 支持结构化 Patch 预览、应用、回滚信息生成
 - 支持替换/删除前自动备份原文件
 - 支持路径和 Shell 策略控制
-- 支持验证器
-- 支持项目内 Markdown verifier 设计
+- 支持 verifier 执行，以及 manual/config/markdown/discovery 多来源命令解析与失败分析
 - 支持本地 Session 日志和自动清理
+- 支持 planner session 摘要、终端查看器和交互式 TUI
+- planner、TUI、verifier、agent 内部 runtime 已完成按模块拆分
 - 支持模型连通性检查脚本
 - 支持一次本地 smoke test，验证 Patch 驱动改码闭环
-
-这个版本已经在当前仓库里验证过：
-
-- 模型连通性检查返回了 `MODEL_OK`
-- 真实执行过一次 coding 修改任务
-- 修改后项目 `build` 仍然通过
 
 ## 当前能力
 
@@ -50,6 +46,9 @@
 - verifier 可从 `.marblecode/verifier.md` 解析
 - 支持通过 `--verify` 临时覆盖本次 verifier
 - 将请求、上下文、模型输出、工具调用、Patch、验证结果记录到本地 session
+- 可通过 `show:planner`、`tui:planner` 和交互式 TUI 检查 planner session
+- 可在 TUI 中恢复 planner session、检查单个 step，并打开子 coder session
+- planner execute 已支持 execution wave、文件锁 artifact、fallback edge、bounded local replan、rolling append window 和 execution feedback artifact
 
 ## 当前限制
 
@@ -310,9 +309,14 @@ node dist/index.js rollback --last
 
 ## 重构说明
 
-- 第一轮结构清理已经落地：共享 JSON 解析、共享文件遍历，以及 planner 的 request/parse/artifact/prompt/state/recovery helper 都已拆到独立模块
-- planner runtime 和 manual suite 的拆分已经落地；目前剩余的主要大文件热点仍是 `src/tui/agent-repl.ts`、`src/agent/index.ts` 和 `src/verifier/index.ts`
+- 共享 JSON 解析和共享文件遍历已经统一收口到 `src/shared`
+- planner、TUI、verifier、agent 的 runtime 热点已经拆成更聚焦的内部模块
 - `docs/plans/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
+
+## 下一步
+
+- 引入 `ToolProvider` 抽象，避免每个调用点都直接装配 builtin tools
+- 在这个边界之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
 
 ## Verifier Markdown
 
