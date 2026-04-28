@@ -4,8 +4,9 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { runAgent } from '../../src/agent/index.js';
 import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
+import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
-import { createBuiltinTools } from '../../src/tools/builtins.js';
+import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import { withWorkspace } from './helpers.js';
 import { InspectingProvider } from './providers.js';
@@ -14,12 +15,60 @@ import type { ManualSuiteCase } from './types.js';
 export function createCoreCases(): ManualSuiteCase[] {
   return [
     { name: 'tool read/list/search', run: testReadListAndSearch },
+    { name: 'tool provider registry', run: testToolProviderRegistry },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
     { name: 'auto deny with explicit grant', run: testAutoDenyWithExplicitGrant },
     { name: 'policy blocks', run: testPolicyBlocks },
   ];
+}
+
+async function testToolProviderRegistry(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const registry = new ToolRegistry();
+    registry.registerProvider(createBuiltinToolProvider(config, policy));
+
+    const definitions = registry.listDefinitions().map((definition) => definition.name);
+    assert.ok(definitions.includes('read_file'));
+    assert.ok(definitions.includes('git_diff'));
+
+    const read = await registry.execute({ name: 'read_file', input: { path: 'src/math.js' } });
+    assert.equal(read.ok, true);
+
+    const blocked = await registry.execute({ name: 'run_shell', input: { command: 'curl https://example.com' } });
+    assert.equal(blocked.ok, false);
+    assert.match(blocked.error ?? '', /blocked by policy|matched blocked pattern/);
+
+    const plannerRegistry = new ToolRegistry();
+    plannerRegistry.registerProvider(createPlannerToolProvider(config, policy));
+    const plannerDefinitions = plannerRegistry.listDefinitions().map((definition) => definition.name);
+    assert.ok(plannerDefinitions.includes('read_file'));
+    assert.ok(plannerDefinitions.includes('git_diff'));
+    assert.equal(plannerDefinitions.includes('run_shell'), false);
+
+    const duplicateRegistry = new ToolRegistry();
+    duplicateRegistry.registerProvider(new StaticToolProvider('provider-a', [{
+      definition: {
+        name: 'dup_tool',
+        description: 'duplicate tool a',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      async execute() {
+        return { ok: true };
+      },
+    }]));
+    assert.throws(() => duplicateRegistry.registerProvider(new StaticToolProvider('provider-b', [{
+      definition: {
+        name: 'dup_tool',
+        description: 'duplicate tool b',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      async execute() {
+        return { ok: true };
+      },
+    }])), /Duplicate tool registration: dup_tool/);
+  });
 }
 
 async function testReadListAndSearch(): Promise<void> {

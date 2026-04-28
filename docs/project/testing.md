@@ -33,6 +33,7 @@ It is the primary safety net for:
 - verifier changes
 - TUI and planner-view changes
 - policy and tool boundary changes
+- tool provider and registry changes
 
 ### Real-Model Checks
 
@@ -52,6 +53,7 @@ Files:
 Purpose:
 
 - built-in tool behavior
+- provider-backed tool registration behavior
 - policy boundaries
 - context selection behavior
 - git read-only tool behavior
@@ -59,6 +61,7 @@ Purpose:
 Representative cases:
 
 - `tool read/list/search`
+- `tool provider registry`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`

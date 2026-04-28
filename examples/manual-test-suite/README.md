@@ -35,7 +35,7 @@ Do not run this suite as part of the default verifier on every change. It is int
 
 The suite automatically asserts all results without using AI to judge correctness.
 
-The deterministic suite currently covers 75 cases across these groups:
+The deterministic suite currently covers 74 cases across these groups:
 
 - core tools, context, and policy
 - planner graph, runtime, execution, and recovery

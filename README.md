@@ -315,12 +315,11 @@ node dist/index.js rollback --last
 
 - shared JSON parsing and file-walk helpers are centralized in `src/shared`
 - planner, TUI, verifier, and agent runtime hotspots have now been split into focused internal modules
-- `docs/plans/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
+- built-in tools are now registered through a provider-compatible registry boundary so future LSP/MCP integrations can reuse the same host tool path
 
 ## Next Steps
 
-- introduce a `ToolProvider` abstraction so builtin tools stop being wired directly at each callsite
-- use that boundary as the base for read-only LSP diagnostics and local MCP experiments later
+- use the provider-compatible tool boundary as the base for read-only LSP diagnostics and local MCP experiments later
 
 ## Verifier Markdown
 

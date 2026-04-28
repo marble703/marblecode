@@ -126,7 +126,7 @@ It also generates a context selection summary so the model sees why files were c
 
 ### `src/tools`
 
-Defines the host tool registry and built-in tools.
+Defines the host tool registry, tool-provider abstraction, and built-in tools.
 
 Current built-in tools include:
 
@@ -141,6 +141,8 @@ Current built-in tools include:
 - `git_diff_base`
 
 Planner mode gets a restricted read-only subset.
+
+Current tool registration now supports both direct tools and provider-backed registration. Builtins are wired through provider helpers so future LSP/MCP integrations can reuse the same registry boundary without changing agent/planner callsites.
 
 ### `src/policy`
 
