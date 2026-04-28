@@ -14,6 +14,7 @@
 - `subtaskConflictPolicy` 已支持 `serial`、`fail`、`aggressive`、`deterministic`，并通过 `PlannerExecutionStrategy` 选择 wave。
 - planner execute 可从 execution artifacts 进入恢复路径，但恢复策略仍偏保守。
 - TUI 已有 `PlannerViewModel`、`show:planner`、live polling view，可消费 `plan.json`、`plan.state.json`、`execution.graph.json`、`execution.locks.json` 和事件日志。
+- TUI 第一阶段拆分已完成：共享类型、slash-command 解析、paste/patch-confirm helper 已从 `src/tui/agent-repl.ts` 抽离到 `src/tui/{types,commands,paste}.ts`。
 
 当前主要缺口：
 

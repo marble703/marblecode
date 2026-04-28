@@ -20,7 +20,7 @@ Implemented in the current pass:
 
 Still pending after this pass:
 
-- split `src/tui/agent-repl.ts`
+- continue splitting `src/tui/agent-repl.ts`
 - split `src/verifier/index.ts` into command resolution, execution, and analysis helpers
 - split `src/agent/index.ts` further than the shared-helper extraction
 
@@ -29,8 +29,9 @@ Update after the current pass:
 - planner-view read model extraction is complete (`src/planner/view-model.ts`)
 - planner timeline normalization and read-model API are complete
 - planner manual-suite hotspot split is now complete (`scripts/manual-suite/planner-{graph,runtime,execution,recovery}.ts`)
+- TUI split phase 1 is complete: `src/tui/types.ts`, `src/tui/commands.ts`, and `src/tui/paste.ts` now hold shared TUI types, slash-command parsing, and paste/patch-confirm helpers
 - the next structural priorities are now:
-  1. split `src/tui/agent-repl.ts`
+  1. finish splitting `src/tui/agent-repl.ts` (`state.ts`, `render.ts`, `session-actions.ts`, `run-prompt.ts`)
   2. split `src/verifier/index.ts`
   3. split `src/agent/index.ts`
   4. then introduce `ToolProvider` before LSP/MCP work
@@ -101,6 +102,11 @@ Suggested internal layout:
 - `src/tui/render.ts`: screen rendering and summaries
 - `src/tui/paste.ts`: multiline paste collection and patch confirmation helpers
 - `src/tui/state.ts`: session refresh, planner-view loading, and derived state hydration
+
+Current status:
+
+- done: `src/tui/types.ts`, `src/tui/commands.ts`, `src/tui/paste.ts`
+- pending: `src/tui/session-actions.ts`, `src/tui/run-prompt.ts`, `src/tui/render.ts`, `src/tui/state.ts`
 
 `planner-view.ts` and `planner-live.ts` already point in the right direction and should stay separate.
 

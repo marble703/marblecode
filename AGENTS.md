@@ -67,7 +67,7 @@
 - `src/shared`: shared utilities such as log redaction helpers, JSON response extraction, and recursive file walking.
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
 - `src/tools`: built-in tools. Planner-facing tools now also include read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`.
-- `src/tui`: interactive terminal UI plus planner session rendering helpers.
+- `src/tui`: interactive terminal UI plus planner session rendering helpers. Shared TUI types now live in `src/tui/types.ts`, slash-command parsing in `src/tui/commands.ts`, and paste/patch-confirm helpers in `src/tui/paste.ts`; `src/tui/agent-repl.ts` still owns the top-level loop plus prompt/action/state orchestration for now.
 - `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
 - `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
