@@ -4,6 +4,8 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
+import { executeTuiAction, inspectPlannerStep, resolvePlannerChildSession } from '../../src/tui/session-actions.js';
+import { refreshTuiState } from '../../src/tui/state.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
 import { withWorkspace } from './helpers.js';
 import type { ManualSuiteCase } from './types.js';
@@ -14,6 +16,8 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'interactive tui command parsing', run: testInteractiveTuiCommandParsing },
     { name: 'interactive tui command errors', run: testInteractiveTuiCommandErrors },
     { name: 'recent session summaries', run: testRecentSessionSummaries },
+    { name: 'tui state refresh hydrates planner view', run: testTuiStateRefreshHydratesPlannerView },
+    { name: 'tui planner session actions', run: testTuiPlannerSessionActions },
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
     { name: 'planner view loads delta and feedback artifacts', run: testPlannerViewLoadsDeltaAndFeedbackArtifacts },
     { name: 'planner view loads replan rejection artifacts', run: testPlannerViewLoadsReplanRejectionArtifacts },
@@ -174,6 +178,107 @@ async function testRecentSessionSummaries(): Promise<void> {
     assert.equal(sessions[0]?.currentStepId, 'step-2');
     assert.equal(sessions[1]?.isPlanner, false);
     assert.equal(sessions[1]?.summary, 'Fix the add function');
+  });
+}
+
+async function testTuiStateRefreshHydratesPlannerView(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-01-000Z');
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ summary: 'Hydrate planner panel', steps: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1', consistencyErrors: [] }), 'utf8');
+    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), JSON.stringify({ type: 'planner_started' }) + '\n', 'utf8');
+
+    const state = await refreshTuiState(undefined, {
+      ...createInitialTuiState(workspaceRoot),
+      workspaceRoot,
+      lastSessionDir: sessionDir,
+    });
+
+    assert.equal(state.recentSessions[0]?.dir, sessionDir);
+    assert.equal(state.plannerView?.summary, 'Hydrate planner panel');
+    assert.equal(state.plannerView?.currentStepId, 'step-1');
+    assert.equal(config.workspaceRoot, workspaceRoot);
+  });
+}
+
+async function testTuiPlannerSessionActions(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
+    const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-08-000Z');
+    const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-09-000Z');
+    await mkdir(plannerSessionDir, { recursive: true });
+    await mkdir(childSessionDir, { recursive: true });
+    await writeFile(
+      path.join(plannerSessionDir, 'plan.json'),
+      JSON.stringify({
+        summary: 'Inspect planner actions',
+        steps: [
+          {
+            id: 'step-1',
+            title: 'Inspect router flow',
+            status: 'DONE',
+            kind: 'code',
+            details: 'Check router logic',
+            relatedFiles: ['src/router.ts'],
+            children: [],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(plannerSessionDir, 'plan.state.json'),
+      JSON.stringify({ outcome: 'RUNNING', phase: 'PATCHING', currentStepId: 'step-1', consistencyErrors: [] }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(plannerSessionDir, 'plan.events.jsonl'),
+      `${JSON.stringify({ type: 'subtask_completed', stepId: 'step-1', sessionDir: childSessionDir, changedFiles: ['src/router.ts'] })}\n`,
+      'utf8',
+    );
+    await writeFile(path.join(plannerSessionDir, 'subtask.step-1.json'), JSON.stringify({ ok: true }), 'utf8');
+    await writeFile(path.join(childSessionDir, 'request.json'), JSON.stringify({ prompt: 'Fix router flow' }), 'utf8');
+    await writeFile(path.join(childSessionDir, 'verify.json'), JSON.stringify({ success: true, failures: [] }), 'utf8');
+
+    const inspection = await inspectPlannerStep(plannerSessionDir, '1');
+    assert.match(inspection, /Step: step-1/);
+    assert.match(inspection, /Files: src\/router.ts/);
+    assert.match(inspection, /Artifacts: subtask.step-1.json/);
+    assert.match(inspection, /Child session:/);
+
+    const child = await resolvePlannerChildSession(plannerSessionDir, 'step-1');
+    assert.equal(child.sessionDir, childSessionDir);
+    assert.match(child.summary, /Prompt: Fix router flow/);
+    assert.match(child.summary, /Verify: passed/);
+
+    const baseState = {
+      ...createInitialTuiState(workspaceRoot),
+      workspaceRoot,
+    };
+    const follow = await executeTuiAction(undefined, baseState, {
+      type: 'follow_planner',
+      pollMs: 250,
+      sessionRef: plannerSessionDir,
+    });
+    assert.equal(follow.followSessionDir, plannerSessionDir);
+    assert.equal(follow.followPollMs, 250);
+    assert.equal(follow.state.lastSessionDir, plannerSessionDir);
+
+    const inspectAction = await executeTuiAction(undefined, baseState, {
+      type: 'inspect_planner_step',
+      stepRef: 'step-1',
+      sessionRef: plannerSessionDir,
+    });
+    assert.match(inspectAction.state.lastOutput, /Inspect router flow/);
+
+    const childAction = await executeTuiAction(undefined, baseState, {
+      type: 'open_child_session',
+      stepRef: 'step-1',
+      sessionRef: plannerSessionDir,
+    });
+    assert.equal(childAction.state.lastSessionDir, childSessionDir);
+    assert.match(childAction.state.lastOutput, /Changed files: src\/router.ts/);
   });
 }
 
