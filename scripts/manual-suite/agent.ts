@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { runAgent, tryRollback } from '../../src/agent/index.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import { buildMathFixStep, buildMultiFileFixStep, withWorkspace } from './helpers.js';
-import { FlakyProvider, StaticPatchProvider } from './providers.js';
+import { BranchingProvider, FlakyProvider, StaticAnalysisProvider, StaticPatchProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
 export function createAgentCases(): ManualSuiteCase[] {
@@ -12,6 +12,7 @@ export function createAgentCases(): ManualSuiteCase[] {
     { name: 'agent model retry', run: testAgentModelRetry },
     { name: 'agent model retry exhaustion', run: testAgentModelRetryExhaustion },
     { name: 'agent final response completes', run: testAgentFinalResponseCompletes },
+    { name: 'agent verifier failure includes analysis guidance', run: testAgentVerifierFailureIncludesAnalysisGuidance },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
     { name: 'restricted write scope blocks extra file', run: testRestrictedWriteScopeBlocksExtraFile },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
@@ -99,6 +100,46 @@ async function testPatchApplyAndVerifier(): Promise<void> {
     assert.match(patchArtifact.summary, /Fix the add function/);
     assert.equal(verifyArtifact.success, true);
     assert.equal(verifyArtifact.commands[0]?.command, 'npm test');
+  });
+}
+
+async function testAgentVerifierFailureIncludesAnalysisGuidance(): Promise<void> {
+  await withWorkspace(async ({ config, registry, workspaceRoot }) => {
+    config.verifier.autoAnalyzeFailures = true;
+    const analysisProvider = new StaticAnalysisProvider();
+    const providers = new Map<string, ModelProvider>([
+      ['stub', new BranchingProvider(async (request) => {
+        if (request.metadata?.mode === 'verifier-analysis') {
+          const response = await analysisProvider.invoke(request);
+          return response.content;
+        }
+
+        return buildMathFixStep(workspaceRoot);
+      })],
+    ]);
+
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Fix src/math.js so add returns the correct sum.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: ['node --eval "process.exit(2)"'],
+      autoApprove: true,
+      confirm: async () => true,
+    });
+
+    assert.equal(result.status, 'needs_intervention');
+    assert.match(result.message, /Verifier failed after the maximum number of repair attempts/);
+    assert.match(result.message, /node --eval "process\.exit\(2\)"/);
+    assert.match(result.message, /Consider updating \.marblecode\/verifier\.md\./);
+
+    const verifyArtifact = JSON.parse(await readFile(path.join(result.sessionDir, 'verify.json'), 'utf8')) as {
+      success: boolean;
+      analysis?: { shouldEditVerifier?: boolean };
+      failures: Array<{ command: string }>;
+    };
+    assert.equal(verifyArtifact.success, false);
+    assert.equal(verifyArtifact.analysis?.shouldEditVerifier, true);
+    assert.equal(verifyArtifact.failures[0]?.command, 'node --eval "process.exit(2)"');
   });
 }
 
