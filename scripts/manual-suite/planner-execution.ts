@@ -25,7 +25,7 @@ export function createPlannerExecutionCases(): ManualSuiteCase[] {
     { name: 'planner execute degraded optional docs', run: testPlannerExecuteDegradedOptionalDocs },
     { name: 'planner execute degraded does not unblock verify', run: testPlannerExecuteDegradedDoesNotUnblockVerify },
     { name: 'planner execute feedback writes undeclared changes', run: testPlannerExecuteFeedbackWritesUndeclaredChanges },
-    { name: 'planner execute feedback triggers replan', run: testPlannerExecuteFeedbackTriggersReplan },
+    { name: 'planner execute feedback records changed files', run: testPlannerExecuteFeedbackRecordsChangedFiles },
   ];
 }
 
@@ -517,21 +517,32 @@ async function testPlannerExecuteFeedbackWritesUndeclaredChanges(): Promise<void
   });
 }
 
-async function testPlannerExecuteFeedbackTriggersReplan(): Promise<void> {
+async function testPlannerExecuteFeedbackRecordsChangedFiles(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     const provider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
       if (request.metadata?.mode === 'planner-json-loop') {
-        const currentPlan = request.messages[0]?.content ?? '';
-        return currentPlan.includes('"step-1"')
+        return content.includes('"step-1"')
           ? JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Single step feedback.' })
           : JSON.stringify({
-              type: 'plan', plan: { version: '1', summary: 'Feedback replan test.', steps: [{ id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', details: 'Fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: [], children: [] }] },
+              type: 'plan', plan: { version: '1', summary: 'Feedback replan test.', steps: [{ id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', details: 'Fix add.', accessMode: 'write', dependencies: [], children: [] }] },
             });
       }
       if (request.metadata?.mode === 'mvp-json-loop') {
         const current = await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8');
         const next = current.replace('return a - b;', 'return a + b;');
-        return JSON.stringify({ type: 'patch', patch: { version: '1', summary: 'Fix', operations: [{ type: 'replace_file', path: 'src/math.js', diff: 'Fix', oldText: current, newText: next }] } });
+        const notes = await readFile(path.join(workspaceRoot, 'src/notes.txt'), 'utf8');
+        return JSON.stringify({
+          type: 'patch',
+          patch: {
+            version: '1',
+            summary: 'Fix',
+            operations: [
+              { type: 'replace_file', path: 'src/math.js', diff: 'Fix', oldText: current, newText: next },
+              { type: 'replace_file', path: 'src/notes.txt', diff: 'Undeclared notes update', oldText: notes, newText: `${notes}\nUNDECLARED_REPLAN_NOTE\n` },
+            ],
+          },
+        });
       }
       throw new Error(`Unexpected: ${String(request.metadata?.mode ?? '')}`);
     });
@@ -539,14 +550,17 @@ async function testPlannerExecuteFeedbackTriggersReplan(): Promise<void> {
     const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
     const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
       prompt: '修复 src/math.js',
-      explicitFiles: ['src/math.js'],
+      explicitFiles: ['src/math.js', 'src/notes.txt'],
       pastedSnippets: [],
       executeSubtasks: true,
     });
 
     assert.equal(result.status, 'completed');
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
-    const feedback = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.feedback.json'), 'utf8')) as { changedFiles: string[] };
+    const feedback = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.feedback.json'), 'utf8')) as { changedFiles: string[]; undeclaredChangedFiles: string[]; triggerReplan: boolean };
     assert.ok(feedback.changedFiles.length > 0);
+    assert.deepEqual(feedback.changedFiles, ['src/math.js', 'src/notes.txt']);
+    assert.deepEqual(feedback.undeclaredChangedFiles, []);
+    assert.equal(feedback.triggerReplan, false);
   });
 }

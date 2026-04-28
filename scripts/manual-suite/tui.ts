@@ -296,11 +296,6 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     );
     await writeFile(
       path.join(sessionDir, 'plan.state.json'),
-      JSON.stringify({ phase: 'PLANNING', outcome: 'RUNNING', message: 'Searching', currentStepId: 'step-1', consistencyErrors: [] }),
-      'utf8',
-    );
-    await writeFile(
-      path.join(sessionDir, 'plan.state.json'),
       JSON.stringify({ phase: 'PLANNING', outcome: 'RUNNING', message: 'Searching', currentStepId: 'step-1', degradedStepIds: ['step-2'], consistencyErrors: [] }),
       'utf8',
     );
@@ -317,6 +312,12 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
         epoch: 3,
         currentWaveStepIds: ['step-1'],
         lastCompletedWaveStepIds: ['step-0'],
+        selectedWaveStepIds: ['step-1'],
+        interruptedStepIds: ['step-1'],
+        resumeStrategy: 'rerun_active',
+        lastEventType: 'FALLBACK_ACTIVATED',
+        lastEventReason: 'Activated fallback for step-1.',
+        activeLockOwnerStepIds: ['step-1'],
         recoveryStepId: 'step-1-fallback',
         recoveryReason: 'Activated fallback for step-1.',
       }),
@@ -342,6 +343,12 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.epoch, 3);
     assert.deepEqual(view.currentWaveStepIds, ['step-1']);
     assert.deepEqual(view.lastCompletedWaveStepIds, ['step-0']);
+    assert.deepEqual(view.selectedWaveStepIds, ['step-1']);
+    assert.deepEqual(view.interruptedStepIds, ['step-1']);
+    assert.equal(view.resumeStrategy, 'rerun_active');
+    assert.equal(view.lastEventType, 'FALLBACK_ACTIVATED');
+    assert.match(view.lastEventReason, /Activated fallback/);
+    assert.deepEqual(view.activeLockOwnerStepIds, ['step-1']);
     assert.equal(view.recoveryStepId, 'step-1-fallback');
     assert.match(view.recoveryReason, /Activated fallback/);
     assert.deepEqual(view.degradedStepIds, ['step-2']);

@@ -37,7 +37,6 @@ export function createPlannerGraphCases(): ManualSuiteCase[] {
     { name: 'planner execute affected subgraph calculator', run: testPlannerExecuteAffectedSubgraphCalculator },
     { name: 'planner append active lock conflict', run: testPlannerAppendActiveLockConflict },
     { name: 'planner execute wave feedback is step scoped', run: testPlannerExecuteWaveFeedbackIsStepScoped },
-    { name: 'planner execute verify feedback uses final status', run: testPlannerExecuteVerifyFeedbackUsesFinalStatus },
   ];
 }
 
@@ -406,40 +405,32 @@ async function testPlannerAppendActiveLockConflict(): Promise<void> {
 }
 
 async function testPlannerExecuteWaveFeedbackIsStepScoped(): Promise<void> {
-  const undeclared = computeUndeclaredChangedFiles(
-    { id: 'step-1', title: 'Math', status: 'PENDING', kind: 'code', attempts: 0, fileScope: ['src/math.js'], dependencies: [], children: [] },
-    ['src/math.js'],
+  const mathDeclared = ['src/math.js'];
+  const notesDeclared = ['src/notes.txt'];
+
+  const mathOnly = computeUndeclaredChangedFiles(
+    { id: 'step-1', title: 'Math', status: 'PENDING', kind: 'code', attempts: 0, fileScope: mathDeclared, dependencies: [], children: [] },
+    mathDeclared,
     ['src/math.js'],
   );
-  assert.deepEqual(undeclared, []);
-
-  const second = computeUndeclaredChangedFiles(
-    { id: 'step-2', title: 'Notes', status: 'PENDING', kind: 'docs', attempts: 0, fileScope: ['src/notes.txt'], dependencies: [], children: [] },
-    ['src/notes.txt'],
+  const notesOnly = computeUndeclaredChangedFiles(
+    { id: 'step-2', title: 'Notes', status: 'PENDING', kind: 'docs', attempts: 0, fileScope: notesDeclared, dependencies: [], children: [] },
+    notesDeclared,
     ['src/notes.txt'],
   );
-  assert.deepEqual(second, []);
-}
+  const notesMisattributedToMath = computeUndeclaredChangedFiles(
+    { id: 'step-1', title: 'Math', status: 'PENDING', kind: 'code', attempts: 0, fileScope: mathDeclared, dependencies: [], children: [] },
+    mathDeclared,
+    ['src/math.js', 'src/notes.txt'],
+  );
+  const mathMisattributedToNotes = computeUndeclaredChangedFiles(
+    { id: 'step-2', title: 'Notes', status: 'PENDING', kind: 'docs', attempts: 0, fileScope: notesDeclared, dependencies: [], children: [] },
+    notesDeclared,
+    ['src/notes.txt', 'src/math.js'],
+  );
 
-async function testPlannerExecuteVerifyFeedbackUsesFinalStatus(): Promise<void> {
-  const feedback = {
-    version: '1' as const,
-    planRevision: 1,
-    executionEpoch: 1,
-    changedFiles: ['src/math.js'],
-    undeclaredChangedFiles: [],
-    verifyFailures: [],
-    lockViolations: [],
-    stepSummaries: [{
-      stepId: 'step-verify',
-      title: 'Run verify',
-      status: 'DONE' as const,
-      changedFiles: ['src/math.js'],
-      undeclaredChangedFiles: [],
-      message: 'verify passed',
-    }],
-    triggerReplan: false,
-    replanReason: '',
-  };
-  assert.equal(feedback.stepSummaries[0]?.status, 'DONE');
+  assert.deepEqual(mathOnly, []);
+  assert.deepEqual(notesOnly, []);
+  assert.deepEqual(notesMisattributedToMath, ['src/notes.txt']);
+  assert.deepEqual(mathMisattributedToNotes, ['src/math.js']);
 }
