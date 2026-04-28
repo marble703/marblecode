@@ -11,6 +11,7 @@ export function createAgentCases(): ManualSuiteCase[] {
   return [
     { name: 'agent model retry', run: testAgentModelRetry },
     { name: 'agent model retry exhaustion', run: testAgentModelRetryExhaustion },
+    { name: 'agent final response completes', run: testAgentFinalResponseCompletes },
     { name: 'patch apply and verifier', run: testPatchApplyAndVerifier },
     { name: 'restricted write scope blocks extra file', run: testRestrictedWriteScopeBlocksExtraFile },
     { name: 'multi-file patch apply', run: testMultiFilePatchApply },
@@ -45,6 +46,35 @@ async function testMultiFilePatchApply(): Promise<void> {
       patchArtifact.operations.map((operation) => operation.path),
       ['src/math.js', 'src/notes.txt'],
     );
+  });
+}
+
+async function testAgentFinalResponseCompletes(): Promise<void> {
+  await withWorkspace(async ({ config, registry }) => {
+    const providers = new Map<string, ModelProvider>([['stub', new StaticPatchProvider(async () => JSON.stringify({
+      type: 'final',
+      thought: 'The request only needs an answer, not file edits.',
+      message: 'Explained the issue without changing files.',
+    }))]]);
+    const result = await runAgent(config, providers, registry, {
+      prompt: 'Explain what the add function currently does.',
+      explicitFiles: ['src/math.js'],
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+      routeOverride: {
+        modelAlias: 'code',
+        intent: 'question',
+        maxSteps: 4,
+        maxAutoRepairAttempts: 0,
+      },
+    });
+
+    assert.equal(result.status, 'completed');
+    assert.deepEqual(result.changedFiles, []);
+    assert.equal(result.message, 'Explained the issue without changing files.');
+    assert.equal(result.modelAlias, 'code');
   });
 }
 
