@@ -40,6 +40,7 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
     { name: 'planner resume classifier favors active wave', run: testPlannerResumeClassifierFavorsActiveWave },
+    { name: 'planner resume recovers fallback path', run: testPlannerResumeRecoversFallbackPath },
     { name: 'planner execute resume from artifacts', run: testPlannerExecuteResumeFromArtifacts },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
@@ -625,6 +626,88 @@ async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
     assert.equal(resumedExecutionState.epoch >= 1, true);
     assert.ok(resumedExecutionState.lastCompletedWaveStepIds.length >= 1);
     assert.equal(resumedLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read' && entry.ownerStepId === 'step-1'), true);
+  });
+}
+
+async function testPlannerResumeRecoversFallbackPath(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!content.includes('"id": "step-1"') && !content.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Resume through a fallback recovery path.',
+              steps: [
+                { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Fail first.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'] },
+                { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING', kind: 'code', details: 'Use fallback to fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Verify after fallback.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Resume through a fallback recovery path.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        if (content.includes('Fallback add implementation')) {
+          return buildMathFixStep(workspaceRoot);
+        }
+        throw new Error('Primary step should not be rerun during fallback-path resume');
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const first = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '通过 fallback 修复 src/math.js 并 verify',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+    });
+
+    assert.equal(first.status, 'completed');
+    const simulatedPlan = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<Record<string, unknown>> };
+    const updatedPlan = {
+      ...simulatedPlan,
+      steps: simulatedPlan.steps.map((step) => {
+        if (step.id === 'step-1') {
+          return { ...step, status: 'FAILED', executionState: 'failed', lastError: 'Primary implementation failed intentionally' };
+        }
+        if (step.id === 'step-1-fallback') {
+          return { ...step, status: 'PENDING', executionState: 'ready', lastError: 'Activated as fallback for step-1.' };
+        }
+        if (step.id === 'step-2') {
+          return { ...step, status: 'PENDING', executionState: 'blocked' };
+        }
+        return step;
+      }),
+    };
+    await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(updatedPlan, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({ version: '1', revision: 1, phase: 'RETRYING', outcome: 'RUNNING', currentStepId: 'step-1-fallback', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], invalidResponseAttempts: 0, message: 'Activated fallback step(s): step-1-fallback.', consistencyErrors: [] }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'recovering', plannerPhase: 'RETRYING', outcome: 'RUNNING', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], currentWaveStepIds: [], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1-fallback'], interruptedStepIds: ['step-1-fallback'], resumeStrategy: 'resume_fallback_path', lastEventType: 'FALLBACK_ACTIVATED', lastEventReason: 'continuing fallback recovery through step-1-fallback.', strategy: 'serial', epoch: 1, currentStepId: 'step-1-fallback', message: 'Activated fallback step(s): step-1-fallback.', recoveryStepId: 'step-1-fallback', recoveryReason: 'Activated fallback step(s): step-1-fallback.' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'guarded_read', ownerStepId: 'step-1', revision: 1 }] }, null, 2), 'utf8');
+
+    const resumed = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '',
+      explicitFiles: [],
+      pastedSnippets: [],
+      executeSubtasks: true,
+      resumeSessionRef: first.sessionDir,
+    });
+
+    assert.equal(resumed.status, 'completed');
+    const resumedPlan = JSON.parse(await readFile(path.join(resumed.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string };
+    const events = await readFile(path.join(resumed.sessionDir, 'plan.events.jsonl'), 'utf8');
+    assert.equal(resumedPlan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(resumedPlan.steps.find((step) => step.id === 'step-1-fallback')?.status, 'DONE');
+    assert.equal(resumedPlan.steps.find((step) => step.id === 'step-2')?.status, 'DONE');
+    assert.equal(resumedExecutionState.executionPhase, 'done');
+    assert.match(events, /step-1-fallback/);
+    assert.match(events, /subtask_completed/);
   });
 }
 

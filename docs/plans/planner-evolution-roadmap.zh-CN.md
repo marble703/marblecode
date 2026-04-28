@@ -34,26 +34,26 @@
 - 新增调度能力时容易把状态分散回编排层
 - UI 与恢复逻辑仍需要从多个 artifact 反推运行时意图
 
-### 2. resume 仍是 reset-and-rerun 风格
+### 2. resume 仍未覆盖完整 recovering / fallback 路径
 
-当前从 execution artifacts 恢复时，主要策略仍然是把未完成步骤重置后再执行，而不是精确恢复：
+当前从 execution artifacts 恢复时，active wave 与基础锁状态已经能恢复到更接近原执行态，但仍未完整覆盖：
 
-- active wave
 - fallback path
 - 局部锁所有权
 - recovering 中的局部子图状态
+- partial planning window 之后的恢复边界
 
-这已经够支撑基础恢复，但还不算成熟的图执行恢复模型。
+这说明恢复链路已经越过最初的 reset-and-rerun 版本，但还没有达到成熟的图执行恢复模型。
 
-### 3. 工具层仍是内置 `ToolRegistry`
+### 3. 工具层仍缺 provider 生命周期与外部接入层
 
-如果后续要接入 LSP/MCP 或更多外部工具，当前工具层抽象还不够。
+`ToolProvider` 抽象和 builtin provider 迁移已经落地，但后续要接入 LSP/MCP 或更多外部工具时，仍缺：
 
 剩余结构性缺口主要是：
 
-- `ToolProvider` 抽象
-- builtin tools 迁移到 provider 机制
 - provider 生命周期、权限边界和日志接口
+- 外部 provider 配置与默认禁用策略
+- 面向 diagnostics / symbols / references 这类只读能力的 provider 设计
 
 在这一步完成前，不建议直接引入真实 LSP/MCP provider。
 
@@ -104,27 +104,27 @@
 - active wave 与 recovering 状态可被更精确恢复
 - 执行状态 artifact 足以解释“为什么从这里继续跑”
 
-### P1：引入 `ToolProvider`，再考虑 LSP/MCP
+### P1：在 provider 边界上接入只读扩展能力
 
-这是当前最明确的结构性后续工作。
+这是当前工具层演进的下一步，而不是重新设计 registry。
 
 目标：
 
-- 让内置工具、未来 LSP 工具、未来 MCP 工具走同一套 provider 抽象
-- 不改变现有工具行为和安全边界
+- 在不改变现有工具行为和安全边界的前提下，接入新的只读 provider 能力
+- 让未来 LSP diagnostics / MCP bridge 复用现有 provider-compatible registry
 
 建议任务：
 
-1. 定义 `ToolProvider` 接口：`id`、`listTools()`、`executeTool()`、`dispose()`。
-2. 将 builtins 封装为 `BuiltinToolProvider`。
-3. 保持现有 `ToolRegistry` 调用点可平滑迁移，避免一次性重写所有入口。
+1. 定义 provider 生命周期和 disposal 约定，而不只是静态注册。
+2. 为外部 provider 增加默认禁用和显式 allowlist 的配置路径。
+3. 先接入只读 diagnostics/symbols 能力，再评估更复杂的 MCP bridge。
 4. 在 provider 层保留 policy、session logging、redaction 的统一挂点。
 
 完成标准：
 
-- 现有内置工具全部可通过 provider 机制注册
+- 现有内置工具继续通过 provider 机制注册
 - CLI / planner / agent / TUI 工具行为保持不变
-- 后续接 LSP diagnostics 不需要再重做工具总线
+- 接入首个只读 provider 时不需要再重做工具总线
 
 ### P2：细化并发语义
 

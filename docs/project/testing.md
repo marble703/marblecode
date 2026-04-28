@@ -29,6 +29,7 @@ This repository uses a small set of targeted commands instead of a large unit-te
 It is the primary safety net for:
 
 - planner graph and execution changes
+- planner resume and recovery-path changes
 - patch/apply/rollback changes
 - verifier changes
 - TUI and planner-view changes
@@ -113,6 +114,7 @@ Representative cases:
 - `planner invalid retry and resume`
 - `planner resume classifier favors active wave`
 - `planner execute resume from artifacts`
+- `planner resume recovers fallback path`
 - `planner model retry`
 - `planner model retry exhaustion`
 

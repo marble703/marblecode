@@ -314,7 +314,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
         lastCompletedWaveStepIds: ['step-0'],
         selectedWaveStepIds: ['step-1'],
         interruptedStepIds: ['step-1'],
-        resumeStrategy: 'rerun_active',
+        resumeStrategy: 'resume_fallback_path',
         lastEventType: 'FALLBACK_ACTIVATED',
         lastEventReason: 'Activated fallback for step-1.',
         activeLockOwnerStepIds: ['step-1'],
@@ -345,7 +345,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.deepEqual(view.lastCompletedWaveStepIds, ['step-0']);
     assert.deepEqual(view.selectedWaveStepIds, ['step-1']);
     assert.deepEqual(view.interruptedStepIds, ['step-1']);
-    assert.equal(view.resumeStrategy, 'rerun_active');
+    assert.equal(view.resumeStrategy, 'resume_fallback_path');
     assert.equal(view.lastEventType, 'FALLBACK_ACTIVATED');
     assert.match(view.lastEventReason, /Activated fallback/);
     assert.deepEqual(view.activeLockOwnerStepIds, ['step-1']);
