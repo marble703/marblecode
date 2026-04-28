@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { applyTuiCommand, createInitialTuiState } from '../../src/tui/agent-repl.js';
+import { createInitialTuiState } from '../../src/tui/agent-repl.js';
+import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
 import { withWorkspace } from './helpers.js';
@@ -11,6 +12,7 @@ export function createTuiCases(): ManualSuiteCase[] {
   return [
     { name: 'planner session resolution', run: testPlannerSessionResolution },
     { name: 'interactive tui command parsing', run: testInteractiveTuiCommandParsing },
+    { name: 'interactive tui command errors', run: testInteractiveTuiCommandErrors },
     { name: 'recent session summaries', run: testRecentSessionSummaries },
     { name: 'planner view tolerates partial artifacts', run: testPlannerViewToleratesPartialArtifacts },
     { name: 'planner view loads delta and feedback artifacts', run: testPlannerViewLoadsDeltaAndFeedbackArtifacts },
@@ -88,6 +90,67 @@ async function testInteractiveTuiCommandParsing(): Promise<void> {
   state = applyTuiCommand(state, '/reset').state;
   assert.equal(state.mode, 'run');
   assert.equal(state.autoApprove, false);
+  assert.equal(state.workspaceRoot, '/tmp/example-workspace');
+  assert.deepEqual(state.pastedSnippets, []);
+  assert.equal(state.lastSessionDir, null);
+  assert.equal(state.plannerView, null);
+}
+
+async function testInteractiveTuiCommandErrors(): Promise<void> {
+  let state = createInitialTuiState('/tmp/tui-errors');
+
+  let result = applyTuiCommand(state, '/resume');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Switch to \/mode plan or \/mode execute/);
+
+  result = applyTuiCommand(state, '/replan');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Switch to \/mode plan or \/mode execute/);
+
+  result = applyTuiCommand(state, '/open');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Provide a session index or path/);
+
+  result = applyTuiCommand(state, '/unknown-command');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Unknown command/);
+
+  state = {
+    ...state,
+    mode: 'plan',
+  };
+
+  result = applyTuiCommand(state, '/replan');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Provide additional planner input/);
+
+  result = applyTuiCommand(state, '/inspect wave 1');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Use \/inspect step/);
+
+  result = applyTuiCommand(state, '/open-child');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /Provide a planner step id or index/);
+
+  state = {
+    ...state,
+    recentSessions: [
+      { id: 'child-1', dir: '/tmp/child-1', isPlanner: false, summary: 'child session' },
+      { id: 'planner-1', dir: '/tmp/planner-1', isPlanner: true, summary: 'planner session', outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1' },
+    ],
+  };
+
+  result = applyTuiCommand(state, '/resume 1');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /is not a planner session/);
+
+  result = applyTuiCommand(state, '/follow 99');
+  assert.equal(result.action, undefined);
+  assert.match(result.state.lastOutput, /No session found for 99/);
+
+  result = applyTuiCommand(state, '/resume');
+  assert.equal(result.action?.type, 'resume_planner');
+  assert.equal(result.action?.sessionRef, '/tmp/planner-1');
 }
 
 async function testRecentSessionSummaries(): Promise<void> {
