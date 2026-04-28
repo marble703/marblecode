@@ -126,6 +126,9 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
     currentStepId: 'step-2',
     message: 'recovering',
     interruptedStepIds: ['step-2'],
+    recoverySourceStepId: 'step-1',
+    recoverySubgraphStepIds: ['step-1', 'step-2', 'step-3'],
+    lockResumeMode: 'drop_unrelated_writes',
     recoveryStepId: 'step-2',
     recoveryReason: 'recovering through step-2',
   });
@@ -136,6 +139,9 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
   assert.deepEqual(context.interruptedStepIds, ['step-2']);
   assert.equal(context.executionEpoch, 4);
   assert.deepEqual(context.activeLockOwnerStepIds, ['step-2']);
+  assert.equal(context.recoverySourceStepId, 'step-1');
+  assert.deepEqual(context.recoverySubgraphStepIds, ['step-1', 'step-2', 'step-3']);
+  assert.equal(context.lockResumeMode, 'drop_unrelated_writes');
 }
 
 async function testPlannerExecutionStateMachineTransitions(): Promise<void> {
