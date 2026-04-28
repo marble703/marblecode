@@ -1,16 +1,16 @@
 import { buildContext } from '../context/index.js';
 import type { AppConfig } from '../config/schema.js';
 import { applyPatch, isPatchBaseDriftError, previewPatch, rollbackPatch } from '../patch/apply.js';
-import { parsePatchDocument } from '../patch/codec.js';
-import type { PatchApplyResult, PatchDocument } from '../patch/types.js';
-import type { ModelProvider, ModelRequest } from '../provider/types.js';
+import type { PatchApplyResult } from '../patch/types.js';
+import type { ModelProvider } from '../provider/types.js';
 import { invokeWithRetry } from '../provider/retry.js';
 import { routeTask } from '../router/index.js';
 import { appendSessionLog, createSession, writeSessionArtifact } from '../session/index.js';
-import { extractJsonObject } from '../shared/json-response.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { runVerifier, type VerifyResult } from '../verifier/index.js';
 import { PolicyEngine } from '../policy/index.js';
+import { buildModelRequest, countSnippetLines } from './model.js';
+import { parseAgentStep } from './parse.js';
 
 export interface RunAgentInput {
   prompt: string;
@@ -40,24 +40,6 @@ export interface RunAgentResult {
   message: string;
   modelAlias: string;
 }
-
-type AgentStep =
-  | {
-      type: 'tool_call';
-      thought?: string;
-      tool: string;
-      input: Record<string, unknown>;
-    }
-  | {
-      type: 'patch';
-      thought?: string;
-      patch: PatchDocument;
-    }
-  | {
-      type: 'final';
-      thought?: string;
-      message: string;
-    };
 
 export async function runAgent(
   config: AppConfig,
@@ -306,118 +288,6 @@ export async function runAgent(
   };
 }
 
-function buildModelRequest(
-  config: AppConfig,
-  model: string,
-  providerId: string,
-  prompt: string,
-  context: Awaited<ReturnType<typeof buildContext>>,
-  transcript: string[],
-  tools: ReturnType<ToolRegistry['listDefinitions']>,
-): ModelRequest {
-  const contextText = context.items
-    .map((item) => {
-      const warning = item.warning ? `Warning: ${item.warning}\n` : '';
-      return `File: ${item.path}\nSource: ${item.source}\nReason: ${item.reason}\n${warning}${item.excerpt}`;
-    })
-    .join('\n\n---\n\n');
-  const toolText = tools
-    .map((tool) => `- ${tool.name}: ${tool.description} input=${JSON.stringify(tool.inputSchema)}`)
-    .join('\n');
-
-  return {
-    providerId,
-    model,
-    systemPrompt: buildSystemPrompt(config.routing.maxSteps),
-    messages: [
-      {
-        role: 'user',
-        content: [
-          `User request:\n${prompt}`,
-          `Available tools:\n${toolText || '(none)'}`,
-          context.selectionSummary,
-          `Context:\n${contextText || '(no context selected)'}`,
-          transcript.length > 0 ? `Transcript:\n${transcript.join('\n')}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n\n'),
-      },
-    ],
-    stream: false,
-    maxOutputTokens: 4000,
-    metadata: {
-      mode: 'mvp-json-loop',
-    },
-  };
-}
-
-function buildSystemPrompt(maxSteps: number): string {
-  return [
-    'You are a coding agent operating inside a secure local host.',
-    `You may take at most ${maxSteps} steps before the host will stop you.`,
-    'Valid response types are JSON objects with type = tool_call, patch, or final.',
-    'Do not output prose outside JSON.',
-    'Never request write_file. The host applies structured patches on your behalf.',
-    'If the user did not provide target files or the selected context is incomplete, search before editing with search_text, list_files, and read_file.',
-    'Treat pasted snippets such as [Pasted ~12 lines #1] as first-class search clues for identifiers, errors, and nearby code.',
-    'When using replace_file, newText must contain the full final file content, not a partial diff.',
-    'Patch documents may contain multiple operations when one fix spans multiple files such as implementation, tests, config, or verifier docs.',
-    'Prefer read_file before editing unless the file content is already fully present in context.',
-    'Sensitive files such as .env are unavailable unless they were explicitly supplied.',
-    'Project-scoped verification plans may live in .marblecode/verifier.md. If verifier analysis says the verification plan is stale, you may update that file.',
-    'Patch responses must follow this schema:',
-    '{"type":"patch","thought":"...","patch":{"version":"1","summary":"...","operations":[{"type":"replace_file","path":"src/file.ts","diff":"brief summary","newText":"full file contents"},{"type":"replace_file","path":"tests/file.test.ts","diff":"brief summary","newText":"full file contents"}]}}',
-  ].join(' ');
-}
-
-function parseAgentStep(content: string): AgentStep {
-  const parsed = JSON.parse(extractJsonObject(content)) as Record<string, unknown>;
-  const type = parsed.type;
-  if (type === 'tool_call') {
-    return withOptionalThought(
-      {
-        type: 'tool_call',
-        tool: String(parsed.tool),
-        input: (parsed.input as Record<string, unknown>) ?? {},
-      },
-      parsed.thought,
-    );
-  }
-
-  if (type === 'patch') {
-    return withOptionalThought(
-      {
-        type: 'patch',
-        patch: parsePatchDocument(JSON.stringify(parsed.patch)),
-      },
-      parsed.thought,
-    );
-  }
-
-  if (type === 'final') {
-    return withOptionalThought(
-      {
-        type: 'final',
-        message: String(parsed.message ?? ''),
-      },
-      parsed.thought,
-    );
-  }
-
-  throw new Error('Model response did not contain a valid agent step');
-}
-
-function withOptionalThought<T extends AgentStep>(step: T, thought: unknown): T {
-  if (typeof thought === 'string') {
-    return {
-      ...step,
-      thought,
-    };
-  }
-
-  return step;
-}
-
 function renderPatchPreview(preview: Array<{ path: string; type: string; summary: string; preview: string }>): string {
   return preview
     .map((item) => [`[${item.type}] ${item.path}`, item.summary, item.preview].join('\n'))
@@ -434,10 +304,6 @@ function buildVerifierFailureMessage(verifyResult: VerifyResult): string {
     ? ` Analysis: ${analysis.summary || analysis.reason}${analysis.shouldEditVerifier ? ' Consider updating .marblecode/verifier.md.' : ''}`
     : '';
   return `Verifier failed after the maximum number of repair attempts.${details}${analysisText}`;
-}
-
-function countSnippetLines(snippet: string): number {
-  return snippet.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
 }
 
 export async function tryRollback(
