@@ -22,6 +22,14 @@ interface PlannerResumeDecision {
   returnExistingState?: boolean;
 }
 
+interface PlannerResumeLockOutcome {
+  nextLockTable: ExecutionLockTable;
+  preservedOwnerStepIds: string[];
+  downgradedOwnerStepIds: string[];
+  droppedOwnerStepIds: string[];
+  mode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']>;
+}
+
 export async function resumePlannerExecution(
   config: AppConfig,
   providers: Map<string, ModelProvider>,
@@ -39,7 +47,8 @@ export async function resumePlannerExecution(
 
   let plan = artifacts.plan;
   let state = artifacts.state;
-  let lockTable = prepareLockTableForResume(artifacts.lockTable, decision);
+  const lockOutcome = computeResumeLockOutcome(artifacts.lockTable, decision);
+  let lockTable = lockOutcome.nextLockTable;
 
   if (decision.stepIdsToReset.length > 0) {
     for (const stepId of decision.stepIdsToReset) {
@@ -85,7 +94,7 @@ export async function resumePlannerExecution(
       ...(decision.recoverySourceStepId ? { recoverySourceStepId: decision.recoverySourceStepId } : {}),
       ...(decision.recoveryStepId ? { recoveryStepId: decision.recoveryStepId } : {}),
       ...(decision.recoverySubgraphStepIds && decision.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: decision.recoverySubgraphStepIds } : {}),
-      ...(decision.lockResumeMode ? { lockResumeMode: decision.lockResumeMode } : {}),
+      lockResumeMode: lockOutcome.mode,
       lastEventReason: decision.reason,
     },
   });
@@ -176,20 +185,52 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
   };
 }
 
-function prepareLockTableForResume(lockTable: ExecutionLockTable, decision: PlannerResumeDecision): ExecutionLockTable {
+function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: PlannerResumeDecision): PlannerResumeLockOutcome {
   const stepIds = new Set(decision.stepIdsToReset);
   const recoverySubgraph = new Set(decision.recoverySubgraphStepIds ?? []);
   if (stepIds.size === 0 && recoverySubgraph.size === 0) {
-    return lockTable;
+    return {
+      nextLockTable: lockTable,
+      preservedOwnerStepIds: [],
+      downgradedOwnerStepIds: [],
+      droppedOwnerStepIds: [],
+      mode: decision.lockResumeMode ?? 'drop_unrelated_writes',
+    };
   }
 
+  const preservedOwnerStepIds = new Set<string>();
+  const downgradedOwnerStepIds = new Set<string>();
+  const droppedOwnerStepIds = new Set<string>();
+
+  const nextEntries = lockTable.entries
+    .filter((entry) => {
+      if (entry.mode !== 'write_locked') {
+        preservedOwnerStepIds.add(entry.ownerStepId);
+        return true;
+      }
+      const belongsToRecovery = stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId);
+      if (!belongsToRecovery) {
+        droppedOwnerStepIds.add(entry.ownerStepId);
+      }
+      return belongsToRecovery;
+    })
+    .map((entry) => {
+      if (entry.mode === 'write_locked' && (stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId))) {
+        downgradedOwnerStepIds.add(entry.ownerStepId);
+        return { ...entry, mode: 'guarded_read' as const };
+      }
+      return entry;
+    });
+
   return {
-    ...lockTable,
-    entries: lockTable.entries
-      .filter((entry) => entry.mode !== 'write_locked' || stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId))
-      .map((entry) => ((entry.mode === 'write_locked' && (stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId)))
-        ? { ...entry, mode: 'guarded_read' as const }
-        : entry)),
+    nextLockTable: {
+      ...lockTable,
+      entries: nextEntries,
+    },
+    preservedOwnerStepIds: [...preservedOwnerStepIds],
+    downgradedOwnerStepIds: [...downgradedOwnerStepIds],
+    droppedOwnerStepIds: [...droppedOwnerStepIds],
+    mode: decision.lockResumeMode ?? 'drop_unrelated_writes',
   };
 }
 
