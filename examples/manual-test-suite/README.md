@@ -35,6 +35,16 @@ Do not run this suite as part of the default verifier on every change. It is int
 
 The suite automatically asserts all results without using AI to judge correctness.
 
+The deterministic suite currently covers 75 cases across these groups:
+
+- core tools, context, and policy
+- planner graph, runtime, execution, and recovery
+- TUI and planner read-model behavior
+- agent patch/apply/rollback flows
+- verifier resolution and analysis
+
+For a maintained breakdown of test groups, commands, and when to run them, see `docs/project/testing.md`.
+
 ## Covered Scenarios
 
 - `read_file` returns expected file contents
@@ -64,6 +74,7 @@ The suite automatically asserts all results without using AI to judge correctnes
 - planner execute tests also cover deterministic node retry, fallback, and local replan recovery paths
 - planner graph, wave calculation, execution locks, and restrictive write-scope enforcement are covered deterministically
 - planner execute tests also cover same-wave concurrency for disjoint file scopes and fail-fast conflict policy behavior
+- planner runtime tests cover execution-state metadata, active-wave resume behavior, and lock preservation across resume
 
 ## Companion Manual Checks
 
@@ -78,7 +89,7 @@ Use this suite as the regression map when splitting large runtime files.
 - planner graph, lock, retry, fallback, local replan, and execute-wave refactors should keep the planner-execute scenarios green
 - TUI command or planner-view refactors should keep the interactive command parsing and recent-session scenarios green
 - agent, patch, rollback, or verifier refactors should keep the deterministic patch-apply, rollback, verifier-output, and verifier-analysis scenarios green
-- the repository split plan in `docs/plans/repo-refactor-plan.md` references this suite as the main deterministic safety net for structural cleanup; the current shared-helper and planner-helper split pass was validated with `npm run test:examples`
+- use this suite as the main deterministic safety net for structural cleanup and planner-runtime refactors
 
 ## Fixture Layout
 

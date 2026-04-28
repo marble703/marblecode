@@ -6,6 +6,7 @@ This repository now separates user/runtime documentation from planning and evolu
 
 - `docs/project/architecture.md`: current architecture overview and runtime module map
 - `docs/project/architecture_ZH-CN.md`: Chinese architecture overview
+- `docs/project/testing.md`: testing commands, manual-suite groups, and regression guidance
 - `docs/project/tui.md`: TUI command reference and usage notes
 - `docs/project/planner-parallel-graph.zh-CN.md`: planner execute graph, waves, conflicts, locks, rolling planning, and feedback behavior
 
