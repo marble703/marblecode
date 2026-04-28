@@ -227,7 +227,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `locks.ts`：文件锁所有权及写入断言
 - `utils.ts`：规划器共享辅助函数
 
-有关任务图、波次和文件锁的详细信息，请参阅 `docs/planner-parallel-graph.zh-CN.md`。
+有关任务图、波次和文件锁的详细信息，请参阅 `docs/project/planner-parallel-graph.zh-CN.md`。
 
 ### `src/tui`
 
@@ -237,7 +237,7 @@ planner artifact 的读取、事件归一化以及 planner read-model API 现已
 
 TUI 不是一个独立的运行时栈，而是基于相同 `run` / `plan` / `plan --execute` 流程的前端界面。
 
-有关命令级别的用法，请参阅 `docs/tui.md`。
+有关命令级别的用法，请参阅 `docs/project/tui.md`。
 
 ### `src/shared`
 
@@ -328,6 +328,6 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 请使用其他文档来满足这些需求：
 
 - `README.md`：功能和流程概览
-- `docs/repo-refactor-plan.md`：当前的代码清理路线图
-- `docs/planner-parallel-graph.zh-CN.md`：planner execute 图与锁模型
-- `docs/tui.md`：TUI 命令参考
+- `docs/plans/repo-refactor-plan.md`：当前的代码清理路线图
+- `docs/project/planner-parallel-graph.zh-CN.md`：planner execute 图与锁模型
+- `docs/project/tui.md`：TUI 命令参考

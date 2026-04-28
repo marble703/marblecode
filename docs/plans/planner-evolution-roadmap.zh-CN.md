@@ -262,11 +262,26 @@
 4. `src/tui/planner-view.ts` 现在主要保留终端格式化和 `renderPlannerEvent()`。
 5. `planner-live.ts`、`agent-repl.ts`、manual-suite TUI tests 已切换到共享 loader。
 
+当前状态：基础能力已完成，阶段进入收尾。
+
+已完成的 WebUI/TUI 接口收口：
+
+1. `loadPlannerView()`、`loadPlannerEvents()`、`loadPlannerSessionSummary()` 已形成 shared read-model API。
+2. `PlannerViewModel` 已暴露 normalized `timeline` / `subtaskTimeline`。
+3. planner read-model 已开始暴露 `feedbackHistory`、`deltaHistory`、`replanHistory` 轻量摘要。
+4. recent session summary 已开始携带 `executionPhase`、`planRevision`、`planIsPartial`。
+
 仍待完成的 WebUI/TUI 细化：
 
 1. 当前已在 `src/planner/view-model.ts` 引入 normalized `timeline` / `subtaskTimeline`，但未来如需更严格协议仍可进一步抽出独立 event normalizer 模块。
 2. 当前 view model 已开始暴露 `feedbackHistory`、`deltaHistory`、`replanHistory` 摘要，但仍主要基于现有 artifact 组织，而不是专门的 history artifact 协议。
 3. 只读接口边界已开始固化，`loadPlannerView()`、`loadPlannerEvents()`、`loadPlannerSessionSummary()` 现已形成 shared read-model API；未来 WebUI 的 `/sessions` / `/planner-view` / `/events` 仍待进一步产品化。
+
+下一步建议（进入 P3 前的收口阶段）：
+
+1. 先拆分 `scripts/manual-suite/planner.ts`，按 graph / execution / recovery / runtime 维度拆开。
+2. 再拆分 `src/tui/agent-repl.ts`，按 commands / session-actions / state / render / paste / run-prompt 分层。
+3. 在上述结构性收口完成后，再进入 `ToolProvider` abstraction。
 
 完成标准：
 
@@ -279,6 +294,12 @@
 这项重要但不应抢在 planner execution 基础之前。
 
 原因：仓库当前工具系统非常简单：`ToolRegistry` 注册内置 `Tool`，没有插件生命周期、权限分层、外部工具 schema 同步、长连接管理。直接引入 LSP/MCP 容易扩大安全面和复杂度。建议先做中间层接口，再接具体协议。
+
+进入 P3 前的额外前置建议：
+
+1. 不要在 `scripts/manual-suite/planner.ts` 和 `src/tui/agent-repl.ts` 仍然膨胀的情况下直接接入 LSP/MCP。
+2. 先引入 `ToolProvider`，再做 builtin migration，然后再接真实 LSP/MCP provider。
+3. 对 planner 的长期方向，优先采用“graph mutation proposal capability + host validation/merge”的模式，而不是让 planner 直接拥有主计划写权限。
 
 目标：
 

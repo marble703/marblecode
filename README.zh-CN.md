@@ -256,7 +256,7 @@ node dist/index.js rollback --last
 - 用 `/reset` 清空当前 TUI 状态，用 `/quit` 退出
 - 在 `run` 模式下，如果没有开启 `/yes on`，TUI 会展示 patch preview 并询问是否应用
 - 当最后打开的是 planner session 时，TUI 会把 planner 计划、subtask 和时间线直接内嵌显示在会话界面中
-- 完整命令说明和示例流程见 `docs/tui.md`
+- 完整命令说明和示例流程见 `docs/project/tui.md`
 
 ## 多文件 Patch
 
@@ -303,16 +303,16 @@ node dist/index.js rollback --last
 - `examples/snippets`：用于演示 coding 修改的简单代码片段
 - `examples/verifier-fixture`：用于 verifier 冒烟验证的最小 TypeScript 测试项目
 - `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
-- `docs/architecture.md`：当前架构总览和运行时模块关系
-- `docs/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
-- `docs/repo-refactor-plan.md`：当前仓库拆分路线、已完成项和后续清理计划
+- `docs/project/architecture.md`：当前架构总览和运行时模块关系
+- `docs/project/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
+- `docs/plans/repo-refactor-plan.md`：当前仓库拆分路线、已完成项和后续清理计划
 - `README.zh-CN.md`：中文说明文档
 
 ## 重构说明
 
 - 第一轮结构清理已经落地：共享 JSON 解析、共享文件遍历，以及 planner 的 request/parse/artifact/prompt/state/recovery helper 都已拆到独立模块
 - planner runtime 和 manual suite 的拆分已经落地；目前剩余的主要大文件热点仍是 `src/tui/agent-repl.ts`、`src/agent/index.ts` 和 `src/verifier/index.ts`
-- `docs/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
+- `docs/plans/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
 
 ## Verifier Markdown
 
@@ -342,4 +342,4 @@ node dist/index.js rollback --last
 - Shell 命令会以当前工作区根目录作为执行目录，并配合默认拒绝风格的安全基线
 - 默认禁止高风险命令、联网命令和后台常驻模式
 - 模型通过结构化 Patch 改码，不直接控制文件写入
-- 当前整体架构总览见 `docs/architecture.md`
+- 当前整体架构总览见 `docs/project/architecture.md`

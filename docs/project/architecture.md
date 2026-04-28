@@ -227,7 +227,7 @@ Current internal split:
 - `locks.ts`: file lock ownership and write assertions
 - `utils.ts`: planner-shared helpers
 
-For the details of task graphs, waves, and file locks, see `docs/planner-parallel-graph.zh-CN.md`.
+For the details of task graphs, waves, and file locks, see `docs/project/planner-parallel-graph.zh-CN.md`.
 
 ### `src/tui`
 
@@ -237,7 +237,7 @@ Planner artifact loading, event normalization, and planner read-model APIs now l
 
 The TUI is not a separate runtime stack; it is a front end over the same `run` / `plan` / `plan --execute` flows.
 
-For command-level usage, see `docs/tui.md`.
+For command-level usage, see `docs/project/tui.md`.
 
 ### `src/shared`
 
@@ -328,6 +328,6 @@ It is not:
 Use the other docs for those purposes:
 
 - `README.md`: feature and workflow overview
-- `docs/repo-refactor-plan.md`: current cleanup roadmap
-- `docs/planner-parallel-graph.zh-CN.md`: planner execute graph and lock model
-- `docs/tui.md`: TUI command reference
+- `docs/plans/repo-refactor-plan.md`: current cleanup roadmap
+- `docs/project/planner-parallel-graph.zh-CN.md`: planner execute graph and lock model
+- `docs/project/tui.md`: TUI command reference

@@ -75,7 +75,7 @@
 - `examples/manual-test-suite`: deterministic regression fixture for tool, context, planner, patch, rollback, shell, policy, verifier, and retry checks.
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
 - `scripts/test-examples.ts`: manual suite entrypoint only; domain cases and shared test helpers live under `scripts/manual-suite/`.
-- `docs/repo-refactor-plan.md`: current split plan for oversized runtime and test files; consult it before moving planner, TUI, agent, verifier, or manual-suite code.
+- `docs/plans/repo-refactor-plan.md`: current split plan for oversized runtime and test files; consult it before moving planner, TUI, agent, verifier, or manual-suite code.
 
 # TypeScript Gotchas
 

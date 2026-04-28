@@ -261,7 +261,7 @@ node dist/index.js rollback --last
 - use `/reset` to clear the current TUI state and `/quit` to exit
 - in `run` mode, if `/yes` is off, the TUI will show the patch preview and ask for confirmation before applying it
 - when the last opened session is a planner session, the TUI embeds a planner panel showing the current plan, subtasks, and timeline directly in the conversation UI
-- see `docs/tui.md` for the full command reference and example workflows
+- see `docs/project/tui.md` for the full command reference and example workflows
 
 ## Multi-file Patch
 
@@ -308,15 +308,15 @@ node dist/index.js rollback --last
 - `examples/snippets`: small demo code snippets for testing coding edits
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
-- `docs/architecture.md`: current architecture overview and runtime module map
-- `docs/repo-refactor-plan.md`: planned split of oversized runtime and test modules
+- `docs/project/architecture.md`: current architecture overview and runtime module map
+- `docs/plans/repo-refactor-plan.md`: planned split of oversized runtime and test modules
 - `README.zh-CN.md`: Chinese project overview
 
 ## Refactor Notes
 
 - the first structural cleanup pass has already extracted shared JSON parsing and file-walk helpers plus the planner request/parse/artifact/prompt/state/recovery helpers into focused modules
 - the planner runtime and manual suite split passes have landed; the main remaining large-file hotspots are `src/tui/agent-repl.ts`, `src/agent/index.ts`, and `src/verifier/index.ts`
-- `docs/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
+- `docs/plans/repo-refactor-plan.md` tracks what has landed, what remains, and which existing verification commands should protect each phase
 
 ## Verifier Markdown
 
@@ -341,4 +341,4 @@ When no verifier is provided explicitly, the host now falls back to repo-based d
 
 Discovery is only a fallback. Shared project verifier behavior should still live in `.marblecode/verifier.md` when the project needs more than a simple default.
 
-See `docs/architecture.md` for the current architecture overview.
+See `docs/project/architecture.md` for the current architecture overview.
