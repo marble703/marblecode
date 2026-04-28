@@ -166,6 +166,12 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - 调用验证器
 - 返回结构化的完成或干预状态
 
+当前的内部拆分：
+
+- `index.ts`：runtime 循环、patch/apply/verifier 编排，以及 rollback helper
+- `model.ts`：request 构建和 system prompt 组装
+- `parse.ts`：模型步骤 JSON 解析和规范化
+
 ### `src/patch`
 
 拥有内部补丁表示及补丁应用管道。

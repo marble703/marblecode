@@ -166,6 +166,12 @@ It is responsible for:
 - invoking the verifier
 - returning structured completion or intervention states
 
+Current internal split:
+
+- `index.ts`: runtime loop, patch/apply/verifier orchestration, and rollback helper
+- `model.ts`: request construction and system prompt assembly
+- `parse.ts`: model-step JSON parsing and normalization
+
 ### `src/patch`
 
 Owns the internal patch representation and patch application pipeline.

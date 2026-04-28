@@ -52,7 +52,7 @@
 
 # Codebase Boundaries
 
-- `src/agent`: JSON-step agent loop and apply-failure messaging.
+- `src/agent`: JSON-step agent loop and apply-failure messaging. Request/system-prompt construction now lives in `src/agent/model.ts`, model-step parsing in `src/agent/parse.ts`, and `src/agent/index.ts` still owns the patch/apply/verify runtime loop plus rollback helper.
 - `src/config`: config schema defaults and project/local config loading.
 - `src/planner`: `src/planner/index.ts` is the public `runPlanner()` entrypoint; `src/planner/loop.ts` owns the planner runtime loop, execute orchestration lives under `execute*.ts` modules, and execution-state/strategy helpers live in `execution-*.ts` modules.
 - `src/planner/model.ts`, `src/planner/parse.ts`, `src/planner/artifacts.ts`, `src/planner/prompts.ts`, `src/planner/state.ts`, `src/planner/recovery.ts`, `src/planner/replan-merge.ts`, `src/planner/utils.ts`: planner helper modules split out of the old monolithic planner entrypoint.
