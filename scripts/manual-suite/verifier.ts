@@ -13,6 +13,8 @@ import type { ManualSuiteCase } from './types.js';
 export function createVerifierCases(): ManualSuiteCase[] {
   return [
     { name: 'verifier auto discovery', run: testVerifierAutoDiscovery },
+    { name: 'verifier manual override takes priority', run: testVerifierManualOverrideTakesPriority },
+    { name: 'verifier disabled skips execution', run: testVerifierDisabledSkipsExecution },
     { name: 'verifier syntax error output', run: testVerifierSyntaxErrorOutput },
     { name: 'verifier failure analysis', run: testVerifierFailureAnalysis },
   ];
@@ -68,6 +70,39 @@ export function multiply(a, b) {
     assert.equal(verifyResult.success, true);
     assert.equal(verifyResult.commands[0]?.source, 'discovered');
     assert.equal(verifyResult.commands[0]?.command, 'npm run build');
+  });
+}
+
+async function testVerifierManualOverrideTakesPriority(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.verifier.commands = ['node --eval "process.exit(9)"'];
+    const verifyResult = await runVerifier(config, policy, {
+      manualCommands: ['node --eval "process.stdout.write(\'manual ok\\n\')"'],
+      changedFiles: ['src/math.js'],
+    });
+
+    assert.equal(verifyResult.success, true);
+    assert.equal(verifyResult.commands.length, 1);
+    assert.equal(verifyResult.commands[0]?.source, 'manual');
+    assert.equal(verifyResult.commands[0]?.command, 'node --eval "process.stdout.write(\'manual ok\\n\')"');
+    assert.equal(verifyResult.failures.length, 0);
+  });
+}
+
+async function testVerifierDisabledSkipsExecution(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.verifier.enabled = false;
+    config.verifier.allowDiscovery = false;
+    config.verifier.commands = [];
+
+    const verifyResult = await runVerifier(config, policy, {
+      changedFiles: ['src/math.js'],
+    });
+
+    assert.equal(verifyResult.success, true);
+    assert.deepEqual(verifyResult.commands, []);
+    assert.deepEqual(verifyResult.failures, []);
+    assert.equal(verifyResult.analysis, undefined);
   });
 }
 
