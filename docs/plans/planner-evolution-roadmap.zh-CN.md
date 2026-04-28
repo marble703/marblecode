@@ -36,7 +36,7 @@
 
 当前已经开始把恢复相关元数据写入 `execution.state.json`，例如 `resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds` 与 `lockResumeMode`。下一步重点不再是继续堆更多字段，而是让执行器更多地围绕这些字段初始化和推进，而不是依赖局部变量和隐式推导。
 
-当前锁恢复仍偏保守：它已经能保留 guarded read 并丢弃无关活跃写锁，但还没有形成更精细的 ownership-preserving 恢复规则模型。这会是后续恢复主线的下一个重点，而不是新的 provider 或 UI 能力。
+当前锁恢复仍偏保守：它已经能保留 guarded read、降级恢复子图内写锁、并丢弃无关活跃写锁，而且这些结果已经开始通过 recovery metadata 对外可见；但它还没有形成更精细的 ownership-preserving 恢复规则模型。这会是后续恢复主线的下一个重点，而不是新的 provider 或 UI 能力。
 
 ### 2. resume 仍未完成 lock ownership 与 recovering 子图的精细恢复
 

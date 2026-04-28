@@ -107,6 +107,7 @@ Purpose:
 - planner resume behavior
 - recovery snapshot initialization helpers
 - recovery lock-strategy metadata
+- recovery lock-owner outcome metadata
 - planner model retry behavior
 
 Representative cases:
