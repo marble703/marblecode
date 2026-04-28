@@ -1,11 +1,21 @@
 import type { AppConfig } from '../config/schema.js';
 import type { ModelProvider } from '../provider/types.js';
 import type { SessionRecord } from '../session/index.js';
-import type { PlannerExecutionArtifacts } from './execution-types.js';
+import type { PlannerExecutionArtifacts, PlannerExecutionStateArtifact } from './execution-types.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerRequestArtifact, PlannerPlan, PlannerState, PlannerStep } from './types.js';
 import { executePlannerPlan } from './execute.js';
 import { classifyPlannerStep, updatePlannerStep } from './runtime.js';
+
+type PlannerResumeStrategy = PlannerExecutionStateArtifact['resumeStrategy'] | 'resume_recovering' | 'resume_fallback_path' | 'return_terminal';
+
+interface PlannerResumeDecision {
+  strategy: PlannerResumeStrategy;
+  stepIdsToReset: string[];
+  reason: string;
+  recoveryStepId?: string;
+  returnExistingState?: boolean;
+}
 
 export async function resumePlannerExecution(
   config: AppConfig,
@@ -15,6 +25,13 @@ export async function resumePlannerExecution(
   artifacts: PlannerExecutionArtifacts,
 ): Promise<{ plan: PlannerPlan; state: PlannerState }> {
   const decision = classifyResumeDecision(artifacts);
+  if (decision.returnExistingState) {
+    return {
+      plan: artifacts.plan,
+      state: artifacts.state,
+    };
+  }
+
   let plan = artifacts.plan;
   let state = artifacts.state;
   let lockTable = prepareLockTableForResume(artifacts.lockTable, decision.stepIdsToReset);
@@ -53,9 +70,14 @@ export async function resumePlannerExecution(
     lockTable,
     executionState: {
       ...artifacts.executionState,
-      resumeStrategy: decision.strategy,
+      ...(decision.strategy ? { resumeStrategy: decision.strategy } : {}),
       interruptedStepIds: decision.stepIdsToReset,
-      currentWaveStepIds: decision.strategy === 'rerun_active' ? decision.stepIdsToReset : [],
+      currentWaveStepIds: shouldPreserveCurrentWave(decision.strategy)
+        ? artifacts.executionState.currentWaveStepIds
+        : decision.strategy === 'rerun_active'
+          ? decision.stepIdsToReset
+          : [],
+      ...(decision.recoveryStepId ? { recoveryStepId: decision.recoveryStepId } : {}),
       lastEventReason: decision.reason,
     },
   });
@@ -65,14 +87,46 @@ function shouldPreserveStepOnResume(step: PlannerStep): boolean {
   return step.failureTolerance === 'degrade' && step.status === 'FAILED';
 }
 
-function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): {
-  strategy: 'continue_wave' | 'rerun_active' | 'rerun_ready' | 'rebuild_from_plan';
-  stepIdsToReset: string[];
-  reason: string;
-} {
+function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerResumeDecision {
+  if (artifacts.executionState.executionPhase === 'done' || artifacts.state.outcome === 'DONE') {
+    return {
+      strategy: 'return_terminal',
+      stepIdsToReset: [],
+      reason: 'execution already completed.',
+      returnExistingState: true,
+    };
+  }
+
+  if (artifacts.executionState.executionPhase === 'failed' || artifacts.state.outcome === 'FAILED') {
+    return {
+      strategy: 'return_terminal',
+      stepIdsToReset: [],
+      reason: 'execution already failed and needs explicit new input.',
+      returnExistingState: true,
+    };
+  }
+
   const currentWaveStepIds = artifacts.executionState.currentWaveStepIds ?? [];
   const activeStepIds = artifacts.executionState.activeStepIds ?? [];
   const readyStepIds = artifacts.executionState.readyStepIds ?? [];
+  const recoveryStepId = typeof artifacts.executionState.recoveryStepId === 'string' && artifacts.executionState.recoveryStepId
+    ? artifacts.executionState.recoveryStepId
+    : '';
+
+  if (artifacts.executionState.executionPhase === 'recovering' && recoveryStepId) {
+    const recoveryStep = artifacts.plan.steps.find((step) => step.id === recoveryStepId);
+    if (recoveryStep && recoveryStep.status !== 'DONE') {
+      return {
+        strategy: artifacts.executionState.lastEventType === 'FALLBACK_ACTIVATED' ? 'resume_fallback_path' : 'resume_recovering',
+        stepIdsToReset: [recoveryStepId],
+        reason: artifacts.executionState.lastEventType === 'FALLBACK_ACTIVATED'
+          ? `continuing fallback recovery through ${recoveryStepId}.`
+          : `continuing recovery through ${recoveryStepId}.`,
+        recoveryStepId,
+      };
+    }
+  }
+
   const pendingStepIds = artifacts.plan.steps
     .filter((step) => step.status !== 'DONE' && !shouldPreserveStepOnResume(step))
     .map((step) => step.id);
@@ -121,4 +175,8 @@ function prepareLockTableForResume(lockTable: ExecutionLockTable, stepIdsToReset
         ? { ...entry, mode: 'guarded_read' as const }
         : entry)),
   };
+}
+
+function shouldPreserveCurrentWave(strategy: PlannerResumeDecision['strategy']): boolean {
+  return strategy === 'resume_recovering' || strategy === 'resume_fallback_path';
 }

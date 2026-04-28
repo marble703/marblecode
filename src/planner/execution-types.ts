@@ -25,7 +25,7 @@ export interface PlannerExecutionStateArtifact {
   currentStepId: string | null;
   message: string;
   selectedWaveStepIds?: string[];
-  resumeStrategy?: 'continue_wave' | 'rerun_active' | 'rerun_ready' | 'rebuild_from_plan';
+  resumeStrategy?: 'continue_wave' | 'rerun_active' | 'rerun_ready' | 'rebuild_from_plan' | 'resume_recovering' | 'resume_fallback_path' | 'return_terminal';
   interruptedStepIds?: string[];
   lastEventType?: PlannerExecutionEventType;
   lastEventReason?: string;
