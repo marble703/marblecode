@@ -2,6 +2,7 @@ import {
   assert,
   BranchingProvider,
   buildExecutionGraph,
+  buildInitialExecutionRuntimeContext,
   buildMathFixStep,
   buildPlannerRequestArtifact,
   classifyPlannerStep,
@@ -32,6 +33,7 @@ import {
 export function createPlannerRuntimeCases(): ManualSuiteCase[] {
   return [
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
+    { name: 'planner runtime recovery context helper', run: testPlannerRuntimeRecoveryContextHelper },
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
@@ -93,6 +95,47 @@ async function testPlannerRuntimeHelpers(): Promise<void> {
   assert.equal(updatedPlan.steps[0]?.executionState, 'done');
 
   assert.deepEqual(mapPlannerResult('DONE', '/tmp/session', 'ok'), { status: 'completed', sessionDir: '/tmp/session', message: 'ok' });
+}
+
+async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
+  const lockTable = {
+    version: '1' as const,
+    revision: 2,
+    entries: [
+      { path: 'src/math.js', mode: 'guarded_read' as const, ownerStepId: 'step-1', revision: 2 },
+      { path: 'src/notes.txt', mode: 'write_locked' as const, ownerStepId: 'step-2', revision: 2 },
+    ],
+  };
+  const context = buildInitialExecutionRuntimeContext(lockTable, {
+    version: '1',
+    revision: 2,
+    executionPhase: 'recovering',
+    plannerPhase: 'RETRYING',
+    outcome: 'RUNNING',
+    activeStepIds: [],
+    readyStepIds: ['step-2'],
+    completedStepIds: ['step-1'],
+    failedStepIds: [],
+    blockedStepIds: ['step-3'],
+    degradedStepIds: [],
+    currentWaveStepIds: ['step-2'],
+    lastCompletedWaveStepIds: ['step-1'],
+    selectedWaveStepIds: ['step-2'],
+    strategy: 'serial',
+    epoch: 4,
+    currentStepId: 'step-2',
+    message: 'recovering',
+    interruptedStepIds: ['step-2'],
+    recoveryStepId: 'step-2',
+    recoveryReason: 'recovering through step-2',
+  });
+
+  assert.deepEqual(context.currentWaveStepIds, ['step-2']);
+  assert.deepEqual(context.lastCompletedWaveStepIds, ['step-1']);
+  assert.deepEqual(context.selectedWaveStepIds, ['step-2']);
+  assert.deepEqual(context.interruptedStepIds, ['step-2']);
+  assert.equal(context.executionEpoch, 4);
+  assert.deepEqual(context.activeLockOwnerStepIds, ['step-2']);
 }
 
 async function testPlannerExecutionStateMachineTransitions(): Promise<void> {

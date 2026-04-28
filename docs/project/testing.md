@@ -105,6 +105,7 @@ Purpose:
 - execution state machine transitions
 - event dispatch artifacts
 - planner resume behavior
+- recovery snapshot initialization helpers
 - planner model retry behavior
 
 Representative cases:
@@ -113,6 +114,7 @@ Representative cases:
 - `planner execution event dispatch`
 - `planner invalid retry and resume`
 - `planner resume classifier favors active wave`
+- `planner runtime recovery context helper`
 - `planner execute resume from artifacts`
 - `planner resume recovers fallback path`
 - `planner model retry`
@@ -176,6 +178,7 @@ Purpose:
 - recent session summaries
 - planner view artifact tolerance
 - read-model APIs for planner sessions
+- recovery metadata projection for planner sessions
 
 Representative cases:
 

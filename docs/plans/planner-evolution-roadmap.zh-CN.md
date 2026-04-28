@@ -34,6 +34,8 @@
 - 新增调度能力时容易把状态分散回编排层
 - UI 与恢复逻辑仍需要从多个 artifact 反推运行时意图
 
+当前已经开始把恢复相关元数据写入 `execution.state.json`，例如 `resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds` 与 `lockResumeMode`。下一步重点不再是继续堆更多字段，而是让执行器更多地围绕这些字段初始化和推进，而不是依赖局部变量和隐式推导。
+
 ### 2. resume 仍未完成 lock ownership 与 recovering 子图的精细恢复
 
 当前从 execution artifacts 恢复时，active wave 与 fallback path 的基础恢复已经具备，但仍未完整覆盖：
