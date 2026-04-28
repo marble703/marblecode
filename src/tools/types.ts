@@ -22,3 +22,10 @@ export interface Tool {
   definition: ToolDefinition;
   execute(input: Record<string, unknown>): Promise<ToolResult>;
 }
+
+export interface ToolProvider {
+  id: string;
+  listTools(): Tool[];
+  executeTool(call: ToolCall): Promise<ToolResult>;
+  dispose?(): Promise<void> | void;
+}

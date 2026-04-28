@@ -6,7 +6,7 @@ import { PolicyEngine } from '../policy/index.js';
 import { createProviders } from '../provider/index.js';
 import { loadPlannerEvents, loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
 import { resolvePlannerSessionDir } from '../session/index.js';
-import { createPlannerTools } from '../tools/builtins.js';
+import { createPlannerToolProvider } from '../tools/builtins.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { formatPlannerView, renderPlannerEvent } from './planner-view.js';
 import type { TuiAction, TuiState } from './types.js';
@@ -58,9 +58,7 @@ export async function executeTuiAction(
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
-  for (const tool of createPlannerTools(config, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createPlannerToolProvider(config, policy));
 
   const result = await runPlanner(config, providers, registry, {
     prompt: action.prompt,

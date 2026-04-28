@@ -6,7 +6,8 @@ import { minimatch } from 'minimatch';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import { walkRelativeFiles } from '../shared/file-walk.js';
-import type { Tool } from './types.js';
+import { StaticToolProvider } from './provider.js';
+import type { Tool, ToolProvider } from './types.js';
 
 const exec = promisify(execCallback);
 const execFile = promisify(execFileCallback);
@@ -28,6 +29,14 @@ export function createBuiltinTools(config: AppConfig, policy: PolicyEngine): Too
 export function createPlannerTools(config: AppConfig, policy: PolicyEngine): Tool[] {
   const allowed = new Set(['read_file', 'list_files', 'search_text', 'git_status', 'git_log', 'git_show', 'git_diff', 'git_diff_base']);
   return createBuiltinTools(config, policy).filter((tool) => allowed.has(tool.definition.name));
+}
+
+export function createBuiltinToolProvider(config: AppConfig, policy: PolicyEngine): ToolProvider {
+  return new StaticToolProvider('builtin', createBuiltinTools(config, policy));
+}
+
+export function createPlannerToolProvider(config: AppConfig, policy: PolicyEngine): ToolProvider {
+  return new StaticToolProvider('planner-builtin', createPlannerTools(config, policy));
 }
 
 function createReadFileTool(config: AppConfig, policy: PolicyEngine): Tool {

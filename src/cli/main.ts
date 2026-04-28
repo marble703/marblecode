@@ -6,7 +6,7 @@ import { loadConfig } from '../config/load.js';
 import { createProviders } from '../provider/index.js';
 import { PolicyEngine } from '../policy/index.js';
 import { ToolRegistry } from '../tools/registry.js';
-import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
+import { createBuiltinToolProvider, createPlannerToolProvider } from '../tools/builtins.js';
 import { runAgent } from '../agent/index.js';
 import { runPlanner } from '../planner/index.js';
 import { tryRollback } from '../agent/index.js';
@@ -84,9 +84,7 @@ export async function main(): Promise<void> {
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
-  for (const tool of createBuiltinTools(config, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createBuiltinToolProvider(config, policy));
 
   const result = await runAgent(config, providers, registry, {
     prompt,
@@ -145,9 +143,7 @@ async function planCommand(
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
-  for (const tool of createPlannerTools(config, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createPlannerToolProvider(config, policy));
 
   const result = await runPlanner(config, providers, registry, {
     prompt,

@@ -6,7 +6,7 @@ import { runPlanner } from '../planner/index.js';
 import { PolicyEngine } from '../policy/index.js';
 import { createProviders } from '../provider/index.js';
 import { ToolRegistry } from '../tools/registry.js';
-import { createBuiltinTools, createPlannerTools } from '../tools/builtins.js';
+import { createBuiltinToolProvider, createPlannerToolProvider } from '../tools/builtins.js';
 import { loadPlannerView } from '../planner/view-model.js';
 import { formatPlannerView } from './planner-view.js';
 import { confirmPatchInTui } from './paste.js';
@@ -24,9 +24,7 @@ export async function executeTuiPrompt(
   if (state.mode === 'run') {
     const policy = new PolicyEngine(config);
     const registry = new ToolRegistry();
-    for (const tool of createBuiltinTools(config, policy)) {
-      registry.register(tool);
-    }
+    registry.registerProvider(createBuiltinToolProvider(config, policy));
     const result = await runAgent(config, providers, registry, {
       prompt,
       explicitFiles: state.explicitFiles,
@@ -50,9 +48,7 @@ export async function executeTuiPrompt(
   void initialConfig;
   const policy = new PolicyEngine(config);
   const registry = new ToolRegistry();
-  for (const tool of createPlannerTools(config, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createPlannerToolProvider(config, policy));
   const result = await runPlanner(config, providers, registry, {
     prompt,
     explicitFiles: state.explicitFiles,

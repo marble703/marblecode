@@ -1,10 +1,20 @@
-import type { Tool, ToolCall, ToolResult } from './types.js';
+import type { Tool, ToolCall, ToolProvider, ToolResult } from './types.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
+  private readonly providerByToolName = new Map<string, ToolProvider>();
 
   public register(tool: Tool): void {
+    this.assertToolNameAvailable(tool.definition.name);
     this.tools.set(tool.definition.name, tool);
+  }
+
+  public registerProvider(provider: ToolProvider): void {
+    for (const tool of provider.listTools()) {
+      this.assertToolNameAvailable(tool.definition.name);
+      this.tools.set(tool.definition.name, tool);
+      this.providerByToolName.set(tool.definition.name, provider);
+    }
   }
 
   public listDefinitions(): Array<Tool['definition']> {
@@ -20,6 +30,17 @@ export class ToolRegistry {
       };
     }
 
+    const provider = this.providerByToolName.get(call.name);
+    if (provider) {
+      return provider.executeTool(call);
+    }
+
     return tool.execute(call.input);
+  }
+
+  private assertToolNameAvailable(name: string): void {
+    if (this.tools.has(name)) {
+      throw new Error(`Duplicate tool registration: ${name}`);
+    }
   }
 }

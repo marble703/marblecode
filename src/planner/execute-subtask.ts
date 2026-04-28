@@ -4,7 +4,7 @@ import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider } from '../provider/types.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
-import { createBuiltinTools } from '../tools/builtins.js';
+import { createBuiltinToolProvider } from '../tools/builtins.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { derivePlannerAccessMode } from './graph.js';
 import {
@@ -114,9 +114,7 @@ export async function executeSubtaskAgent(
     },
   });
   const registry = new ToolRegistry();
-  for (const tool of createBuiltinTools(subtaskConfig, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createBuiltinToolProvider(subtaskConfig, policy));
 
   const result = await runAgent(subtaskConfig, providers, registry, {
     prompt,

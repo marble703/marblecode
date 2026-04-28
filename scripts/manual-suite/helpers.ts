@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../../src/config/load.js';
 import type { AppConfig } from '../../src/config/schema.js';
 import { PolicyEngine } from '../../src/policy/index.js';
-import { createBuiltinTools, createPlannerTools } from '../../src/tools/builtins.js';
+import { createBuiltinToolProvider, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import type { WorkspaceContext } from './types.js';
 
@@ -35,9 +35,7 @@ export async function withCopiedFixture(
     const config = await loadConfig(path.join(workspaceRoot, 'agent.config.jsonc'));
     const policy = new PolicyEngine(config);
     const registry = new ToolRegistry();
-    for (const tool of createBuiltinTools(config, policy)) {
-      registry.register(tool);
-    }
+    registry.registerProvider(createBuiltinToolProvider(config, policy));
 
     await run({ tempRoot, workspaceRoot, config, policy, registry });
   } finally {
@@ -115,9 +113,7 @@ export function createAgentConfig(): Record<string, unknown> {
 
 export function createPlannerRegistry(config: AppConfig, policy: PolicyEngine): ToolRegistry {
   const registry = new ToolRegistry();
-  for (const tool of createPlannerTools(config, policy)) {
-    registry.register(tool);
-  }
+  registry.registerProvider(createPlannerToolProvider(config, policy));
   return registry;
 }
 
