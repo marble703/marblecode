@@ -52,3 +52,26 @@ export function createPlannerExecutionState(
 export function summarizeActiveLockOwners(lockTable: ExecutionLockTable): string[] {
   return [...new Set(lockTable.entries.filter((entry) => entry.mode === 'write_locked').map((entry) => entry.ownerStepId))];
 }
+
+export function buildInitialExecutionRuntimeContext(
+  lockTable: ExecutionLockTable,
+  executionState?: PlannerExecutionStateArtifact,
+): {
+  lockTable: ExecutionLockTable;
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
+  executionEpoch: number;
+  activeLockOwnerStepIds: string[];
+} {
+  return {
+    lockTable,
+    currentWaveStepIds: executionState?.currentWaveStepIds ?? [],
+    lastCompletedWaveStepIds: executionState?.lastCompletedWaveStepIds ?? [],
+    selectedWaveStepIds: executionState?.selectedWaveStepIds ?? [],
+    interruptedStepIds: executionState?.interruptedStepIds ?? [],
+    executionEpoch: executionState?.epoch ?? 0,
+    activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable),
+  };
+}

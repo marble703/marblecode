@@ -10,7 +10,7 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import { summarizeActiveLockOwners } from './execution-state.js';
+import { buildInitialExecutionRuntimeContext, summarizeActiveLockOwners } from './execution-state.js';
 import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
@@ -47,17 +47,21 @@ export async function executePlannerPlan(
   const strategy = getPlannerExecutionStrategy(config.routing.subtaskConflictPolicy);
   let nextPlan = plan;
   let executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
-  let lockTable = initialContext?.lockTable ?? createExecutionLockTable(nextPlan.revision);
+  const initialRuntime = buildInitialExecutionRuntimeContext(
+    initialContext?.lockTable ?? createExecutionLockTable(nextPlan.revision),
+    initialContext?.executionState,
+  );
+  let lockTable = initialRuntime.lockTable;
   let nextState = refreshPlannerStateFromPlan(nextPlan, {
     ...state,
     phase: 'PATCHING',
     message: 'Planner finished planning. Starting subtask execution.',
   });
-  let currentWaveStepIds: string[] = initialContext?.executionState?.currentWaveStepIds ?? [];
-  let lastCompletedWaveStepIds: string[] = initialContext?.executionState?.lastCompletedWaveStepIds ?? [];
-  let selectedWaveStepIds: string[] = initialContext?.executionState?.selectedWaveStepIds ?? [];
-  let interruptedStepIds: string[] = initialContext?.executionState?.interruptedStepIds ?? [];
-  let executionEpoch = initialContext?.executionState?.epoch ?? 0;
+  let currentWaveStepIds: string[] = initialRuntime.currentWaveStepIds;
+  let lastCompletedWaveStepIds: string[] = initialRuntime.lastCompletedWaveStepIds;
+  let selectedWaveStepIds: string[] = initialRuntime.selectedWaveStepIds;
+  let interruptedStepIds: string[] = initialRuntime.interruptedStepIds;
+  let executionEpoch = initialRuntime.executionEpoch;
   let executionState = createInitialExecutionState(nextState, strategy.mode, {
     currentWaveStepIds,
     lastCompletedWaveStepIds,
@@ -66,7 +70,7 @@ export async function executePlannerPlan(
     ...(initialContext?.executionState?.resumeStrategy ? { resumeStrategy: initialContext.executionState.resumeStrategy } : {}),
     ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
     ...(initialContext?.executionState?.lastEventReason ? { lastEventReason: initialContext.executionState.lastEventReason } : {}),
-    ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
+    ...(initialRuntime.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: initialRuntime.activeLockOwnerStepIds } : {}),
     ...(initialContext?.executionState?.recoveryStepId ? { recoveryStepId: initialContext.executionState.recoveryStepId } : {}),
     ...(initialContext?.executionState?.recoveryReason ? { recoveryReason: initialContext.executionState.recoveryReason } : {}),
   });
