@@ -121,6 +121,9 @@ export interface PlannerViewModel {
   lastEventType: string;
   lastEventReason: string;
   activeLockOwnerStepIds: string[];
+  recoverySourceStepId: string | null;
+  recoverySubgraphStepIds: string[];
+  lockResumeMode: string;
 }
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
@@ -214,6 +217,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType: '',
     lastEventReason: '',
     activeLockOwnerStepIds: [],
+    recoverySourceStepId: null,
+    recoverySubgraphStepIds: [],
+    lockResumeMode: '',
     recoveryStepId: null,
     recoveryReason: '',
   }) as {
@@ -228,6 +234,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType?: string;
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
+    recoverySourceStepId?: string | null;
+    recoverySubgraphStepIds?: string[];
+    lockResumeMode?: string;
     recoveryStepId?: string | null;
     recoveryReason?: string;
   };
@@ -298,6 +307,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType: executionState.lastEventType ?? '',
     lastEventReason: executionState.lastEventReason ?? '',
     activeLockOwnerStepIds: executionState.activeLockOwnerStepIds ?? [],
+    recoverySourceStepId: executionState.recoverySourceStepId ?? null,
+    recoverySubgraphStepIds: executionState.recoverySubgraphStepIds ?? [],
+    lockResumeMode: executionState.lockResumeMode ?? '',
   };
 }
 

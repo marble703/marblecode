@@ -2,6 +2,7 @@ import type { AppConfig } from '../config/schema.js';
 import type { ModelProvider } from '../provider/types.js';
 import type { SessionRecord } from '../session/index.js';
 import type { PlannerExecutionArtifacts, PlannerExecutionStateArtifact } from './execution-types.js';
+import { buildExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerRequestArtifact, PlannerPlan, PlannerState, PlannerStep } from './types.js';
 import { executePlannerPlan } from './execute.js';
@@ -13,7 +14,11 @@ interface PlannerResumeDecision {
   strategy: PlannerResumeStrategy;
   stepIdsToReset: string[];
   reason: string;
+  recoverySourceStepId?: string;
   recoveryStepId?: string;
+  recoverySubgraphStepIds?: string[];
+  preserveGuardedLocks?: boolean;
+  lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
   returnExistingState?: boolean;
 }
 
@@ -34,7 +39,7 @@ export async function resumePlannerExecution(
 
   let plan = artifacts.plan;
   let state = artifacts.state;
-  let lockTable = prepareLockTableForResume(artifacts.lockTable, decision.stepIdsToReset);
+  let lockTable = prepareLockTableForResume(artifacts.lockTable, decision);
 
   if (decision.stepIdsToReset.length > 0) {
     for (const stepId of decision.stepIdsToReset) {
@@ -77,7 +82,10 @@ export async function resumePlannerExecution(
         : decision.strategy === 'rerun_active'
           ? decision.stepIdsToReset
           : [],
+      ...(decision.recoverySourceStepId ? { recoverySourceStepId: decision.recoverySourceStepId } : {}),
       ...(decision.recoveryStepId ? { recoveryStepId: decision.recoveryStepId } : {}),
+      ...(decision.recoverySubgraphStepIds && decision.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: decision.recoverySubgraphStepIds } : {}),
+      ...(decision.lockResumeMode ? { lockResumeMode: decision.lockResumeMode } : {}),
       lastEventReason: decision.reason,
     },
   });
@@ -116,13 +124,19 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
   if (artifacts.executionState.executionPhase === 'recovering' && recoveryStepId) {
     const recoveryStep = artifacts.plan.steps.find((step) => step.id === recoveryStepId);
     if (recoveryStep && recoveryStep.status !== 'DONE') {
+      const recoverySourceStepId = detectRecoverySourceStepId(artifacts.plan, recoveryStepId, artifacts.executionState.lastEventType);
+      const recoverySubgraphStepIds = buildResumeRecoverySubgraphStepIds(artifacts.plan, recoveryStepId, recoverySourceStepId);
       return {
         strategy: artifacts.executionState.lastEventType === 'FALLBACK_ACTIVATED' ? 'resume_fallback_path' : 'resume_recovering',
         stepIdsToReset: [recoveryStepId],
         reason: artifacts.executionState.lastEventType === 'FALLBACK_ACTIVATED'
           ? `continuing fallback recovery through ${recoveryStepId}.`
           : `continuing recovery through ${recoveryStepId}.`,
+        ...(recoverySourceStepId ? { recoverySourceStepId } : {}),
         recoveryStepId,
+        ...(recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds } : {}),
+        preserveGuardedLocks: true,
+        lockResumeMode: 'drop_unrelated_writes',
       };
     }
   }
@@ -162,16 +176,18 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
   };
 }
 
-function prepareLockTableForResume(lockTable: ExecutionLockTable, stepIdsToReset: string[]): ExecutionLockTable {
-  if (stepIdsToReset.length === 0) {
+function prepareLockTableForResume(lockTable: ExecutionLockTable, decision: PlannerResumeDecision): ExecutionLockTable {
+  const stepIds = new Set(decision.stepIdsToReset);
+  const recoverySubgraph = new Set(decision.recoverySubgraphStepIds ?? []);
+  if (stepIds.size === 0 && recoverySubgraph.size === 0) {
     return lockTable;
   }
 
-  const stepIds = new Set(stepIdsToReset);
   return {
     ...lockTable,
     entries: lockTable.entries
-      .map((entry) => (stepIds.has(entry.ownerStepId) && entry.mode === 'write_locked'
+      .filter((entry) => entry.mode !== 'write_locked' || stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId))
+      .map((entry) => ((entry.mode === 'write_locked' && (stepIds.has(entry.ownerStepId) || recoverySubgraph.has(entry.ownerStepId)))
         ? { ...entry, mode: 'guarded_read' as const }
         : entry)),
   };
@@ -179,4 +195,53 @@ function prepareLockTableForResume(lockTable: ExecutionLockTable, stepIdsToReset
 
 function shouldPreserveCurrentWave(strategy: PlannerResumeDecision['strategy']): boolean {
   return strategy === 'resume_recovering' || strategy === 'resume_fallback_path';
+}
+
+function detectRecoverySourceStepId(
+  plan: PlannerPlan,
+  recoveryStepId: string,
+  lastEventType: PlannerExecutionStateArtifact['lastEventType'],
+): string {
+  if (lastEventType !== 'FALLBACK_ACTIVATED') {
+    return '';
+  }
+
+  return plan.steps.find((step) => step.fallbackStepIds?.includes(recoveryStepId))?.id ?? '';
+}
+
+function buildResumeRecoverySubgraphStepIds(
+  plan: PlannerPlan,
+  recoveryStepId: string,
+  recoverySourceStepId: string,
+): string[] {
+  const graph = buildExecutionGraph(plan);
+  const seeds = [recoveryStepId, recoverySourceStepId].filter(Boolean);
+  const visited = new Set<string>();
+  const queue = [...seeds];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || visited.has(current)) {
+      continue;
+    }
+    const step = plan.steps.find((candidate) => candidate.id === current);
+    if (!step || step.status === 'DONE') {
+      continue;
+    }
+    visited.add(current);
+    for (const edge of graph.edges) {
+      if (!executeResumeIsScopedEdge(edge.type)) {
+        continue;
+      }
+      if (edge.from === current && !visited.has(edge.to)) {
+        queue.push(edge.to);
+      }
+    }
+  }
+
+  return [...visited];
+}
+
+function executeResumeIsScopedEdge(type: string): boolean {
+  return type === 'dependency' || type === 'must_run_after' || type === 'fallback';
 }
