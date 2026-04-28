@@ -343,6 +343,5 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 请使用其他文档来满足这些需求：
 
 - `README.md`：功能和流程概览
-- `docs/plans/repo-refactor-plan.md`：当前的代码清理路线图
 - `docs/project/planner-parallel-graph.zh-CN.md`：planner execute 图与锁模型
 - `docs/project/tui.md`：TUI 命令参考

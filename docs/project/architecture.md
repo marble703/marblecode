@@ -343,6 +343,5 @@ It is not:
 Use the other docs for those purposes:
 
 - `README.md`: feature and workflow overview
-- `docs/plans/repo-refactor-plan.md`: current cleanup roadmap
 - `docs/project/planner-parallel-graph.zh-CN.md`: planner execute graph and lock model
 - `docs/project/tui.md`: TUI command reference

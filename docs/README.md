@@ -11,8 +11,7 @@ This repository now separates user/runtime documentation from planning and evolu
 
 ## Planning Docs
 
-- `docs/plans/planner-evolution-roadmap.zh-CN.md`: planner execution evolution roadmap, completed milestones, and next stages
-- `docs/plans/repo-refactor-plan.md`: runtime/test refactor roadmap and cleanup sequence
+- `docs/plans/planner-evolution-roadmap.zh-CN.md`: current planner execution roadmap and remaining priorities
 
 ## Maintenance Notes
 
