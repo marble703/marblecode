@@ -279,8 +279,8 @@
 
 下一步建议（进入 P3 前的收口阶段）：
 
-1. 先拆分 `scripts/manual-suite/planner.ts`，按 graph / execution / recovery / runtime 维度拆开。
-2. 再拆分 `src/tui/agent-repl.ts`，按 commands / session-actions / state / render / paste / run-prompt 分层。
+1. 已完成：`scripts/manual-suite/planner.ts` 已按 graph / execution / recovery / runtime 维度拆开。
+2. 下一步：拆分 `src/tui/agent-repl.ts`，按 commands / session-actions / state / render / paste / run-prompt 分层。
 3. 在上述结构性收口完成后，再进入 `ToolProvider` abstraction。
 
 完成标准：
@@ -297,7 +297,7 @@
 
 进入 P3 前的额外前置建议：
 
-1. 不要在 `scripts/manual-suite/planner.ts` 和 `src/tui/agent-repl.ts` 仍然膨胀的情况下直接接入 LSP/MCP。
+1. 不要在 `src/tui/agent-repl.ts` 仍然膨胀的情况下直接接入 LSP/MCP。
 2. 先引入 `ToolProvider`，再做 builtin migration，然后再接真实 LSP/MCP provider。
 3. 对 planner 的长期方向，优先采用“graph mutation proposal capability + host validation/merge”的模式，而不是让 planner 直接拥有主计划写权限。
 

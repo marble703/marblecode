@@ -28,10 +28,11 @@ Update after the current pass:
 
 - planner-view read model extraction is complete (`src/planner/view-model.ts`)
 - planner timeline normalization and read-model API are complete
+- planner manual-suite hotspot split is now complete (`scripts/manual-suite/planner-{graph,runtime,execution,recovery}.ts`)
 - the next structural priorities are now:
-  1. split `scripts/manual-suite/planner.ts`
-  2. split `src/tui/agent-repl.ts`
-  3. tighten session/read-model boundaries only as needed during the TUI split
+  1. split `src/tui/agent-repl.ts`
+  2. split `src/verifier/index.ts`
+  3. split `src/agent/index.ts`
   4. then introduce `ToolProvider` before LSP/MCP work
 
 ## Goals
@@ -119,7 +120,7 @@ This phase is lower priority than planner and TUI because the files are smaller,
 
 ### Manual suite split
 
-This phase is only partially complete. The suite is split by domain instead of by assertion style, but planner scenarios are still concentrated in one oversized file and need a second pass.
+This phase is now complete. The suite is split by domain and the planner scenarios are further split by graph/runtime/execution/recovery responsibilities.
 
 - `scripts/test-examples.ts`: suite entrypoint and case registration only
 - `scripts/manual-suite/providers.ts`: stub providers and test doubles
@@ -128,18 +129,18 @@ This phase is only partially complete. The suite is split by domain instead of b
 - `scripts/manual-suite/verifier.ts`: verifier and discovery scenarios
 - `scripts/manual-suite/tui.ts`: TUI parsing and session inspection scenarios
 - `scripts/manual-suite/helpers.ts`: fixture copy helpers and config factories
-
-Still pending inside the manual suite:
-
-- split `scripts/manual-suite/planner.ts` into smaller planner-graph / planner-execution / planner-recovery focused files
+- `scripts/manual-suite/planner-graph.ts`: graph, validation, and conflict-domain scenarios
+- `scripts/manual-suite/planner-runtime.ts`: runtime, resume, and model-retry scenarios
+- `scripts/manual-suite/planner-execution.ts`: execute-chain, rolling-planning, degraded, and feedback scenarios
+- `scripts/manual-suite/planner-recovery.ts`: retry/fallback/local-replan/blocking scenarios
+- `scripts/manual-suite/planner-shared.ts`: shared imports/helpers for planner suite files
 
 ## Rollout Order
 
-1. Split `scripts/manual-suite/planner.ts` so planner regression coverage stops growing in a single hotspot.
-2. Split TUI command, action, state-refresh, and render layers.
-3. Split verifier helpers further on top of the new shared primitives.
-4. Split agent helpers once verifier and planner boundaries are stable.
-5. Introduce `ToolProvider` before real LSP/MCP provider work.
+1. Split TUI command, action, state-refresh, and render layers.
+2. Split verifier helpers further on top of the new shared primitives.
+3. Split agent helpers once verifier and planner boundaries are stable.
+4. Introduce `ToolProvider` before real LSP/MCP provider work.
 
 This order keeps the highest-risk runtime path first, lands the biggest reviewability wins early, and leaves broad test-fixture churn for last.
 
