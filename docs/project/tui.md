@@ -12,6 +12,8 @@ Use `--workspace` when launching if you want to target another project:
 node dist/index.js tui --workspace /path/to/project
 ```
 
+Implementation note: the interactive shell is now split across `src/tui/{commands,paste,state,render,session-actions,run-prompt}.ts`, with `src/tui/agent-repl.ts` kept as the top-level loop.
+
 ## Modes
 
 - `/mode run`: start a normal coding task through the agent loop
