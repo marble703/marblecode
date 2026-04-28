@@ -24,9 +24,31 @@ export interface PlannerExecutionStateArtifact {
   epoch: number;
   currentStepId: string | null;
   message: string;
+  selectedWaveStepIds?: string[];
+  resumeStrategy?: 'continue_wave' | 'rerun_active' | 'rerun_ready' | 'rebuild_from_plan';
+  interruptedStepIds?: string[];
+  lastEventType?: PlannerExecutionEventType;
+  lastEventReason?: string;
+  activeLockOwnerStepIds?: string[];
   recoveryStepId?: string;
   recoveryReason?: string;
 }
+
+export type PlannerExecutionEventType =
+  | 'EXECUTION_INITIALIZED'
+  | 'CONFLICT_DETECTED'
+  | 'DEPENDENCIES_BLOCKED'
+  | 'SKIP_WAVE_COMPLETED'
+  | 'VERIFY_STEP_STARTED'
+  | 'VERIFY_STEP_SUCCEEDED'
+  | 'VERIFY_STEP_FAILED'
+  | 'LOCKS_ACQUIRED'
+  | 'WAVE_EXECUTED'
+  | 'WAVE_REPLANNED'
+  | 'FALLBACK_ACTIVATED'
+  | 'WAVE_FAILED'
+  | 'WAVE_CONVERGED'
+  | 'EXECUTION_COMPLETED';
 
 export interface PlannerExecutionArtifacts {
   plan: PlannerPlan;

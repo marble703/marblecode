@@ -1,4 +1,5 @@
 import type { PlannerExecutionStateArtifact, PlannerExecutionStrategyMode } from './execution-types.js';
+import type { ExecutionLockTable } from './locks.js';
 import type { PlannerState } from './types.js';
 
 export function createPlannerExecutionState(
@@ -9,6 +10,12 @@ export function createPlannerExecutionState(
     currentWaveStepIds?: string[];
     lastCompletedWaveStepIds?: string[];
     epoch?: number;
+    selectedWaveStepIds?: string[];
+    resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
+    interruptedStepIds?: string[];
+    lastEventType?: PlannerExecutionStateArtifact['lastEventType'];
+    lastEventReason?: string;
+    activeLockOwnerStepIds?: string[];
     recoveryStepId?: string;
     recoveryReason?: string;
   },
@@ -27,11 +34,21 @@ export function createPlannerExecutionState(
     degradedStepIds: state.degradedStepIds ?? [],
     currentWaveStepIds: extras?.currentWaveStepIds ?? [],
     lastCompletedWaveStepIds: extras?.lastCompletedWaveStepIds ?? [],
+    ...(extras?.selectedWaveStepIds ? { selectedWaveStepIds: extras.selectedWaveStepIds } : {}),
     strategy,
     epoch: extras?.epoch ?? 0,
     currentStepId: state.currentStepId,
     message: state.message,
+    ...(extras?.resumeStrategy ? { resumeStrategy: extras.resumeStrategy } : {}),
+    ...(extras?.interruptedStepIds && extras.interruptedStepIds.length > 0 ? { interruptedStepIds: extras.interruptedStepIds } : {}),
+    ...(extras?.lastEventType ? { lastEventType: extras.lastEventType } : {}),
+    ...(extras?.lastEventReason ? { lastEventReason: extras.lastEventReason } : {}),
+    ...(extras?.activeLockOwnerStepIds && extras.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: extras.activeLockOwnerStepIds } : {}),
     ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
     ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
   };
+}
+
+export function summarizeActiveLockOwners(lockTable: ExecutionLockTable): string[] {
+  return [...new Set(lockTable.entries.filter((entry) => entry.mode === 'write_locked').map((entry) => entry.ownerStepId))];
 }

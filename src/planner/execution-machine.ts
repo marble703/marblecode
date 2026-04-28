@@ -4,6 +4,7 @@ import { createPlannerExecutionState } from './execution-state.js';
 import type { PlannerExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import type {
+  PlannerExecutionEventType,
   PlannerExecutionPhase,
   PlannerExecutionStateArtifact,
   PlannerExecutionStrategyMode,
@@ -32,6 +33,11 @@ export interface PlannerExecutionSnapshotInput {
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
   epoch: number;
+  selectedWaveStepIds?: string[];
+  resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
+  interruptedStepIds?: string[];
+  lastEventReason?: string;
+  activeLockOwnerStepIds?: string[];
   recoveryStepId?: string;
   recoveryReason?: string;
 }
@@ -96,8 +102,9 @@ export function transitionExecutionPhase(
 export function createInitialExecutionState(
   state: PlannerState,
   strategy: PlannerExecutionStrategyMode,
+  extras?: Omit<PlannerExecutionSnapshotInput, 'state' | 'strategy'>,
 ): PlannerExecutionStateArtifact {
-  return createPlannerExecutionState(state, strategy, 'idle');
+  return createPlannerExecutionState(state, strategy, 'idle', extras);
 }
 
 export async function dispatchExecutionEvent(
@@ -113,6 +120,12 @@ export async function dispatchExecutionEvent(
     currentWaveStepIds: input.currentWaveStepIds,
     lastCompletedWaveStepIds: input.lastCompletedWaveStepIds,
     epoch: input.epoch,
+    ...(input.selectedWaveStepIds ? { selectedWaveStepIds: input.selectedWaveStepIds } : {}),
+    ...(input.resumeStrategy ? { resumeStrategy: input.resumeStrategy } : {}),
+    ...(input.interruptedStepIds ? { interruptedStepIds: input.interruptedStepIds } : {}),
+    lastEventType: event.type as PlannerExecutionEventType,
+    ...(input.lastEventReason ? { lastEventReason: input.lastEventReason } : {}),
+    ...(input.activeLockOwnerStepIds ? { activeLockOwnerStepIds: input.activeLockOwnerStepIds } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
     ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
   });

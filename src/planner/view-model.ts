@@ -82,6 +82,8 @@ export interface PlannerViewModel {
   executionWaves: Array<{ index: number; stepIds: string[] }>;
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
   fallbackEdges: Array<{ from: string; to: string }>;
   conflictEdges: Array<{ from: string; to: string; reason: string; domain?: string }>;
   lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
@@ -115,6 +117,10 @@ export interface PlannerViewModel {
   terminalSummary: string;
   recoveryStepId: string | null;
   recoveryReason: string;
+  resumeStrategy: string;
+  lastEventType: string;
+  lastEventReason: string;
+  activeLockOwnerStepIds: string[];
 }
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
@@ -202,6 +208,12 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     epoch: 0,
     currentWaveStepIds: [],
     lastCompletedWaveStepIds: [],
+    selectedWaveStepIds: [],
+    interruptedStepIds: [],
+    resumeStrategy: 'rebuild_from_plan',
+    lastEventType: '',
+    lastEventReason: '',
+    activeLockOwnerStepIds: [],
     recoveryStepId: null,
     recoveryReason: '',
   }) as {
@@ -210,6 +222,12 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     epoch?: number;
     currentWaveStepIds?: string[];
     lastCompletedWaveStepIds?: string[];
+    selectedWaveStepIds?: string[];
+    interruptedStepIds?: string[];
+    resumeStrategy?: string;
+    lastEventType?: string;
+    lastEventReason?: string;
+    activeLockOwnerStepIds?: string[];
     recoveryStepId?: string | null;
     recoveryReason?: string;
   };
@@ -241,6 +259,8 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     executionWaves: executionGraph.waves ?? [],
     currentWaveStepIds: executionState.currentWaveStepIds ?? [],
     lastCompletedWaveStepIds: executionState.lastCompletedWaveStepIds ?? [],
+    selectedWaveStepIds: executionState.selectedWaveStepIds ?? [],
+    interruptedStepIds: executionState.interruptedStepIds ?? [],
     fallbackEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'fallback').map((edge) => ({ from: edge.from, to: edge.to })),
     conflictEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'conflict').map((edge) => ({ from: edge.from, to: edge.to, reason: edge.reason ?? 'unknown', ...(edge.domain ? { domain: edge.domain } : {}) })),
     lockEntries: executionLocks.entries ?? [],
@@ -274,6 +294,10 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     terminalSummary: terminal ? `${String(terminal.outcome ?? '')} ${String(terminal.message ?? '')}`.trim() : 'unavailable',
     recoveryStepId: executionState.recoveryStepId ?? null,
     recoveryReason: executionState.recoveryReason ?? '',
+    resumeStrategy: executionState.resumeStrategy ?? 'rebuild_from_plan',
+    lastEventType: executionState.lastEventType ?? '',
+    lastEventReason: executionState.lastEventReason ?? '',
+    activeLockOwnerStepIds: executionState.activeLockOwnerStepIds ?? [],
   };
 }
 

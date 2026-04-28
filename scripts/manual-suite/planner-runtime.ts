@@ -39,6 +39,7 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
     { name: 'planner invalid retry and resume', run: testPlannerInvalidRetryAndResume },
+    { name: 'planner resume classifier favors active wave', run: testPlannerResumeClassifierFavorsActiveWave },
     { name: 'planner execute resume from artifacts', run: testPlannerExecuteResumeFromArtifacts },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
@@ -151,12 +152,31 @@ async function testPlannerExecutionEventDispatch(): Promise<void> {
       currentWaveStepIds: ['step-1'],
       lastCompletedWaveStepIds: [],
       epoch: 1,
+      selectedWaveStepIds: ['step-1'],
+      interruptedStepIds: ['step-1'],
+      resumeStrategy: 'rerun_active',
+      lastEventReason: 'lock acquired for step-1',
+      activeLockOwnerStepIds: ['step-1'],
     });
     assert.equal(executionState.executionPhase, 'locking');
 
-    const persisted = JSON.parse(await readFile(path.join(session.dir, 'execution.state.json'), 'utf8')) as { executionPhase: string; currentWaveStepIds: string[]; epoch: number };
+    const persisted = JSON.parse(await readFile(path.join(session.dir, 'execution.state.json'), 'utf8')) as {
+      executionPhase: string;
+      currentWaveStepIds: string[];
+      selectedWaveStepIds: string[];
+      interruptedStepIds: string[];
+      resumeStrategy: string;
+      activeLockOwnerStepIds: string[];
+      lastEventType: string;
+      epoch: number;
+    };
     assert.equal(persisted.executionPhase, 'locking');
     assert.deepEqual(persisted.currentWaveStepIds, ['step-1']);
+    assert.deepEqual(persisted.selectedWaveStepIds, ['step-1']);
+    assert.deepEqual(persisted.interruptedStepIds, ['step-1']);
+    assert.deepEqual(persisted.activeLockOwnerStepIds, ['step-1']);
+    assert.equal(persisted.resumeStrategy, 'rerun_active');
+    assert.equal(persisted.lastEventType, 'LOCKS_ACQUIRED');
     assert.equal(persisted.epoch, 1);
 
     await assert.rejects(
@@ -461,6 +481,81 @@ async function testPlannerInvalidRetryAndResume(): Promise<void> {
   });
 }
 
+async function testPlannerResumeClassifierFavorsActiveWave(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!(request.messages[0]?.content ?? '').includes('"id": "step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Resume only the interrupted active wave.',
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Change add so it returns a + b.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Update notes', status: 'PENDING', kind: 'docs', details: 'Append a note.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], dependencies: [], children: [] },
+                { id: 'step-3', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Run verifier.', dependencies: ['step-1', 'step-2'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Resume only the interrupted active wave.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const content = request.messages[0]?.content ?? '';
+        if (content.includes('Fix add implementation')) {
+          return buildMathFixStep(workspaceRoot);
+        }
+        throw new Error('Notes step should not be rerun during active-wave resume test');
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const first = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '修复 src/math.js、更新 notes 并通过 verify',
+      explicitFiles: ['src/math.js', 'src/notes.txt', 'tests/check-math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(first.status, 'failed');
+    const plan = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<Record<string, unknown>> };
+    const updatedPlan = {
+      ...plan,
+      steps: plan.steps.map((step) => {
+        if (step.id === 'step-1') {
+          return { ...step, status: 'PENDING', executionState: 'running', lastError: 'Interrupted during executing_wave.' };
+        }
+        if (step.id === 'step-2') {
+          return { ...step, status: 'DONE', executionState: 'done' };
+        }
+        return step;
+      }),
+    };
+    await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(updatedPlan, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({ version: '1', revision: 1, phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-1', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: ['step-2'], failedStepIds: [], blockedStepIds: ['step-3'], invalidResponseAttempts: 0, message: 'Interrupted during executing_wave.', consistencyErrors: [] }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'executing_wave', plannerPhase: 'PATCHING', outcome: 'RUNNING', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: ['step-2'], failedStepIds: [], blockedStepIds: ['step-3'], currentWaveStepIds: ['step-1'], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1'], interruptedStepIds: ['step-1'], resumeStrategy: 'rerun_active', strategy: 'serial', epoch: 1, currentStepId: 'step-1', message: 'Interrupted during executing_wave.', recoveryReason: 'Interrupted during executing_wave.' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/notes.txt', mode: 'guarded_read', ownerStepId: 'step-2', revision: 1 }, { path: 'src/math.js', mode: 'write_locked', ownerStepId: 'step-1', revision: 1 }] }, null, 2), 'utf8');
+
+    const resumed = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '',
+      explicitFiles: [],
+      pastedSnippets: [],
+      executeSubtasks: true,
+      resumeSessionRef: first.sessionDir,
+    });
+
+    assert.equal(resumed.status, 'completed');
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { resumeStrategy: string; interruptedStepIds?: string[] };
+    assert.equal(resumedExecutionState.resumeStrategy, 'rerun_active');
+    assert.deepEqual(resumedExecutionState.interruptedStepIds ?? [], []);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+  });
+}
+
 async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     const provider = new BranchingProvider(async (request) => {
@@ -500,7 +595,8 @@ async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
     simulatedInterruptedPlan.steps = simulatedInterruptedPlan.steps.map((step) => (step.id !== 'step-1' ? step : { ...step, status: 'PENDING', executionState: 'running', lastError: 'Interrupted during executing_wave; resuming through recovery path.' }));
     await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(simulatedInterruptedPlan, null, 2), 'utf8');
     await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({ version: '1', revision: 1, phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-1', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: [], failedStepIds: [], blockedStepIds: ['step-2'], invalidResponseAttempts: 0, message: 'Interrupted during executing_wave; resuming through recovery path.', consistencyErrors: [] }, null, 2), 'utf8');
-    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'executing_wave', plannerPhase: 'PATCHING', outcome: 'RUNNING', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: [], failedStepIds: [], blockedStepIds: ['step-2'], currentWaveStepIds: ['step-1'], lastCompletedWaveStepIds: [], strategy: 'serial', epoch: 2, currentStepId: 'step-1', message: 'Interrupted during executing_wave; resuming through recovery path.', recoveryReason: 'Interrupted during executing_wave; resuming through recovery path.' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'executing_wave', plannerPhase: 'PATCHING', outcome: 'RUNNING', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: [], failedStepIds: [], blockedStepIds: ['step-2'], currentWaveStepIds: ['step-1'], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1'], interruptedStepIds: ['step-1'], resumeStrategy: 'rerun_active', lastEventType: 'WAVE_EXECUTED', lastEventReason: 'Interrupted during executing_wave; resuming the interrupted active wave.', strategy: 'serial', epoch: 2, currentStepId: 'step-1', message: 'Interrupted during executing_wave; resuming through recovery path.', recoveryReason: 'Interrupted during executing_wave; resuming through recovery path.' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'write_locked', ownerStepId: 'step-1', revision: 1 }] }, null, 2), 'utf8');
 
     await writeFile(path.join(workspaceRoot, 'src/math.js'), 'export function add(a, b) {\n  return a - b; // BUG_MARKER\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n', 'utf8');
 
@@ -514,11 +610,21 @@ async function testPlannerExecuteResumeFromArtifacts(): Promise<void> {
 
     assert.equal(resumed.status, 'completed');
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
-    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string; lastCompletedWaveStepIds: string[]; strategy: string; epoch: number };
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as {
+      executionPhase: string;
+      lastCompletedWaveStepIds: string[];
+      strategy: string;
+      epoch: number;
+      resumeStrategy: string;
+      interruptedStepIds?: string[];
+    };
+    const resumedLocks = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string; ownerStepId: string }> };
     assert.equal(resumedExecutionState.executionPhase, 'done');
     assert.equal(resumedExecutionState.strategy, 'serial');
+    assert.equal(resumedExecutionState.resumeStrategy, 'rerun_active');
     assert.equal(resumedExecutionState.epoch >= 1, true);
     assert.ok(resumedExecutionState.lastCompletedWaveStepIds.length >= 1);
+    assert.equal(resumedLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read' && entry.ownerStepId === 'step-1'), true);
   });
 }
 

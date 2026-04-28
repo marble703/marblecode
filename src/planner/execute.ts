@@ -10,7 +10,9 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
+import { summarizeActiveLockOwners } from './execution-state.js';
 import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
+import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
@@ -26,6 +28,11 @@ interface ExecutePlannerDependencies {
   updatePlannerStep: StepUpdater;
 }
 
+interface ExecutePlannerInitialContext {
+  lockTable?: ReturnType<typeof createExecutionLockTable>;
+  executionState?: PlannerExecutionStateArtifact;
+}
+
 export async function executePlannerPlan(
   config: AppConfig,
   providers: Map<string, ModelProvider>,
@@ -34,21 +41,35 @@ export async function executePlannerPlan(
   plan: PlannerPlan,
   state: PlannerState,
   dependencies: ExecutePlannerDependencies,
+  initialContext?: ExecutePlannerInitialContext,
 ): Promise<{ plan: PlannerPlan; state: PlannerState }> {
   const accumulatedChangedFiles = new Set<string>();
   const strategy = getPlannerExecutionStrategy(config.routing.subtaskConflictPolicy);
   let nextPlan = plan;
   let executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
-  let lockTable = createExecutionLockTable(nextPlan.revision);
+  let lockTable = initialContext?.lockTable ?? createExecutionLockTable(nextPlan.revision);
   let nextState = refreshPlannerStateFromPlan(nextPlan, {
     ...state,
     phase: 'PATCHING',
     message: 'Planner finished planning. Starting subtask execution.',
   });
-  let executionState = createInitialExecutionState(nextState, strategy.mode);
-  let currentWaveStepIds: string[] = [];
-  let lastCompletedWaveStepIds: string[] = [];
-  let executionEpoch = 0;
+  let currentWaveStepIds: string[] = initialContext?.executionState?.currentWaveStepIds ?? [];
+  let lastCompletedWaveStepIds: string[] = initialContext?.executionState?.lastCompletedWaveStepIds ?? [];
+  let selectedWaveStepIds: string[] = initialContext?.executionState?.selectedWaveStepIds ?? [];
+  let interruptedStepIds: string[] = initialContext?.executionState?.interruptedStepIds ?? [];
+  let executionEpoch = initialContext?.executionState?.epoch ?? 0;
+  let executionState = createInitialExecutionState(nextState, strategy.mode, {
+    currentWaveStepIds,
+    lastCompletedWaveStepIds,
+    epoch: executionEpoch,
+    ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
+    ...(initialContext?.executionState?.resumeStrategy ? { resumeStrategy: initialContext.executionState.resumeStrategy } : {}),
+    ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
+    ...(initialContext?.executionState?.lastEventReason ? { lastEventReason: initialContext.executionState.lastEventReason } : {}),
+    ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
+    ...(initialContext?.executionState?.recoveryStepId ? { recoveryStepId: initialContext.executionState.recoveryStepId } : {}),
+    ...(initialContext?.executionState?.recoveryReason ? { recoveryReason: initialContext.executionState.recoveryReason } : {}),
+  });
   let executedWaveCount = 0;
 
   const dispatchExecution = async (
@@ -70,6 +91,11 @@ export async function executePlannerPlan(
         currentWaveStepIds,
         lastCompletedWaveStepIds,
         epoch: executionEpoch,
+        ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
+        ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
+        ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
+        ...(executionState.resumeStrategy ? { resumeStrategy: executionState.resumeStrategy } : {}),
+        ...(extras?.recoveryReason ? { lastEventReason: extras.recoveryReason } : {}),
         ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
         ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
       },
@@ -139,6 +165,8 @@ export async function executePlannerPlan(
       break;
     }
     currentWaveStepIds = selectedWave.map((step) => step.id);
+    selectedWaveStepIds = currentWaveStepIds;
+    interruptedStepIds = currentWaveStepIds;
     executionEpoch += 1;
     const skippable = selectedWave.filter((step) => dependencies.classifyPlannerStep(step) === 'skip');
     if (skippable.length === selectedWave.length) {
@@ -151,6 +179,7 @@ export async function executePlannerPlan(
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       lastCompletedWaveStepIds = currentWaveStepIds;
       currentWaveStepIds = [];
+      interruptedStepIds = [];
       await dispatchExecution({ type: 'SKIP_WAVE_COMPLETED' });
       continue;
     }
@@ -185,6 +214,7 @@ export async function executePlannerPlan(
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       lastCompletedWaveStepIds = currentWaveStepIds;
       currentWaveStepIds = [];
+      interruptedStepIds = [];
       await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
       {
         const verifyStep = nextPlan.steps.find((candidate) => candidate.id === step.id) ?? step;
@@ -316,6 +346,7 @@ export async function executePlannerPlan(
             nextPlan = replanned.plan;
             nextState = replanned.state;
             currentWaveStepIds = [];
+            interruptedStepIds = [];
             await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
               recoveryStepId: firstFailed.stepId,
               recoveryReason: feedback.replanReason,
@@ -327,6 +358,7 @@ export async function executePlannerPlan(
     }
     if (waveResult.fallbackActivated) {
       currentWaveStepIds = [];
+      interruptedStepIds = waveResult.activatedFallbackStepIds;
       executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
@@ -338,6 +370,7 @@ export async function executePlannerPlan(
     }
     if (waveResult.replanned) {
       currentWaveStepIds = [];
+      interruptedStepIds = [];
       await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
         ...(nextState.lastReplanReason ? { recoveryReason: nextState.lastReplanReason } : {}),
       });
@@ -354,6 +387,7 @@ export async function executePlannerPlan(
     }
     lastCompletedWaveStepIds = currentWaveStepIds;
     currentWaveStepIds = [];
+    interruptedStepIds = [];
     executedWaveCount += 1;
     await dispatchExecution({ type: 'WAVE_CONVERGED' });
     if (nextPlan.isPartial === true && executedWaveCount >= config.routing.planningWindowWaves) {
