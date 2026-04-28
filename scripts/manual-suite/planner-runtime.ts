@@ -687,8 +687,8 @@ async function testPlannerResumeRecoversFallbackPath(): Promise<void> {
     };
     await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(updatedPlan, null, 2), 'utf8');
     await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({ version: '1', revision: 1, phase: 'RETRYING', outcome: 'RUNNING', currentStepId: 'step-1-fallback', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], invalidResponseAttempts: 0, message: 'Activated fallback step(s): step-1-fallback.', consistencyErrors: [] }, null, 2), 'utf8');
-    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'recovering', plannerPhase: 'RETRYING', outcome: 'RUNNING', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], currentWaveStepIds: [], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1-fallback'], interruptedStepIds: ['step-1-fallback'], resumeStrategy: 'resume_fallback_path', lastEventType: 'FALLBACK_ACTIVATED', lastEventReason: 'continuing fallback recovery through step-1-fallback.', strategy: 'serial', epoch: 1, currentStepId: 'step-1-fallback', message: 'Activated fallback step(s): step-1-fallback.', recoveryStepId: 'step-1-fallback', recoveryReason: 'Activated fallback step(s): step-1-fallback.' }, null, 2), 'utf8');
-    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'guarded_read', ownerStepId: 'step-1', revision: 1 }] }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'recovering', plannerPhase: 'RETRYING', outcome: 'RUNNING', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], currentWaveStepIds: [], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1-fallback'], interruptedStepIds: ['step-1-fallback'], resumeStrategy: 'resume_fallback_path', lastEventType: 'FALLBACK_ACTIVATED', lastEventReason: 'continuing fallback recovery through step-1-fallback.', strategy: 'serial', epoch: 1, currentStepId: 'step-1-fallback', message: 'Activated fallback step(s): step-1-fallback.', recoverySourceStepId: 'step-1', recoveryStepId: 'step-1-fallback', recoverySubgraphStepIds: ['step-1', 'step-1-fallback', 'step-2'], lockResumeMode: 'drop_unrelated_writes', recoveryReason: 'Activated fallback step(s): step-1-fallback.' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'guarded_read', ownerStepId: 'step-1', revision: 1 }, { path: 'src/notes.txt', mode: 'write_locked', ownerStepId: 'step-unrelated', revision: 1 }] }, null, 2), 'utf8');
 
     const resumed = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
       prompt: '',
@@ -708,6 +708,8 @@ async function testPlannerResumeRecoversFallbackPath(): Promise<void> {
     assert.equal(resumedExecutionState.executionPhase, 'done');
     assert.match(events, /step-1-fallback/);
     assert.match(events, /subtask_completed/);
+    const resumedLocks = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string; ownerStepId: string }> };
+    assert.equal(resumedLocks.entries.some((entry) => entry.ownerStepId === 'step-unrelated'), false);
   });
 }
 

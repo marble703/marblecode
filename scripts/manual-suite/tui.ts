@@ -318,7 +318,10 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
         lastEventType: 'FALLBACK_ACTIVATED',
         lastEventReason: 'Activated fallback for step-1.',
         activeLockOwnerStepIds: ['step-1'],
+        recoverySourceStepId: 'step-1',
         recoveryStepId: 'step-1-fallback',
+        recoverySubgraphStepIds: ['step-1', 'step-1-fallback', 'step-2'],
+        lockResumeMode: 'drop_unrelated_writes',
         recoveryReason: 'Activated fallback for step-1.',
       }),
       'utf8',
@@ -349,6 +352,9 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.lastEventType, 'FALLBACK_ACTIVATED');
     assert.match(view.lastEventReason, /Activated fallback/);
     assert.deepEqual(view.activeLockOwnerStepIds, ['step-1']);
+    assert.equal((view as { recoverySourceStepId?: string }).recoverySourceStepId, 'step-1');
+    assert.deepEqual((view as { recoverySubgraphStepIds?: string[] }).recoverySubgraphStepIds, ['step-1', 'step-1-fallback', 'step-2']);
+    assert.equal((view as { lockResumeMode?: string }).lockResumeMode, 'drop_unrelated_writes');
     assert.equal(view.recoveryStepId, 'step-1-fallback');
     assert.match(view.recoveryReason, /Activated fallback/);
     assert.deepEqual(view.degradedStepIds, ['step-2']);

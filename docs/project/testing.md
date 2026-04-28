@@ -142,7 +142,7 @@ Representative cases:
 - `planner execute conflict domain fail`
 - `planner execute degraded optional docs`
 - `planner execute feedback writes undeclared changes`
-- `planner execute undeclared changes trigger replan`
+- `planner execute feedback records changed files`
 
 ### Planner Recovery
 

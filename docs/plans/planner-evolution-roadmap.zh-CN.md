@@ -34,11 +34,10 @@
 - 新增调度能力时容易把状态分散回编排层
 - UI 与恢复逻辑仍需要从多个 artifact 反推运行时意图
 
-### 2. resume 仍未覆盖完整 recovering / fallback 路径
+### 2. resume 仍未完成 lock ownership 与 recovering 子图的精细恢复
 
-当前从 execution artifacts 恢复时，active wave 与基础锁状态已经能恢复到更接近原执行态，但仍未完整覆盖：
+当前从 execution artifacts 恢复时，active wave 与 fallback path 的基础恢复已经具备，但仍未完整覆盖：
 
-- fallback path
 - 局部锁所有权
 - recovering 中的局部子图状态
 - partial planning window 之后的恢复边界
