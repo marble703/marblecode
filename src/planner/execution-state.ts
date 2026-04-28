@@ -16,6 +16,9 @@ export function createPlannerExecutionState(
     lastEventType?: PlannerExecutionStateArtifact['lastEventType'];
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
+    preservedLockOwnerStepIds?: string[];
+    downgradedLockOwnerStepIds?: string[];
+    droppedLockOwnerStepIds?: string[];
     recoverySourceStepId?: string;
     recoverySubgraphStepIds?: string[];
     lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
@@ -47,6 +50,9 @@ export function createPlannerExecutionState(
     ...(extras?.lastEventType ? { lastEventType: extras.lastEventType } : {}),
     ...(extras?.lastEventReason ? { lastEventReason: extras.lastEventReason } : {}),
     ...(extras?.activeLockOwnerStepIds && extras.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: extras.activeLockOwnerStepIds } : {}),
+    ...(extras?.preservedLockOwnerStepIds && extras.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: extras.preservedLockOwnerStepIds } : {}),
+    ...(extras?.downgradedLockOwnerStepIds && extras.downgradedLockOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: extras.downgradedLockOwnerStepIds } : {}),
+    ...(extras?.droppedLockOwnerStepIds && extras.droppedLockOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: extras.droppedLockOwnerStepIds } : {}),
     ...(extras?.recoverySourceStepId ? { recoverySourceStepId: extras.recoverySourceStepId } : {}),
     ...(extras?.recoverySubgraphStepIds && extras.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: extras.recoverySubgraphStepIds } : {}),
     ...(extras?.lockResumeMode ? { lockResumeMode: extras.lockResumeMode } : {}),

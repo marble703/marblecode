@@ -121,6 +121,9 @@ export interface PlannerViewModel {
   lastEventType: string;
   lastEventReason: string;
   activeLockOwnerStepIds: string[];
+  preservedLockOwnerStepIds: string[];
+  downgradedLockOwnerStepIds: string[];
+  droppedLockOwnerStepIds: string[];
   recoverySourceStepId: string | null;
   recoverySubgraphStepIds: string[];
   lockResumeMode: string;
@@ -217,6 +220,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType: '',
     lastEventReason: '',
     activeLockOwnerStepIds: [],
+    preservedLockOwnerStepIds: [],
+    downgradedLockOwnerStepIds: [],
+    droppedLockOwnerStepIds: [],
     recoverySourceStepId: null,
     recoverySubgraphStepIds: [],
     lockResumeMode: '',
@@ -234,6 +240,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType?: string;
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
+    preservedLockOwnerStepIds?: string[];
+    downgradedLockOwnerStepIds?: string[];
+    droppedLockOwnerStepIds?: string[];
     recoverySourceStepId?: string | null;
     recoverySubgraphStepIds?: string[];
     lockResumeMode?: string;
@@ -307,6 +316,9 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventType: executionState.lastEventType ?? '',
     lastEventReason: executionState.lastEventReason ?? '',
     activeLockOwnerStepIds: executionState.activeLockOwnerStepIds ?? [],
+    preservedLockOwnerStepIds: executionState.preservedLockOwnerStepIds ?? [],
+    downgradedLockOwnerStepIds: executionState.downgradedLockOwnerStepIds ?? [],
+    droppedLockOwnerStepIds: executionState.droppedLockOwnerStepIds ?? [],
     recoverySourceStepId: executionState.recoverySourceStepId ?? null,
     recoverySubgraphStepIds: executionState.recoverySubgraphStepIds ?? [],
     lockResumeMode: executionState.lockResumeMode ?? '',

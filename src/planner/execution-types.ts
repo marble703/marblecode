@@ -30,6 +30,9 @@ export interface PlannerExecutionStateArtifact {
   lastEventType?: PlannerExecutionEventType;
   lastEventReason?: string;
   activeLockOwnerStepIds?: string[];
+  preservedLockOwnerStepIds?: string[];
+  downgradedLockOwnerStepIds?: string[];
+  droppedLockOwnerStepIds?: string[];
   recoverySourceStepId?: string;
   recoverySubgraphStepIds?: string[];
   lockResumeMode?: 'reacquire' | 'preserve_guarded' | 'drop_unrelated_writes';
