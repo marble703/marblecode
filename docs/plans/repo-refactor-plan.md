@@ -20,7 +20,7 @@ Implemented in the current pass:
 
 Still pending after this pass:
 
-- continue splitting `src/agent/index.ts` beyond model/parse extraction
+- introduce `ToolProvider` before real LSP/MCP provider work
 
 Update after the current pass:
 
@@ -30,9 +30,9 @@ Update after the current pass:
 - TUI split is complete: `src/tui/types.ts`, `src/tui/commands.ts`, `src/tui/paste.ts`, `src/tui/state.ts`, `src/tui/render.ts`, `src/tui/session-actions.ts`, and `src/tui/run-prompt.ts` now hold the shared TUI layers while `src/tui/agent-repl.ts` is a thin top-level loop
 - verifier split is complete: `src/verifier/commands.ts`, `src/verifier/execute.ts`, and `src/verifier/analysis.ts` now own command resolution, shell execution, and failure analysis while `src/verifier/index.ts` stays the orchestration entrypoint
 - agent split phase 1 is complete: `src/agent/model.ts` and `src/agent/parse.ts` now hold request/system-prompt construction and model-step parsing while `src/agent/index.ts` still owns the patch/apply/verify runtime loop
+- agent split is complete: `src/agent/model.ts`, `src/agent/parse.ts`, `src/agent/runtime.ts`, and `src/agent/messages.ts` now isolate request construction, model-step parsing, runtime orchestration, and user-facing failure/help text while `src/agent/index.ts` stays the public entrypoint plus rollback helper
 - the next structural priorities are now:
-  1. finish splitting `src/agent/index.ts` (`runtime.ts` and optional `messages.ts`)
-  2. then introduce `ToolProvider` before LSP/MCP work
+  1. introduce `ToolProvider` before LSP/MCP work
 
 ## Goals
 
@@ -124,8 +124,7 @@ This phase is lower priority than planner and TUI because the files are smaller,
 Current status:
 
 - done: `src/verifier/commands.ts`, `src/verifier/execute.ts`, `src/verifier/analysis.ts`
-- done: `src/agent/model.ts`, `src/agent/parse.ts`
-- pending: `src/agent/runtime.ts` and optional `src/agent/messages.ts`
+- done: `src/agent/model.ts`, `src/agent/parse.ts`, `src/agent/runtime.ts`, `src/agent/messages.ts`
 
 ### Manual suite split
 

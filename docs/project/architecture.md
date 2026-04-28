@@ -168,9 +168,11 @@ It is responsible for:
 
 Current internal split:
 
-- `index.ts`: runtime loop, patch/apply/verifier orchestration, and rollback helper
+- `index.ts`: public entrypoint and rollback helper
 - `model.ts`: request construction and system prompt assembly
 - `parse.ts`: model-step JSON parsing and normalization
+- `runtime.ts`: runtime loop plus patch/apply/verifier orchestration
+- `messages.ts`: patch preview rendering and intervention/failure message assembly
 
 ### `src/patch`
 

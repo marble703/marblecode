@@ -168,9 +168,11 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 当前的内部拆分：
 
-- `index.ts`：runtime 循环、patch/apply/verifier 编排，以及 rollback helper
+- `index.ts`：公共入口和 rollback helper
 - `model.ts`：request 构建和 system prompt 组装
 - `parse.ts`：模型步骤 JSON 解析和规范化
+- `runtime.ts`：runtime 循环以及 patch/apply/verifier 编排
+- `messages.ts`：patch preview 渲染与失败/干预文案组装
 
 ### `src/patch`
 
