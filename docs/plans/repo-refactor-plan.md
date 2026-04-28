@@ -20,7 +20,6 @@ Implemented in the current pass:
 
 Still pending after this pass:
 
-- split `src/verifier/index.ts` into command resolution, execution, and analysis helpers
 - split `src/agent/index.ts` further than the shared-helper extraction
 
 Update after the current pass:
@@ -29,10 +28,10 @@ Update after the current pass:
 - planner timeline normalization and read-model API are complete
 - planner manual-suite hotspot split is now complete (`scripts/manual-suite/planner-{graph,runtime,execution,recovery}.ts`)
 - TUI split is complete: `src/tui/types.ts`, `src/tui/commands.ts`, `src/tui/paste.ts`, `src/tui/state.ts`, `src/tui/render.ts`, `src/tui/session-actions.ts`, and `src/tui/run-prompt.ts` now hold the shared TUI layers while `src/tui/agent-repl.ts` is a thin top-level loop
+- verifier split is complete: `src/verifier/commands.ts`, `src/verifier/execute.ts`, and `src/verifier/analysis.ts` now own command resolution, shell execution, and failure analysis while `src/verifier/index.ts` stays the orchestration entrypoint
 - the next structural priorities are now:
-  1. split `src/verifier/index.ts`
-  2. split `src/agent/index.ts`
-  3. then introduce `ToolProvider` before LSP/MCP work
+  1. split `src/agent/index.ts`
+  2. then introduce `ToolProvider` before LSP/MCP work
 
 ## Goals
 
@@ -120,6 +119,11 @@ Once shared JSON parsing exists, split the agent and verifier along the same lin
 - optional: `src/agent/messages.ts` for user-facing failure/help text
 
 This phase is lower priority than planner and TUI because the files are smaller, but the shared-helper extraction should happen early.
+
+Current status:
+
+- done: `src/verifier/commands.ts`, `src/verifier/execute.ts`, `src/verifier/analysis.ts`
+- pending: `src/agent/model.ts`, `src/agent/parse.ts`, `src/agent/runtime.ts` and optional `src/agent/messages.ts`
 
 ### Manual suite split
 

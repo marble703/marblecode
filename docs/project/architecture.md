@@ -186,6 +186,13 @@ It supports:
 - repo-based fallback discovery
 - structured verifier-failure analysis
 
+Current internal split:
+
+- `index.ts`: orchestration entrypoint for `runVerifier()`
+- `commands.ts`: command resolution across manual/config/markdown/discovery sources
+- `execute.ts`: shell execution and failure aggregation
+- `analysis.ts`: verifier-failure prompt building and JSON parsing
+
 ### `src/session`
 
 Stores local artifacts under `.agent/sessions` and cleans old sessions by age and count.

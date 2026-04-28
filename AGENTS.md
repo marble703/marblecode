@@ -68,7 +68,7 @@
 - `src/tools`: built-in tools. `search_text` now supports regex flags plus line/column/context match locations.
 - `src/tools`: built-in tools. Planner-facing tools now also include read-only git helpers such as `git_status`, `git_log`, `git_show`, and `git_diff_base`.
 - `src/tui`: interactive terminal UI plus planner session rendering helpers. Shared TUI types now live in `src/tui/types.ts`, slash-command parsing in `src/tui/commands.ts`, paste/patch-confirm helpers in `src/tui/paste.ts`, state refresh in `src/tui/state.ts`, screen rendering in `src/tui/render.ts`, planner session actions in `src/tui/session-actions.ts`, and prompt dispatch in `src/tui/run-prompt.ts`; `src/tui/agent-repl.ts` now only owns the top-level loop.
-- `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis.
+- `src/verifier`: command resolution, markdown verifier plans, and verifier-failure analysis. Command resolution now lives in `src/verifier/commands.ts`, shell execution in `src/verifier/execute.ts`, failure-analysis prompt/parse logic in `src/verifier/analysis.ts`, and `src/verifier/index.ts` remains the orchestration entrypoint.
 - `src/verifier/discover.ts`: fallback verifier command discovery from repo files when no explicit verifier plan exists.
 - `src/session`: session creation, persistence, cleanup, and resolving sessions for rollback.
 - `examples/verifier-fixture`: small verifier fixture proving `.marblecode/verifier.md` execution.

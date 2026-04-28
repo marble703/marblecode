@@ -186,6 +186,13 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - 基于仓库的备选发现机制
 - 结构化的验证失败分析
 
+当前的内部拆分：
+
+- `index.ts`：`runVerifier()` 的编排入口
+- `commands.ts`：manual/config/markdown/discovery 多来源命令解析
+- `execute.ts`：shell 执行与 failure 聚合
+- `analysis.ts`：验证失败分析 prompt 构建和 JSON 解析
+
 ### `src/session`
 
 在 `.agent/sessions` 下存储本地产物，并按时间和数量清理旧会话。
