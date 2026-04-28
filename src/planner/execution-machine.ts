@@ -38,6 +38,9 @@ export interface PlannerExecutionSnapshotInput {
   interruptedStepIds?: string[];
   lastEventReason?: string;
   activeLockOwnerStepIds?: string[];
+  recoverySourceStepId?: string;
+  recoverySubgraphStepIds?: string[];
+  lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
   recoveryStepId?: string;
   recoveryReason?: string;
 }
@@ -126,6 +129,9 @@ export async function dispatchExecutionEvent(
     lastEventType: event.type as PlannerExecutionEventType,
     ...(input.lastEventReason ? { lastEventReason: input.lastEventReason } : {}),
     ...(input.activeLockOwnerStepIds ? { activeLockOwnerStepIds: input.activeLockOwnerStepIds } : {}),
+    ...(input.recoverySourceStepId ? { recoverySourceStepId: input.recoverySourceStepId } : {}),
+    ...(input.recoverySubgraphStepIds ? { recoverySubgraphStepIds: input.recoverySubgraphStepIds } : {}),
+    ...(input.lockResumeMode ? { lockResumeMode: input.lockResumeMode } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
     ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
   });

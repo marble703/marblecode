@@ -16,6 +16,9 @@ export function createPlannerExecutionState(
     lastEventType?: PlannerExecutionStateArtifact['lastEventType'];
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
+    recoverySourceStepId?: string;
+    recoverySubgraphStepIds?: string[];
+    lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
     recoveryStepId?: string;
     recoveryReason?: string;
   },
@@ -44,6 +47,9 @@ export function createPlannerExecutionState(
     ...(extras?.lastEventType ? { lastEventType: extras.lastEventType } : {}),
     ...(extras?.lastEventReason ? { lastEventReason: extras.lastEventReason } : {}),
     ...(extras?.activeLockOwnerStepIds && extras.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: extras.activeLockOwnerStepIds } : {}),
+    ...(extras?.recoverySourceStepId ? { recoverySourceStepId: extras.recoverySourceStepId } : {}),
+    ...(extras?.recoverySubgraphStepIds && extras.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: extras.recoverySubgraphStepIds } : {}),
+    ...(extras?.lockResumeMode ? { lockResumeMode: extras.lockResumeMode } : {}),
     ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
     ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
   };
@@ -64,6 +70,9 @@ export function buildInitialExecutionRuntimeContext(
   interruptedStepIds: string[];
   executionEpoch: number;
   activeLockOwnerStepIds: string[];
+  recoverySourceStepId: string | null;
+  recoverySubgraphStepIds: string[];
+  lockResumeMode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']> | '';
 } {
   return {
     lockTable,
@@ -73,5 +82,8 @@ export function buildInitialExecutionRuntimeContext(
     interruptedStepIds: executionState?.interruptedStepIds ?? [],
     executionEpoch: executionState?.epoch ?? 0,
     activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable),
+    recoverySourceStepId: executionState?.recoverySourceStepId ?? null,
+    recoverySubgraphStepIds: executionState?.recoverySubgraphStepIds ?? [],
+    lockResumeMode: executionState?.lockResumeMode ?? '',
   };
 }
