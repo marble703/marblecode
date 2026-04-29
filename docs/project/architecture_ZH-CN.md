@@ -144,6 +144,14 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 当前工具注册同时支持直接注册单个 tool，以及通过 provider 批量注册工具。内置工具已经走 provider 兼容路径，以便后续接入 LSP/MCP 时复用同一套 registry 边界，而不需要修改 agent/planner 调用点。
 
+当前 provider 边界还已经补上：
+
+- 面向 `kind`、`access`、`description` 与 capabilities 的 provider metadata
+- 通过 `listProviders()` 和 `getProviderForTool()` 暴露 registry 级 provider introspection
+- 通过 `disposeAll()` 暴露显式 provider 生命周期回收入口
+- 面向未来外部 provider 的最小配置边界：`tools.externalProvidersEnabled` 和 `tools.allow`
+- 仅用于回归覆盖的 deterministic readonly diagnostics fixture provider，而不是生产级 LSP/MCP 接入
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

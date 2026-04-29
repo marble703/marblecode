@@ -165,6 +165,22 @@
 - CLI / planner / agent / TUI 工具行为保持不变
 - 接入首个只读 provider 时不需要再重做工具总线
 
+### P1.1：本轮已完成基础落点
+
+本轮先没有接入真实 LSP/MCP，而是完成了 provider 生命周期和只读能力接入所需的最小基础：
+
+1. `ToolProvider` 增加 metadata/capabilities 表达，明确 `kind`、`access`、`description` 与能力摘要。
+2. `ToolRegistry` 增加 provider id registry、`listProviders()`、`getProviderForTool()` 与 `disposeAll()` 生命周期入口。
+3. 内置 builtin/planner provider 现在显式声明 `read_write` / `read_only` access metadata。
+4. config schema 增加最小外部 provider 边界：`tools.externalProvidersEnabled=false` 与 `tools.allow=[]`。
+5. 新增 deterministic readonly diagnostics fixture provider，用于验证 provider-compatible registry 可以接入新的只读能力而不改 agent/planner 调用路径。
+
+这一轮的定位是 lifecycle foundation，而不是外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- 是否把 `ToolProvider` 命名收敛为 `ToolSource`
+- 是否为外部 provider 增加更明确的 policy/logging/redaction 挂点
+- 首个真实 readonly diagnostics/symbols source 的加载方式
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

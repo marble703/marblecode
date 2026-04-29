@@ -57,6 +57,7 @@ Purpose:
 
 - built-in tool behavior
 - provider-backed tool registration behavior
+- provider lifecycle and readonly capability boundaries
 - policy boundaries
 - context selection behavior
 - git read-only tool behavior
@@ -65,6 +66,9 @@ Representative cases:
 
 - `tool read/list/search`
 - `tool provider registry`
+- `tool provider lifecycle`
+- `tool provider duplicate id`
+- `readonly diagnostics provider`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`
@@ -134,7 +138,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 86 deterministic cases.
+At the moment, `npm run test:examples` covers 89 deterministic cases.
 
 ### Planner Execution
 

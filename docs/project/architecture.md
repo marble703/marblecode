@@ -144,6 +144,14 @@ Planner mode gets a restricted read-only subset.
 
 Current tool registration now supports both direct tools and provider-backed registration. Builtins are wired through provider helpers so future LSP/MCP integrations can reuse the same registry boundary without changing agent/planner callsites.
 
+The current provider boundary now also includes:
+
+- provider metadata for `kind`, `access`, `description`, and capabilities
+- registry-level provider introspection through `listProviders()` and `getProviderForTool()`
+- explicit provider lifecycle disposal through `disposeAll()`
+- a minimal config boundary for future external providers via `tools.externalProvidersEnabled` and `tools.allow`
+- a deterministic readonly diagnostics fixture provider used only for regression coverage, not for production LSP/MCP integration
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.
