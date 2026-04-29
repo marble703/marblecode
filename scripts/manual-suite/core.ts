@@ -6,6 +6,7 @@ import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { createLocalDiagnosticsProvider } from '../../src/tools/local-diagnostics-provider.js';
+import { normalizeWorkspacePath, readLocalArtifact } from '../../src/tools/local-artifacts.js';
 import { buildToolLogRecord } from '../../src/tools/logging.js';
 import { createLocalReferencesProvider } from '../../src/tools/local-references-provider.js';
 import { createLocalSymbolsProvider } from '../../src/tools/local-symbols-provider.js';
@@ -14,7 +15,7 @@ import { ToolRegistry } from '../../src/tools/registry.js';
 import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import type { ModelProvider } from '../../src/provider/types.js';
-import { withWorkspace } from './helpers.js';
+import { enableExternalProvider, withWorkspace, writeMarbleArtifact } from './helpers.js';
 import { InspectingProvider, SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
@@ -34,6 +35,8 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'tool log includes provider metadata', run: testToolLogIncludesProviderMetadata },
     { name: 'tool log helper includes provider metadata', run: testToolLogHelperIncludesProviderMetadata },
     { name: 'tool log helper includes capability source fields', run: testToolLogHelperIncludesCapabilitySourceFields },
+    { name: 'local artifact helper returns missing', run: testLocalArtifactHelperReturnsMissing },
+    { name: 'local artifact helper rejects workspace escape', run: testLocalArtifactHelperRejectsWorkspaceEscape },
     { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
     { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
@@ -479,11 +482,25 @@ async function testToolLogHelperIncludesCapabilitySourceFields(): Promise<void> 
   assert.equal(referencesRecord.referencesSource, 'local-references');
 }
 
+async function testLocalArtifactHelperReturnsMissing(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const result = await readLocalArtifact<{ version: '1' }>(config, policy, 'missing-artifact.json');
+    assert.deepEqual(result, { status: 'missing' });
+  });
+}
+
+async function testLocalArtifactHelperRejectsWorkspaceEscape(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const result = normalizeWorkspacePath(config, policy, '../outside.txt', 'Local artifact path escapes workspace');
+    assert.equal(result.status, 'error');
+    assert.match(result.error ?? '', /Local artifact path escapes workspace/);
+  });
+}
+
 async function testLocalDiagnosticsProviderReadsArtifact(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-diagnostics'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-diagnostics');
+    await writeMarbleArtifact(workspaceRoot, 'diagnostics.json', {
       version: '1',
       diagnostics: [{
         path: 'src/math.js',
@@ -493,7 +510,7 @@ async function testLocalDiagnosticsProviderReadsArtifact(): Promise<void> {
         column: 10,
         source: 'local-diagnostics',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
     try {
@@ -515,9 +532,8 @@ async function testLocalDiagnosticsProviderReadsArtifact(): Promise<void> {
 
 async function testLocalDiagnosticsProviderFiltersPathAndSeverity(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-diagnostics'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-diagnostics');
+    await writeMarbleArtifact(workspaceRoot, 'diagnostics.json', {
       version: '1',
       diagnostics: [
         {
@@ -537,7 +553,7 @@ async function testLocalDiagnosticsProviderFiltersPathAndSeverity(): Promise<voi
           source: 'local-diagnostics',
         },
       ],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
     try {
@@ -559,8 +575,7 @@ async function testLocalDiagnosticsProviderFiltersPathAndSeverity(): Promise<voi
 
 async function testLocalDiagnosticsProviderReturnsEmptyWhenMissing(): Promise<void> {
   await withWorkspace(async ({ config, policy }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-diagnostics'];
+    enableExternalProvider(config, 'local-diagnostics');
     const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
     try {
       const result = await registry.execute({ name: 'diagnostics_list', input: {} });
@@ -574,9 +589,8 @@ async function testLocalDiagnosticsProviderReturnsEmptyWhenMissing(): Promise<vo
 
 async function testLocalDiagnosticsProviderRejectsWorkspaceEscape(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-diagnostics'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-diagnostics');
+    await writeMarbleArtifact(workspaceRoot, 'diagnostics.json', {
       version: '1',
       diagnostics: [{
         path: '../outside.txt',
@@ -586,7 +600,7 @@ async function testLocalDiagnosticsProviderRejectsWorkspaceEscape(): Promise<voi
         column: 1,
         source: 'local-diagnostics',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
     try {
@@ -601,9 +615,8 @@ async function testLocalDiagnosticsProviderRejectsWorkspaceEscape(): Promise<voi
 
 async function testLocalSymbolsProviderReadsArtifact(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-symbols');
+    await writeMarbleArtifact(workspaceRoot, 'symbols.json', {
       version: '1',
       symbols: [{
         path: 'src/math.js',
@@ -613,7 +626,7 @@ async function testLocalSymbolsProviderReadsArtifact(): Promise<void> {
         column: 1,
         source: 'local-symbols',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
     try {
@@ -636,9 +649,8 @@ async function testLocalSymbolsProviderReadsArtifact(): Promise<void> {
 
 async function testLocalSymbolsProviderFiltersPathNameAndKind(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-symbols');
+    await writeMarbleArtifact(workspaceRoot, 'symbols.json', {
       version: '1',
       symbols: [
         {
@@ -658,7 +670,7 @@ async function testLocalSymbolsProviderFiltersPathNameAndKind(): Promise<void> {
           source: 'local-symbols',
         },
       ],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
     try {
@@ -680,8 +692,7 @@ async function testLocalSymbolsProviderFiltersPathNameAndKind(): Promise<void> {
 
 async function testLocalSymbolsProviderReturnsEmptyWhenMissing(): Promise<void> {
   await withWorkspace(async ({ config, policy }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
+    enableExternalProvider(config, 'local-symbols');
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
     try {
       const result = await registry.execute({ name: 'symbols_list', input: {} });
@@ -695,12 +706,11 @@ async function testLocalSymbolsProviderReturnsEmptyWhenMissing(): Promise<void> 
 
 async function testLocalSymbolsProviderRejectsInvalidFormat(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-symbols');
+    await writeMarbleArtifact(workspaceRoot, 'symbols.json', {
       version: '2',
       symbols: [],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
     try {
@@ -715,9 +725,8 @@ async function testLocalSymbolsProviderRejectsInvalidFormat(): Promise<void> {
 
 async function testLocalSymbolsProviderRejectsWorkspaceEscape(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-symbols');
+    await writeMarbleArtifact(workspaceRoot, 'symbols.json', {
       version: '1',
       symbols: [{
         path: '../outside.txt',
@@ -727,7 +736,7 @@ async function testLocalSymbolsProviderRejectsWorkspaceEscape(): Promise<void> {
         column: 1,
         source: 'local-symbols',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
     try {
@@ -743,9 +752,8 @@ async function testLocalSymbolsProviderRejectsWorkspaceEscape(): Promise<void> {
 async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     config.session.logToolBodies = true;
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-symbols'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-symbols');
+    await writeMarbleArtifact(workspaceRoot, 'symbols.json', {
       version: '1',
       symbols: [{
         path: 'src/math.js',
@@ -755,7 +763,7 @@ async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
         column: 1,
         source: 'workspace-symbol-index',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const policy = new PolicyEngine(config);
     const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
@@ -796,9 +804,8 @@ async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
 
 async function testLocalReferencesProviderReadsArtifact(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '1',
       references: [{
         path: 'src/router.js',
@@ -811,7 +818,7 @@ async function testLocalReferencesProviderReadsArtifact(): Promise<void> {
         targetColumn: 1,
         source: 'local-references',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
@@ -837,9 +844,8 @@ async function testLocalReferencesProviderReadsArtifact(): Promise<void> {
 
 async function testLocalReferencesProviderFiltersPathSymbolAndKind(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '1',
       references: [
         {
@@ -862,7 +868,7 @@ async function testLocalReferencesProviderFiltersPathSymbolAndKind(): Promise<vo
           source: 'local-references',
         },
       ],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
@@ -890,8 +896,7 @@ async function testLocalReferencesProviderFiltersPathSymbolAndKind(): Promise<vo
 
 async function testLocalReferencesProviderReturnsEmptyWhenMissing(): Promise<void> {
   await withWorkspace(async ({ config, policy }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
+    enableExternalProvider(config, 'local-references');
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
       const result = await registry.execute({ name: 'references_list', input: {} });
@@ -905,12 +910,11 @@ async function testLocalReferencesProviderReturnsEmptyWhenMissing(): Promise<voi
 
 async function testLocalReferencesProviderRejectsInvalidFormat(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '2',
       references: [],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
@@ -925,9 +929,8 @@ async function testLocalReferencesProviderRejectsInvalidFormat(): Promise<void> 
 
 async function testLocalReferencesProviderRejectsWorkspaceEscape(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '1',
       references: [{
         path: '../outside.txt',
@@ -937,7 +940,7 @@ async function testLocalReferencesProviderRejectsWorkspaceEscape(): Promise<void
         kind: 'reference',
         source: 'local-references',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
@@ -952,9 +955,8 @@ async function testLocalReferencesProviderRejectsWorkspaceEscape(): Promise<void
 
 async function testLocalReferencesProviderRejectsTargetWorkspaceEscape(): Promise<void> {
   await withWorkspace(async ({ config, policy, workspaceRoot }) => {
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '1',
       references: [{
         path: 'src/router.js',
@@ -967,7 +969,7 @@ async function testLocalReferencesProviderRejectsTargetWorkspaceEscape(): Promis
         targetColumn: 1,
         source: 'local-references',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
     try {
@@ -983,9 +985,8 @@ async function testLocalReferencesProviderRejectsTargetWorkspaceEscape(): Promis
 async function testToolLogSanitizesLocalReferencesSource(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     config.session.logToolBodies = true;
-    config.tools.externalProvidersEnabled = true;
-    config.tools.allow = ['local-references'];
-    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+    enableExternalProvider(config, 'local-references');
+    await writeMarbleArtifact(workspaceRoot, 'references.json', {
       version: '1',
       references: [{
         path: 'src/router.js',
@@ -998,7 +999,7 @@ async function testToolLogSanitizesLocalReferencesSource(): Promise<void> {
         targetColumn: 1,
         source: 'workspace-reference-index',
       }],
-    }, null, 2), 'utf8');
+    });
 
     const policy = new PolicyEngine(config);
     const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);

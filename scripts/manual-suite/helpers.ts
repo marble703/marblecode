@@ -130,6 +130,23 @@ export function createPlannerRegistryWithProviders(
   return createPlannerToolRegistry(config, policy, providers);
 }
 
+export function enableExternalProvider(config: AppConfig, providerId: string): void {
+  config.tools.externalProvidersEnabled = true;
+  config.tools.allow = [providerId];
+}
+
+export async function writeMarbleArtifact(
+  workspaceRoot: string,
+  fileName: string,
+  payload: unknown,
+): Promise<void> {
+  await writeFile(
+    path.join(workspaceRoot, '.marblecode', fileName),
+    JSON.stringify(payload, null, 2),
+    'utf8',
+  );
+}
+
 export async function buildMathFixStep(workspaceRoot: string): Promise<string> {
   const current = await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8');
   const next = current.replace('return a - b;', 'return a + b;');
