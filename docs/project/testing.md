@@ -86,6 +86,13 @@ Representative cases:
 - `local symbols provider rejects invalid format`
 - `local symbols provider rejects workspace escape`
 - `tool log sanitizes local symbols source`
+- `local references provider reads artifact`
+- `local references provider filters path symbol and kind`
+- `local references provider returns empty when missing`
+- `local references provider rejects invalid format`
+- `local references provider rejects workspace escape`
+- `local references provider rejects target workspace escape`
+- `tool log sanitizes local references source`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`
@@ -155,7 +162,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 106 deterministic cases.
+At the moment, `npm run test:examples` covers 113 deterministic cases.
 
 ### Planner Execution
 

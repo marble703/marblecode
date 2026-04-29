@@ -180,6 +180,14 @@ The second real local readonly source now in place is `src/tools/local-symbols-p
 - missing artifacts return an empty symbols list
 - invalid or escaping symbol paths are rejected instead of being silently normalized
 
+The third real local readonly source now in place is `src/tools/local-references-provider.ts`:
+
+- it reads `.marblecode/references.json` from the workspace as a local references artifact
+- it uses the same external-provider gate, metadata logging, and sanitize hooks as the local diagnostics and symbols sources
+- it exposes `references_list` with `path`, `symbolName`, and `kind` filters
+- it validates both `path` and optional `targetPath` against workspace escape before returning results
+- missing artifacts return an empty references list
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.

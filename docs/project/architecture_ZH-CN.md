@@ -180,6 +180,14 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - artifact 缺失时返回空 symbols 列表
 - 对无效或逃逸工作区的 symbol 路径会直接拒绝，而不是静默归一化
 
+当前第三个真实的本地 readonly source 也已经补上：`src/tools/local-references-provider.ts`
+
+- 它会从工作区下的 `.marblecode/references.json` 读取本地 references artifact
+- 它继续复用与 local diagnostics、local symbols 相同的 external provider gate、provider metadata logging 和 sanitize hook
+- 它暴露 `references_list`，支持 `path`、`symbolName`、`kind` 过滤
+- 它会在返回结果前同时校验 `path` 和可选 `targetPath` 是否逃逸工作区
+- artifact 缺失时返回空 references 列表
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

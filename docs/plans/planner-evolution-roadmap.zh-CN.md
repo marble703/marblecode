@@ -243,6 +243,22 @@
 - provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
 - 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
 
+### P1.6：本轮已完成 local readonly references source
+
+在 P1.5 的 second local source foundation 之上，本轮继续补齐了第三个真实但本地的 readonly source，仍然没有接入真实 LSP/MCP：
+
+1. 新增 `src/tools/local-references-provider.ts`，从 `.marblecode/references.json` 加载本地 references/source-locations。
+2. local references source 继续走现有 external provider gate、shared setup、provider metadata logging 和 sanitize hook，进一步验证 provider/source 抽象可以承载多种 readonly 索引数据。
+3. local source 支持 `path`、`symbolName`、`kind` 过滤，对缺失 artifact 返回空结果，对 workspace escape、target workspace escape 和无效 artifact 给出明确错误。
+4. agent/planner 的 tool logging 现在也会为 references capability 记录 `referencesSource`，使 provider sanitize hook 走到真实日志路径上。
+5. deterministic suite 增加 local references source 的读取、过滤、缺失、invalid format、escape、target escape 和 logging sanitize 覆盖。
+
+这一轮的定位是 third local source foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+- 是否开始设计真实 LSP/MCP readonly source 的生命周期与错误模型
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

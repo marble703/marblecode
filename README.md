@@ -330,6 +330,8 @@ The first real local readonly source now reads `.marblecode/diagnostics.json` th
 
 The second real local readonly source now reads `.marblecode/symbols.json` through the same external-provider gate and logging path, exposing `symbols_list` with `path` / `name` / `kind` filters while real LSP/MCP integrations remain future work.
 
+The third real local readonly source now reads `.marblecode/references.json` through the same external-provider gate and logging path, exposing `references_list` with `path` / `symbolName` / `kind` filters and validating both `path` and `targetPath` inside the workspace while real LSP/MCP integrations remain future work.
+
 ## Verifier Markdown
 
 Each `##` section in `.marblecode/verifier.md` defines one verifier step.
