@@ -7,6 +7,7 @@ export interface ToolDiagnosticRecord {
   message: string;
   line: number;
   column: number;
+  source?: string;
 }
 
 export function createDiagnosticsFixtureProvider(
@@ -46,7 +47,7 @@ export function createExternalDiagnosticsFixtureProvider(
   diagnostics: ToolDiagnosticRecord[],
   providerId = 'diagnostics-external-fixture',
 ): ToolProvider {
-  return new StaticToolProvider(providerId, [{
+  const provider = new StaticToolProvider(providerId, [{
     definition: {
       name: 'diagnostics_list',
       description: 'List deterministic readonly diagnostics for an external workspace path.',
@@ -73,4 +74,9 @@ export function createExternalDiagnosticsFixtureProvider(
     description: 'Deterministic external readonly diagnostics fixture provider.',
     capabilities: ['diagnostics'],
   });
+  provider.sanitizeLogRecord = (record: Record<string, unknown>) => ({
+    ...record,
+    diagnosticsSource: typeof record.diagnosticsSource === 'string' ? '[external-diagnostics]' : record.diagnosticsSource,
+  });
+  return provider;
 }

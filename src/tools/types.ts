@@ -34,10 +34,23 @@ export interface ToolProviderMetadata {
   capabilities?: string[];
 }
 
+export interface ToolProviderSummary {
+  id: string;
+  kind: ToolProviderKind | 'direct';
+  access: ToolProviderAccess | 'n/a';
+  description: string;
+  capabilities: string[];
+}
+
+export interface ToolProviderDisposeSummary {
+  disposedProviderIds: string[];
+}
+
 export interface ToolProvider {
   id: string;
   metadata?: ToolProviderMetadata;
   listTools(): Tool[];
   executeTool(call: ToolCall): Promise<ToolResult>;
+  sanitizeLogRecord?(record: Record<string, unknown>): Record<string, unknown>;
   dispose?(): Promise<void> | void;
 }

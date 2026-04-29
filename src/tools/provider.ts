@@ -3,6 +3,7 @@ import type { Tool, ToolCall, ToolProvider, ToolProviderMetadata, ToolResult } f
 export class StaticToolProvider implements ToolProvider {
   public readonly id: string;
   public readonly metadata: ToolProviderMetadata;
+  public sanitizeLogRecord?: (record: Record<string, unknown>) => Record<string, unknown>;
 
   private readonly tools = new Map<string, Tool>();
 

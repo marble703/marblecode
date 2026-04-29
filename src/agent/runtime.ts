@@ -96,14 +96,22 @@ export async function runAgentRuntime(
 
       if (step.type === 'tool_call') {
         const toolResult = await tools.execute({ name: step.tool, input: step.input });
+        const providerSummary = tools.getProviderSummaryForTool(step.tool);
+        const toolLogRecord = tools.sanitizeProviderLogRecord(step.tool, {
+          mode: 'agent',
+          tool: step.tool,
+          providerId: providerSummary.id,
+          providerKind: providerSummary.kind,
+          providerAccess: providerSummary.access,
+          providerCapabilities: providerSummary.capabilities,
+          input: config.session.logToolBodies ? step.input : '[omitted]',
+          result: config.session.logToolBodies ? toolResult : { ok: toolResult.ok },
+          diagnosticsSource: providerSummary.capabilities.includes('diagnostics') ? providerSummary.id : '',
+        });
         await appendSessionLog(
           session,
           'tools.jsonl',
-          {
-            tool: step.tool,
-            input: config.session.logToolBodies ? step.input : '[omitted]',
-            result: config.session.logToolBodies ? toolResult : { ok: toolResult.ok },
-          },
+          toolLogRecord,
           config.session.redactSecrets,
         );
         transcript.push(`tool:${JSON.stringify({ tool: step.tool, result: toolResult })}`);

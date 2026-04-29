@@ -1,4 +1,4 @@
-import type { Tool, ToolCall, ToolProvider, ToolResult } from './types.js';
+import type { Tool, ToolCall, ToolProvider, ToolProviderDisposeSummary, ToolProviderSummary, ToolResult } from './types.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
@@ -34,6 +34,35 @@ export class ToolRegistry {
     return this.providerByToolName.get(name) ?? null;
   }
 
+  public getProviderSummaryForTool(name: string): ToolProviderSummary {
+    const provider = this.providerByToolName.get(name);
+    if (!provider) {
+      return {
+        id: 'direct',
+        kind: 'direct',
+        access: 'n/a',
+        description: 'Direct tool registration without provider metadata.',
+        capabilities: [],
+      };
+    }
+
+    return {
+      id: provider.id,
+      kind: provider.metadata?.kind ?? 'builtin',
+      access: provider.metadata?.access ?? 'read_write',
+      description: provider.metadata?.description ?? '',
+      capabilities: provider.metadata?.capabilities ?? [],
+    };
+  }
+
+  public sanitizeProviderLogRecord(name: string, record: Record<string, unknown>): Record<string, unknown> {
+    const provider = this.providerByToolName.get(name);
+    if (!provider?.sanitizeLogRecord) {
+      return record;
+    }
+    return provider.sanitizeLogRecord(record);
+  }
+
   public async execute(call: ToolCall): Promise<ToolResult> {
     const tool = this.tools.get(call.name);
     if (!tool) {
@@ -51,9 +80,10 @@ export class ToolRegistry {
     return tool.execute(call.input);
   }
 
-  public async disposeAll(): Promise<void> {
+  public async disposeAll(): Promise<ToolProviderDisposeSummary> {
     const failures: string[] = [];
     const disposed = new Set<string>();
+    const disposedProviderIds: string[] = [];
     for (const provider of this.providerRegistrationOrder) {
       if (disposed.has(provider.id)) {
         continue;
@@ -64,6 +94,7 @@ export class ToolRegistry {
       }
       try {
         await provider.dispose();
+        disposedProviderIds.push(provider.id);
       } catch (error) {
         failures.push(`${provider.id}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -71,6 +102,7 @@ export class ToolRegistry {
     if (failures.length > 0) {
       throw new Error(`Failed to dispose tool providers: ${failures.join('; ')}`);
     }
+    return { disposedProviderIds };
   }
 
   private assertToolNameAvailable(name: string): void {
