@@ -1,6 +1,7 @@
 import type { PlannerExecutionStateArtifact, PlannerExecutionStrategyMode } from './execution-types.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerState } from './types.js';
+import type { PlannerExecutionSnapshotInput } from './execution-machine.js';
 
 export function createPlannerExecutionState(
   state: PlannerState,
@@ -67,6 +68,44 @@ export function createPlannerExecutionState(
 
 export function summarizeActiveLockOwners(lockTable: ExecutionLockTable): string[] {
   return [...new Set(lockTable.entries.filter((entry) => entry.mode === 'write_locked').map((entry) => entry.ownerStepId))];
+}
+
+export function buildExecutionDispatchSnapshot(input: {
+  state: PlannerState;
+  strategy: PlannerExecutionStrategyMode;
+  lockTable: ExecutionLockTable;
+  executionState: PlannerExecutionStateArtifact;
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
+  epoch: number;
+  planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '';
+  recoveryStepId?: string;
+  recoveryReason?: string;
+}): PlannerExecutionSnapshotInput {
+  return {
+    state: input.state,
+    strategy: input.strategy,
+    currentWaveStepIds: input.currentWaveStepIds,
+    lastCompletedWaveStepIds: input.lastCompletedWaveStepIds,
+    epoch: input.epoch,
+    ...(input.selectedWaveStepIds.length > 0 ? { selectedWaveStepIds: input.selectedWaveStepIds } : {}),
+    ...(input.interruptedStepIds.length > 0 ? { interruptedStepIds: input.interruptedStepIds } : {}),
+    ...(summarizeActiveLockOwners(input.lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(input.lockTable) } : {}),
+    ...(input.executionState.resumeStrategy ? { resumeStrategy: input.executionState.resumeStrategy } : {}),
+    ...(input.executionState.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: input.executionState.preservedLockOwnerStepIds } : {}),
+    ...(input.executionState.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: input.executionState.reusedLockOwnerStepIds } : {}),
+    ...(input.executionState.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: input.executionState.downgradedLockOwnerStepIds } : {}),
+    ...(input.executionState.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: input.executionState.droppedLockOwnerStepIds } : {}),
+    ...(input.executionState.recoverySourceStepId ? { recoverySourceStepId: input.executionState.recoverySourceStepId } : {}),
+    ...(input.executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: input.executionState.recoverySubgraphStepIds } : {}),
+    ...(input.executionState.lockResumeMode ? { lockResumeMode: input.executionState.lockResumeMode } : {}),
+    ...(input.planningWindowState ? { planningWindowState: input.planningWindowState } : {}),
+    ...(input.recoveryReason ? { lastEventReason: input.recoveryReason } : {}),
+    ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
+    ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
+  };
 }
 
 export function buildInitialExecutionRuntimeContext(

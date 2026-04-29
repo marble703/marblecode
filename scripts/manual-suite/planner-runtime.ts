@@ -1,6 +1,7 @@
 import {
   assert,
   BranchingProvider,
+  buildExecutionDispatchSnapshot,
   buildExecutionGraph,
   buildInitialExecutionRuntimeContext,
   buildMathFixStep,
@@ -33,6 +34,7 @@ import {
 export function createPlannerRuntimeCases(): ManualSuiteCase[] {
   return [
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
+    { name: 'planner execution snapshot builder', run: testPlannerExecutionSnapshotBuilder },
     { name: 'planner runtime recovery context helper', run: testPlannerRuntimeRecoveryContextHelper },
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
@@ -151,6 +153,82 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
   assert.deepEqual(context.downgradedLockOwnerStepIds, []);
   assert.deepEqual(context.droppedLockOwnerStepIds, []);
   assert.equal(context.lockTable.entries.some((entry) => entry.ownerStepId === 'step-2' && entry.mode === 'write_locked'), true);
+}
+
+async function testPlannerExecutionSnapshotBuilder(): Promise<void> {
+  const lockTable = {
+    version: '1' as const,
+    revision: 3,
+    entries: [
+      { path: 'src/math.js', mode: 'write_locked' as const, ownerStepId: 'step-2', revision: 3 },
+    ],
+  };
+  const snapshot = buildExecutionDispatchSnapshot({
+    state: {
+      version: '1',
+      revision: 3,
+      phase: 'PATCHING',
+      outcome: 'RUNNING',
+      currentStepId: 'step-2',
+      activeStepIds: ['step-2'],
+      readyStepIds: [],
+      completedStepIds: ['step-1'],
+      failedStepIds: [],
+      blockedStepIds: ['step-3'],
+      invalidResponseAttempts: 0,
+      message: 'resuming',
+      consistencyErrors: [],
+    },
+    strategy: 'serial',
+    lockTable,
+    executionState: {
+      version: '1',
+      revision: 3,
+      executionPhase: 'recovering',
+      plannerPhase: 'RETRYING',
+      outcome: 'RUNNING',
+      activeStepIds: ['step-2'],
+      readyStepIds: [],
+      completedStepIds: ['step-1'],
+      failedStepIds: [],
+      blockedStepIds: ['step-3'],
+      degradedStepIds: [],
+      currentWaveStepIds: ['step-2'],
+      lastCompletedWaveStepIds: ['step-1'],
+      strategy: 'serial',
+      epoch: 3,
+      currentStepId: 'step-2',
+      message: 'resuming',
+      resumeStrategy: 'resume_recovering',
+      preservedLockOwnerStepIds: ['step-1'],
+      reusedLockOwnerStepIds: ['step-1'],
+      downgradedLockOwnerStepIds: ['step-2'],
+      recoverySourceStepId: 'step-1',
+      recoverySubgraphStepIds: ['step-1', 'step-2', 'step-3'],
+      lockResumeMode: 'drop_unrelated_writes',
+      planningWindowState: 'executing',
+      recoveryStepId: 'step-2',
+      recoveryReason: 'continue recovery',
+    },
+    currentWaveStepIds: ['step-2'],
+    lastCompletedWaveStepIds: ['step-1'],
+    selectedWaveStepIds: ['step-2'],
+    interruptedStepIds: ['step-2'],
+    epoch: 4,
+    planningWindowState: 'executing',
+    recoveryStepId: 'step-2',
+    recoveryReason: 'continue recovery',
+  });
+
+  assert.deepEqual(snapshot.currentWaveStepIds, ['step-2']);
+  assert.deepEqual(snapshot.lastCompletedWaveStepIds, ['step-1']);
+  assert.deepEqual(snapshot.selectedWaveStepIds, ['step-2']);
+  assert.deepEqual(snapshot.interruptedStepIds, ['step-2']);
+  assert.equal(snapshot.resumeStrategy, 'resume_recovering');
+  assert.deepEqual(snapshot.activeLockOwnerStepIds, ['step-2']);
+  assert.deepEqual(snapshot.reusedLockOwnerStepIds, ['step-1']);
+  assert.equal(snapshot.planningWindowState, 'executing');
+  assert.equal(snapshot.recoveryReason, 'continue recovery');
 }
 
 async function testPlannerExecutionStateMachineTransitions(): Promise<void> {

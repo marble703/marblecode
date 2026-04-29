@@ -3,7 +3,7 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { executePlannerPlan } from '../../src/planner/execute.js';
 import { createInitialExecutionState, dispatchExecutionEvent, transitionExecutionPhase } from '../../src/planner/execution-machine.js';
-import { buildInitialExecutionRuntimeContext } from '../../src/planner/execution-state.js';
+import { buildExecutionDispatchSnapshot, buildInitialExecutionRuntimeContext } from '../../src/planner/execution-state.js';
 import { getPlannerExecutionStrategy } from '../../src/planner/execution-strategies.js';
 import { executePlannerSubtaskWithRecovery, prepareLockTableForStep } from '../../src/planner/execute-subtask.js';
 import { annotateBlockedDependents, detectPendingConflictFailure, selectExecutionWave } from '../../src/planner/execute-wave.js';
@@ -37,6 +37,7 @@ export {
   assertStepCanWrite,
   BranchingProvider,
   buildExecutionGraph,
+  buildExecutionDispatchSnapshot,
   buildInitialExecutionRuntimeContext,
   buildMathFixStep,
   buildNotesOnlyStep,

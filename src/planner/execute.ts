@@ -10,7 +10,7 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import { buildInitialExecutionRuntimeContext, summarizeActiveLockOwners } from './execution-state.js';
+import { buildExecutionDispatchSnapshot, buildInitialExecutionRuntimeContext } from './execution-state.js';
 import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
@@ -31,29 +31,6 @@ interface ExecutePlannerDependencies {
 interface ExecutePlannerInitialContext {
   lockTable?: ReturnType<typeof createExecutionLockTable>;
   executionState?: PlannerExecutionStateArtifact;
-}
-
-interface ExecuteDispatchSnapshot {
-  state: PlannerState;
-  strategy: ReturnType<typeof getPlannerExecutionStrategy>['mode'];
-  currentWaveStepIds: string[];
-  lastCompletedWaveStepIds: string[];
-  epoch: number;
-  selectedWaveStepIds?: string[];
-  interruptedStepIds?: string[];
-  activeLockOwnerStepIds?: string[];
-  resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
-  preservedLockOwnerStepIds?: string[];
-  reusedLockOwnerStepIds?: string[];
-  downgradedLockOwnerStepIds?: string[];
-  droppedLockOwnerStepIds?: string[];
-  recoverySourceStepId?: string;
-  recoverySubgraphStepIds?: string[];
-  lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
-  planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
-  recoveryStepId?: string;
-  recoveryReason?: string;
-  lastEventReason?: string;
 }
 
 export async function executePlannerPlan(
@@ -118,22 +95,14 @@ export async function executePlannerPlan(
     const snapshot = buildExecutionDispatchSnapshot({
       state: nextState,
       strategy: strategy.mode,
+      lockTable,
+      executionState,
       currentWaveStepIds,
       lastCompletedWaveStepIds,
+      selectedWaveStepIds,
+      interruptedStepIds,
       epoch: executionEpoch,
-      ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
-      ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
-      ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
-      ...(executionState.resumeStrategy ? { resumeStrategy: executionState.resumeStrategy } : {}),
-      ...(executionState.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: executionState.preservedLockOwnerStepIds } : {}),
-      ...(executionState.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: executionState.reusedLockOwnerStepIds } : {}),
-      ...(executionState.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: executionState.downgradedLockOwnerStepIds } : {}),
-      ...(executionState.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: executionState.droppedLockOwnerStepIds } : {}),
-      ...(executionState.recoverySourceStepId ? { recoverySourceStepId: executionState.recoverySourceStepId } : {}),
-      ...(executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: executionState.recoverySubgraphStepIds } : {}),
-      ...(executionState.lockResumeMode ? { lockResumeMode: executionState.lockResumeMode } : {}),
-      ...(planningWindowState ? { planningWindowState } : {}),
-      ...(extras?.recoveryReason ? { lastEventReason: extras.recoveryReason } : {}),
+      planningWindowState,
       ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
       ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
     });
@@ -474,8 +443,4 @@ export async function executePlannerPlan(
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
   return { plan: nextPlan, state: nextState };
-}
-
-function buildExecutionDispatchSnapshot(snapshot: ExecuteDispatchSnapshot): ExecuteDispatchSnapshot {
-  return snapshot;
 }
