@@ -129,16 +129,18 @@
 
 这些工作已经落地。下一轮不应继续堆恢复分支，而应继续把 execution state / runtime cursor / truth-source 的职责边界说清楚。
 
-### P0.3：下一轮具体落点
+### P0.3：本轮已完成落点
 
-下一轮建议继续专注恢复主线，不切到外部 provider。建议按以下顺序推进：
+本轮已经继续专注恢复主线，没有切到外部 provider。已完成的落点包括：
 
-1. 明确 `execution.state.json` 中 persisted truth、runtime-derived、mixed 字段的分类，并把这套边界写入代码与文档。
-2. 继续精简 `execute.ts` 的局部运行时状态更新，让 runtime cursor 更接近单点状态容器，而不是若干 helper 的集合。
-3. 评估 owner reuse metadata 是否应进一步细化到 path 级别，或在最终 artifact 中更稳定保留。
-4. 收尾恢复主线后，再决定是否切入 provider 生命周期、命名收敛和首个只读外部 provider。
+1. 明确 `execution.state.json` 中 persisted truth、runtime-derived、mixed 字段的分类，并把这套边界同步到代码与文档。
+2. 继续精简 `execute.ts` 的局部运行时状态更新，把 runtime cursor helper 和 initial execution-state extras 收口到 `src/planner/execution-state.ts`。
+3. 让 `recoveryStepId` / `recoveryReason` 进入 persisted recovery snapshot copy 路径，避免 dispatch snapshot 在恢复解释字段上再散落拼装。
+4. 补 deterministic manual-suite 覆盖，新增 runtime cursor helper 与 initial execution-state extras helper case。
 
-完成这一轮后，再评估是否进入 provider 生命周期和首个只读外部能力接入。
+当前结论：owner reuse metadata 仍保持 step-level 语义，不继续扩展 path-level 恢复字段。路径级真相继续由 `execution.locks.json` 承担，`execution.state.json` 只保留恢复决策与解释所需的摘要 metadata。
+
+完成这一轮后，恢复主线的下一步重点已经从“继续堆 resume 分支”转为“是否进入 provider 生命周期和首个只读外部能力接入”。
 
 ### P1：在 provider 边界上接入只读扩展能力
 

@@ -36,7 +36,7 @@ It is the primary safety net for:
 - policy and tool boundary changes
 - tool provider and registry changes
 
-For the current planner roadmap, any change to resume logic should keep `npm run build` green and add or update deterministic manual-suite coverage for the affected recovery rule or boundary. Resume work is not considered complete if it only updates artifacts or view-model projection without a runtime-level case.
+For the current planner roadmap, any change to resume logic should keep `npm run build` green and add or update deterministic manual-suite coverage for the affected recovery rule or boundary. Resume work is not considered complete if it only updates artifacts or view-model projection without a runtime-level case. This now also applies to execution-state field-boundary changes: if persisted truth, runtime-derived summaries, or runtime cursor helpers move, the suite should keep direct helper coverage instead of relying only on end-to-end resume cases.
 
 ### Real-Model Checks
 
@@ -119,6 +119,8 @@ Representative cases:
 - `planner execution event dispatch`
 - `planner execution snapshot builder`
 - `planner persisted recovery snapshot helper`
+- `planner runtime cursor helpers`
+- `planner initial execution state extras helper`
 - `planner invalid retry and resume`
 - `planner resume classifier favors active wave`
 - `planner runtime recovery context helper`
@@ -131,6 +133,8 @@ Representative cases:
 - `planner resume completed planning window does not rerun`
 - `planner model retry`
 - `planner model retry exhaustion`
+
+At the moment, `npm run test:examples` covers 86 deterministic cases.
 
 ### Planner Execution
 

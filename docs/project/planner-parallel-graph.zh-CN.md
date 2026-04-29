@@ -461,7 +461,17 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 - 手工调试可追踪
 - 后续并发增强有稳定数据基础
 
-当前实现已经开始把 `execution.state.json` 作为恢复快照使用：当 planner session 仍处于执行中且存在 execution artifacts 时，resume 路径会优先尝试从 `plan.json` + `plan.state.json` + `execution.graph.json` + `execution.locks.json` + `execution.state.json` 恢复，而不是直接回到 planner loop。当前 remaining gap 已不再是“能否恢复”，而是 execution state 是否已经成为更统一的恢复真相源。
+当前实现已经开始把 `execution.state.json` 作为恢复快照使用：当 planner session 仍处于执行中且存在 execution artifacts 时，resume 路径会优先尝试从 `plan.json` + `plan.state.json` + `execution.graph.json` + `execution.locks.json` + `execution.state.json` 恢复，而不是直接回到 planner loop。
+
+当前推荐把 `execution.state.json` 中的字段按三类理解：
+
+- persisted truth：恢复和调度必须依赖的显式快照，例如 `executionPhase`、`currentWaveStepIds`、`lastCompletedWaveStepIds`、`selectedWaveStepIds`、`interruptedStepIds`、`resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds`、`lockResumeMode`、`planningWindowState`、`recoveryStepId`、`recoveryReason`
+- runtime-derived：可以从其他 artifact 或运行时直接推导出来的字段，例如 `activeLockOwnerStepIds`，它本质上来自当前 `execution.locks.json` 的 `write_locked` owner 摘要
+- mixed / mirrored：为了让 TUI、session summary 和恢复解释更直接而镜像进来的字段，例如 `activeStepIds`、`readyStepIds`、`completedStepIds`、`failedStepIds`、`blockedStepIds`、`degradedStepIds`、`lastEventType`、`lastEventReason`，以及 lock-owner outcome 摘要 metadata
+
+这意味着当前 remaining gap 已不再是“能否恢复”，而是 execution state 是否已经成为更统一的恢复真相源，以及哪些字段只是解释性摘要而不是底层唯一真相。
+
+当前 runtime cursor 也已经从 `execute.ts` 局部 helper 收口到 `src/planner/execution-state.ts`，与 initial execution-state extras 构造共享同一入口。这样做的目的不是把 `execution.state.json` 变成唯一 artifact，而是减少恢复初始化时的隐式状态拼装。
 
 ## 当前限制
 
