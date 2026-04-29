@@ -5,8 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { loadConfig } from '../config/load.js';
 import { createProviders } from '../provider/index.js';
 import { PolicyEngine } from '../policy/index.js';
-import { ToolRegistry } from '../tools/registry.js';
-import { createBuiltinToolProvider, createPlannerToolProvider } from '../tools/builtins.js';
+import { createAgentToolRegistry, createPlannerToolRegistry } from '../tools/setup.js';
 import { runAgent } from '../agent/index.js';
 import { runPlanner } from '../planner/index.js';
 import { tryRollback } from '../agent/index.js';
@@ -83,22 +82,24 @@ export async function main(): Promise<void> {
   const config = await loadConfig(parsed.values.config, parsed.values.workspace);
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
-  const registry = new ToolRegistry();
-  registry.registerProvider(createBuiltinToolProvider(config, policy));
+  const registry = createAgentToolRegistry(config, policy);
+  try {
+    const result = await runAgent(config, providers, registry, {
+      prompt,
+      explicitFiles: parsed.values.file ?? [],
+      pastedSnippets: parsed.values.paste ?? [],
+      manualVerifierCommands: parsed.values.verify ?? [],
+      autoApprove: parsed.values.yes,
+      confirm: confirmPatch,
+    });
 
-  const result = await runAgent(config, providers, registry, {
-    prompt,
-    explicitFiles: parsed.values.file ?? [],
-    pastedSnippets: parsed.values.paste ?? [],
-    manualVerifierCommands: parsed.values.verify ?? [],
-    autoApprove: parsed.values.yes,
-    confirm: confirmPatch,
-  });
-
-  output.write(`${result.status}: ${result.message}\n`);
-  output.write(`session: ${result.sessionDir}\n`);
-  if (result.changedFiles.length > 0) {
-    output.write(`changed: ${result.changedFiles.join(', ')}\n`);
+    output.write(`${result.status}: ${result.message}\n`);
+    output.write(`session: ${result.sessionDir}\n`);
+    if (result.changedFiles.length > 0) {
+      output.write(`changed: ${result.changedFiles.join(', ')}\n`);
+    }
+  } finally {
+    await registry.disposeAll();
   }
 }
 
@@ -142,20 +143,22 @@ async function planCommand(
   const config = await loadConfig(configPath, workspacePath);
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
-  const registry = new ToolRegistry();
-  registry.registerProvider(createPlannerToolProvider(config, policy));
+  const registry = createPlannerToolRegistry(config, policy);
+  try {
+    const result = await runPlanner(config, providers, registry, {
+      prompt,
+      explicitFiles,
+      pastedSnippets,
+      ...(execute ? { executeSubtasks: true } : {}),
+      ...(sessionRef ? { resumeSessionRef: sessionRef } : {}),
+      ...(useLatest ? { useLatestSession: true } : {}),
+    });
 
-  const result = await runPlanner(config, providers, registry, {
-    prompt,
-    explicitFiles,
-    pastedSnippets,
-    ...(execute ? { executeSubtasks: true } : {}),
-    ...(sessionRef ? { resumeSessionRef: sessionRef } : {}),
-    ...(useLatest ? { useLatestSession: true } : {}),
-  });
-
-  output.write(`${result.status}: ${result.message}\n`);
-  output.write(`session: ${result.sessionDir}\n`);
+    output.write(`${result.status}: ${result.message}\n`);
+    output.write(`session: ${result.sessionDir}\n`);
+  } finally {
+    await registry.disposeAll();
+  }
 }
 
 async function rollbackCommand(configPath: string | undefined, workspacePath: string | undefined, sessionRef: string | undefined, useLatest: boolean): Promise<void> {

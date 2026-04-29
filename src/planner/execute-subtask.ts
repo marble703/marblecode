@@ -4,8 +4,7 @@ import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider } from '../provider/types.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
-import { createBuiltinToolProvider } from '../tools/builtins.js';
-import { ToolRegistry } from '../tools/registry.js';
+import { createAgentToolRegistry } from '../tools/setup.js';
 import { derivePlannerAccessMode } from './graph.js';
 import {
   acquireWriteLocks,
@@ -111,34 +110,37 @@ export async function executeSubtaskAgent(
     writePathValidator: (targetPath) => {
       const relativePath = path.relative(subtaskConfig.workspaceRoot, targetPath).replace(/\\/g, '/');
       assertStepCanWrite(lockTable, stepId, relativePath);
-    },
-  });
-  const registry = new ToolRegistry();
-  registry.registerProvider(createBuiltinToolProvider(subtaskConfig, policy));
-
-  const result = await runAgent(subtaskConfig, providers, registry, {
-    prompt,
-    explicitFiles,
-    pastedSnippets: [],
-    manualVerifierCommands: [],
-    autoApprove: true,
-    confirm: async () => true,
-    policyOptions: {
-      grantedReadPaths: explicitFiles,
-      grantedWritePaths: explicitFiles,
-      restrictWritePaths: true,
-      writePathValidator: (targetPath) => {
-        const relativePath = path.relative(subtaskConfig.workspaceRoot, targetPath).replace(/\\/g, '/');
-        assertStepCanWrite(lockTable, stepId, relativePath);
       },
-    },
-    routeOverride: {
-      modelAlias: modelAliasOverride,
-      intent: 'code',
-      maxSteps: config.routing.maxSteps,
-      maxAutoRepairAttempts: enableVerifier ? config.routing.maxAutoRepairAttempts : 0,
-    },
   });
+  const registry = createAgentToolRegistry(subtaskConfig, policy);
+  let result;
+  try {
+    result = await runAgent(subtaskConfig, providers, registry, {
+      prompt,
+      explicitFiles,
+      pastedSnippets: [],
+      manualVerifierCommands: [],
+      autoApprove: true,
+      confirm: async () => true,
+      policyOptions: {
+        grantedReadPaths: explicitFiles,
+        grantedWritePaths: explicitFiles,
+        restrictWritePaths: true,
+        writePathValidator: (targetPath) => {
+          const relativePath = path.relative(subtaskConfig.workspaceRoot, targetPath).replace(/\\/g, '/');
+          assertStepCanWrite(lockTable, stepId, relativePath);
+        },
+      },
+      routeOverride: {
+        modelAlias: modelAliasOverride,
+        intent: 'code',
+        maxSteps: config.routing.maxSteps,
+        maxAutoRepairAttempts: enableVerifier ? config.routing.maxAutoRepairAttempts : 0,
+      },
+    });
+  } finally {
+    await registry.disposeAll();
+  }
 
   return {
     result,

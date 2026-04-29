@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../../src/config/load.js';
 import type { AppConfig } from '../../src/config/schema.js';
 import { PolicyEngine } from '../../src/policy/index.js';
-import { createBuiltinToolProvider, createPlannerToolProvider } from '../../src/tools/builtins.js';
+import { createAgentToolRegistry, createPlannerToolRegistry } from '../../src/tools/setup.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
+import type { ToolProvider } from '../../src/tools/types.js';
 import type { WorkspaceContext } from './types.js';
 
 const SUITE_ROOT = fileURLToPath(new URL('../../examples/manual-test-suite/project/', import.meta.url));
@@ -34,10 +35,12 @@ export async function withCopiedFixture(
 
     const config = await loadConfig(path.join(workspaceRoot, 'agent.config.jsonc'));
     const policy = new PolicyEngine(config);
-    const registry = new ToolRegistry();
-    registry.registerProvider(createBuiltinToolProvider(config, policy));
-
-    await run({ tempRoot, workspaceRoot, config, policy, registry });
+    const registry = createAgentToolRegistry(config, policy);
+    try {
+      await run({ tempRoot, workspaceRoot, config, policy, registry });
+    } finally {
+      await registry.disposeAll();
+    }
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
@@ -77,6 +80,10 @@ export function createAgentConfig(): Record<string, unknown> {
       sensitive: ['.env*'],
       autoDeny: [],
     },
+    tools: {
+      externalProvidersEnabled: false,
+      allow: [],
+    },
     policy: {
       path: {
         readWrite: ['.'],
@@ -112,9 +119,15 @@ export function createAgentConfig(): Record<string, unknown> {
 }
 
 export function createPlannerRegistry(config: AppConfig, policy: PolicyEngine): ToolRegistry {
-  const registry = new ToolRegistry();
-  registry.registerProvider(createPlannerToolProvider(config, policy));
-  return registry;
+  return createPlannerToolRegistry(config, policy);
+}
+
+export function createPlannerRegistryWithProviders(
+  config: AppConfig,
+  policy: PolicyEngine,
+  providers: ToolProvider[],
+): ToolRegistry {
+  return createPlannerToolRegistry(config, policy, providers);
 }
 
 export async function buildMathFixStep(workspaceRoot: string): Promise<string> {

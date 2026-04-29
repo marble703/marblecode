@@ -41,3 +41,36 @@ export function createDiagnosticsFixtureProvider(
     capabilities: ['diagnostics'],
   });
 }
+
+export function createExternalDiagnosticsFixtureProvider(
+  diagnostics: ToolDiagnosticRecord[],
+  providerId = 'diagnostics-external-fixture',
+): ToolProvider {
+  return new StaticToolProvider(providerId, [{
+    definition: {
+      name: 'diagnostics_list',
+      description: 'List deterministic readonly diagnostics for an external workspace path.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+        },
+      },
+    },
+    async execute(input) {
+      const requestedPath = typeof input.path === 'string' ? input.path : '';
+      const filtered = requestedPath
+        ? diagnostics.filter((diagnostic) => diagnostic.path === requestedPath)
+        : diagnostics;
+      return {
+        ok: true,
+        data: filtered,
+      };
+    },
+  }], {
+    kind: 'external',
+    access: 'read_only',
+    description: 'Deterministic external readonly diagnostics fixture provider.',
+    capabilities: ['diagnostics'],
+  });
+}
