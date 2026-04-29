@@ -6,8 +6,7 @@ import { PolicyEngine } from '../policy/index.js';
 import { createProviders } from '../provider/index.js';
 import { loadPlannerEvents, loadPlannerView, type PlannerEventRecord, type PlannerViewModel } from '../planner/view-model.js';
 import { resolvePlannerSessionDir } from '../session/index.js';
-import { createPlannerToolProvider } from '../tools/builtins.js';
-import { ToolRegistry } from '../tools/registry.js';
+import { createPlannerToolRegistry } from '../tools/setup.js';
 import { formatPlannerView, renderPlannerEvent } from './planner-view.js';
 import type { TuiAction, TuiState } from './types.js';
 
@@ -57,34 +56,36 @@ export async function executeTuiAction(
 
   const providers = createProviders(config);
   const policy = new PolicyEngine(config);
-  const registry = new ToolRegistry();
-  registry.registerProvider(createPlannerToolProvider(config, policy));
-
-  const result = await runPlanner(config, providers, registry, {
-    prompt: action.prompt,
-    explicitFiles: state.explicitFiles,
-    pastedSnippets: state.pastedSnippets,
-    ...(action.executeSubtasks ? { executeSubtasks: true } : {}),
-    ...(action.sessionRef ? { resumeSessionRef: action.sessionRef } : {}),
-    ...(action.useLatestSession ? { useLatestSession: true } : {}),
-  });
-
-  let plannerSummary = `${result.status}: ${result.message}\nsession: ${result.sessionDir}`;
+  const registry = createPlannerToolRegistry(config, policy);
   try {
-    const view = await loadPlannerView(result.sessionDir);
-    plannerSummary = formatPlannerView(view);
-  } catch {
-    plannerSummary = `${plannerSummary}\n(no planner summary available)`;
-  }
+    const result = await runPlanner(config, providers, registry, {
+      prompt: action.prompt,
+      explicitFiles: state.explicitFiles,
+      pastedSnippets: state.pastedSnippets,
+      ...(action.executeSubtasks ? { executeSubtasks: true } : {}),
+      ...(action.sessionRef ? { resumeSessionRef: action.sessionRef } : {}),
+      ...(action.useLatestSession ? { useLatestSession: true } : {}),
+    });
 
-  return {
-    state: {
-      ...state,
-      lastSessionDir: result.sessionDir,
-      plannerView: null,
-      lastOutput: plannerSummary,
-    },
-  };
+    let plannerSummary = `${result.status}: ${result.message}\nsession: ${result.sessionDir}`;
+    try {
+      const view = await loadPlannerView(result.sessionDir);
+      plannerSummary = formatPlannerView(view);
+    } catch {
+      plannerSummary = `${plannerSummary}\n(no planner summary available)`;
+    }
+
+    return {
+      state: {
+        ...state,
+        lastSessionDir: result.sessionDir,
+        plannerView: null,
+        lastOutput: plannerSummary,
+      },
+    };
+  } finally {
+    await registry.disposeAll();
+  }
 }
 
 export async function inspectPlannerStep(sessionDir: string, stepRef: string): Promise<string> {
