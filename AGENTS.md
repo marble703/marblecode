@@ -76,7 +76,7 @@
 - `examples/manual-test-suite/planner-task.md`: canonical planner real-model check task.
 - `scripts/test-examples.ts`: manual suite entrypoint only; domain cases and shared test helpers live under `scripts/manual-suite/`.
 - planner manual-suite coverage is now further split across `scripts/manual-suite/planner-{graph,runtime,execution,recovery}.ts`; extend the closest domain file instead of growing one monolithic planner test file again.
-- `docs/plans/repo-refactor-plan.md`: current split plan for oversized runtime and test files; consult it before moving planner, TUI, agent, verifier, or manual-suite code.
+- `docs/plans/planner-evolution-roadmap.zh-CN.md`: current planner execution roadmap and remaining priorities; consult it before shifting focus away from planner recovery and execution-state work.
 
 # TypeScript Gotchas
 

@@ -309,6 +309,15 @@ host 会先根据：
 3. 子任务成功后，锁从 `write_locked` 降级为 `guarded_read`
 4. 如果后继步骤满足所有权转移条件，可把写权从上一步转给下一步
 
+恢复路径现在也会显式记录锁处理结果：
+
+- `preservedLockOwnerStepIds`
+- `reusedLockOwnerStepIds`
+- `downgradedLockOwnerStepIds`
+- `droppedLockOwnerStepIds`
+
+其中 `reusedLockOwnerStepIds` 表示某个 guarded owner 虽然没有在 resume 时直接重新拿回写锁，但后续步骤已经满足现有 ownership transfer 规则，因此该 owner 会被视为可以安全复用的恢复起点。
+
 ### 为什么需要锁
 
 因为 planner execute 不是直接在 host 内部改文件，而是委托给 coder subagent。锁表的意义是：
@@ -406,6 +415,31 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 
 如果不是 replan 路径，而是当前执行直接停止，则 host 会把依赖失败步骤的下游节点显式标注为 blocked，方便 TUI 和 artifact 解释为什么后续步骤没有继续跑。
 
+### Resume From Execution Artifacts
+
+当前 planner session 在执行中断后，会优先尝试从以下 artifact 恢复：
+
+- `plan.json`
+- `plan.state.json`
+- `execution.graph.json`
+- `execution.locks.json`
+- `execution.state.json`
+
+当前恢复路径已经覆盖：
+
+- interrupted active wave resume
+- fallback-path resume
+- guarded owner reuse metadata
+- unrelated active writer drop
+- partial planning window 完成后等待 append 的恢复边界
+
+其中 partial planning window 现在会把边界状态写入 `execution.state.json`：
+
+- `planningWindowState: executing`
+- `planningWindowState: completed_waiting_append`
+
+当状态是 `completed_waiting_append` 时，resume 不会重跑刚执行完的 window，而是直接回到 planner loop，等待 `plan_append` 或最终 `final`。
+
 ## 状态与 Artifact
 
 要理解当前执行模型，最重要的是看这些 artifact：
@@ -427,7 +461,7 @@ local replan 不再直接把模型返回的计划覆盖到主 `plan.json`。
 - 手工调试可追踪
 - 后续并发增强有稳定数据基础
 
-当前实现已经开始把 `execution.state.json` 作为恢复快照使用：当 planner session 仍处于执行中且存在 execution artifacts 时，resume 路径会优先尝试从 `plan.json` + `plan.state.json` + `execution.graph.json` + `execution.locks.json` + `execution.state.json` 恢复，而不是直接回到 planner loop。
+当前实现已经开始把 `execution.state.json` 作为恢复快照使用：当 planner session 仍处于执行中且存在 execution artifacts 时，resume 路径会优先尝试从 `plan.json` + `plan.state.json` + `execution.graph.json` + `execution.locks.json` + `execution.state.json` 恢复，而不是直接回到 planner loop。当前 remaining gap 已不再是“能否恢复”，而是 execution state 是否已经成为更统一的恢复真相源。
 
 ## 当前限制
 

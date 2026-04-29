@@ -281,6 +281,7 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 - 通过 `serial`、`fail`、`aggressive`、`deterministic` 策略模式驱动的调度选择
 - 针对失败步骤的重试、备用模型选择、带有下游依赖替代语义的 graph fallback 激活、经过 proposal 校验且受 bounded scope 约束并带有锁兼容性检查的本地重新规划，以及可降级的非关键步骤处理
 - 持久化的执行产物，用于 TUI、离线检查以及 execution resume；planner view 现在会直接读取 `execution.state.json` 的 phase/strategy/wave/recovery 元数据
+- 第一版恢复所有权和 planning window 元数据，例如 `reusedLockOwnerStepIds` 与 `planningWindowState`，使 partial planning window 和 guarded owner reuse 可以通过持久化状态直接检查
 
 失败传播语义目前刻意保持保守：
 

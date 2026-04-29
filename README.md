@@ -308,7 +308,7 @@ node dist/index.js rollback --last
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
 - `docs/project/architecture.md`: current architecture overview and runtime module map
-- `docs/plans/repo-refactor-plan.md`: planned split of oversized runtime and test modules
+- `docs/plans/planner-evolution-roadmap.zh-CN.md`: current planner execution roadmap and remaining priorities
 - `README.zh-CN.md`: Chinese project overview
 
 ## Refactor Notes
@@ -319,7 +319,8 @@ node dist/index.js rollback --last
 
 ## Next Steps
 
-- use the provider-compatible tool boundary as the base for read-only LSP diagnostics and local MCP experiments later
+- continue tightening planner execution recovery so `execution.state.json` becomes a clearer resume truth source
+- then use the provider-compatible tool boundary as the base for read-only LSP diagnostics and local MCP experiments
 
 ## Verifier Markdown
 

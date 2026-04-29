@@ -304,19 +304,19 @@ node dist/index.js rollback --last
 - `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
 - `docs/project/architecture.md`：当前架构总览和运行时模块关系
 - `docs/project/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
-- `docs/plans/repo-refactor-plan.md`：当前仓库拆分路线、已完成项和后续清理计划
+- `docs/plans/planner-evolution-roadmap.zh-CN.md`：当前 planner execute 路线图和剩余优先级
 - `README.zh-CN.md`：中文说明文档
 
 ## 重构说明
 
 - 共享 JSON 解析和共享文件遍历已经统一收口到 `src/shared`
 - planner、TUI、verifier、agent 的 runtime 热点已经拆成更聚焦的内部模块
-- `docs/plans/repo-refactor-plan.md` 记录了已经完成的拆分、剩余工作，以及每一阶段对应应跑的验证命令
+- 当前剩余工作以 `docs/plans/planner-evolution-roadmap.zh-CN.md` 为准，重点已经从模块拆分转向 planner recovery、执行状态收口和工具边界扩展
 
 ## 下一步
 
-- 引入 `ToolProvider` 抽象，避免每个调用点都直接装配 builtin tools
-- 在这个边界之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
+- 继续收口 planner execution recovery，让 `execution.state.json` 更接近恢复主真相源
+- 在现有 `ToolProvider` 边界之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
 
 ## Verifier Markdown
 

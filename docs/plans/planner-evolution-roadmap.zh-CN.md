@@ -36,15 +36,15 @@
 
 当前已经开始把恢复相关元数据写入 `execution.state.json`，例如 `resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds` 与 `lockResumeMode`。下一步重点不再是继续堆更多字段，而是定义更稳定的恢复规则和恢复边界，并让执行器更多地围绕这些字段初始化和推进，而不是依赖局部变量和隐式推导。
 
-当前锁恢复仍偏保守：它已经能保留 guarded read、降级恢复子图内写锁、并丢弃无关活跃写锁，而且这些结果已经开始通过 recovery metadata 对外可见；但它还没有形成更精细的 ownership-preserving 恢复规则模型。这会是后续恢复主线的下一个重点，而不是新的 provider 或 UI 能力。
+当前锁恢复已经从单纯的“保留/降级/丢弃”推进到了第一版 ownership-preserving 恢复：guarded owner 现在可以基于现有 ownership transfer 语义被识别为可复用，并通过 recovery metadata 对外可见。但这还不是最终形态，后续仍需要把 owner reuse、wave/lock 推进和恢复决策进一步收敛为更统一的状态推进模型。
 
 ### 2. resume 仍未完成 lock ownership 与 recovering 子图的精细恢复
 
-当前从 execution artifacts 恢复时，active wave 与 fallback path 的基础恢复已经具备，但仍未完整覆盖：
+当前从 execution artifacts 恢复时，active wave、fallback path，以及 partial planning window 的 completed-waiting-append 边界已经具备，但仍未完整覆盖：
 
-- 局部锁所有权
+- 更系统的局部锁所有权 / owner transfer 收敛
 - recovering 中的局部子图状态
-- partial planning window 之后的恢复边界
+- partial planning window 执行中断后的恢复矩阵
 
 这说明恢复链路已经越过最初的 reset-and-rerun 版本，但还没有达到成熟的图执行恢复模型。
 
@@ -107,14 +107,25 @@
 - active wave、recovering、fallback path 与 planning window boundary 可被更精确恢复
 - 恢复路径可以解释“为什么从这里继续跑，以及为什么保留/降级/丢弃某些锁 owner”
 
-### P0.1：下一轮具体落点
+### P0.1：上一轮已完成落点
+
+上一轮已经完成以下恢复主线落点：
+
+1. 扩展恢复锁结果模型，新增“可安全复用 owner”的表达，并让恢复决策复用现有 ownership 语义。
+2. 为 `partial planning window` 恢复定义显式 boundary mode，并把它写入 execution state / view model。
+3. 为 dispatch snapshot 增加统一入口，减少恢复字段的分散同步。
+4. 补 deterministic tests，覆盖 owner reuse、ineligible writer drop、completed window resume。
+
+这些工作已经落地。下一轮不应继续扩字段，而应继续收口 execution snapshot / reducer / truth-source 边界。
+
+### P0.2：下一轮具体落点
 
 下一轮建议继续专注恢复主线，不切到外部 provider。建议按以下顺序推进：
 
-1. 扩展恢复锁结果模型，新增“可安全复用 owner”的表达，并让恢复决策可复用现有 ownership 语义。
-2. 为 `partial planning window` 恢复定义显式 boundary mode，并把它写入 execution state / view model。
-3. 抽统一的恢复快照构造 helper，继续减少 `execute.ts` / `execute-resume.ts` / execution machine 之间的重复拼装。
-4. 补 deterministic tests，覆盖 owner reuse、ineligible writer drop、completed window resume、boundary metadata projection。
+1. 把 execution dispatch snapshot helper 从薄包装推进为真正的单点构造入口，明确 persisted truth 与 runtime-derived 字段边界。
+2. 继续收口 `execute.ts` 中的局部运行时状态，减少 wave/epoch/recovery/planning-window 字段的重复拼装。
+3. 补 interrupted partial planning window 的恢复矩阵测试，覆盖执行中断后 resume 继续 active wave / recovery path 的语义。
+4. 在文档中明确 `execution.state.json` 中哪些字段是恢复主真相源，哪些字段仍是派生解释信息。
 
 完成这一轮后，再评估是否进入 provider 生命周期和首个只读外部能力接入。
 

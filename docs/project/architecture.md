@@ -281,6 +281,7 @@ Current host-side execution foundations include:
 - strategy-driven scheduling via `serial`, `fail`, `aggressive`, and `deterministic` policy modes
 - retry, fallback model selection, graph fallback activation with downstream dependency substitution, proposal-validated bounded local replan with lock-compatibility checks, and degraded non-critical step handling
 - persisted execution artifacts for TUI, offline inspection, and execution resume, with the planner view now reading `execution.state.json` phase/strategy/wave/recovery metadata directly
+- first-pass resume ownership and planning-window metadata such as `reusedLockOwnerStepIds` and `planningWindowState`, so partial planning windows and guarded-owner reuse are inspectable through persisted state instead of only transient runtime variables
 
 Failure propagation is intentionally conservative:
 
