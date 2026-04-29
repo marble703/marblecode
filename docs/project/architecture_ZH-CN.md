@@ -152,6 +152,13 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - 面向未来外部 provider 的最小配置边界：`tools.externalProvidersEnabled` 和 `tools.allow`
 - 仅用于回归覆盖的 deterministic readonly diagnostics fixture provider，而不是生产级 LSP/MCP 接入
 
+当前还已经补上共享的 `src/tools/setup.ts`：
+
+- agent / planner 调用点不再需要分散手写 built-in provider 注册
+- external provider 只有在声明 `kind: 'external'`、`access: 'read_only'` 并通过配置 gate 时才会被接受
+- external provider 默认仍然禁用，只有 `tools.externalProvidersEnabled=true` 且 provider id 出现在 `tools.allow` 中才会放行
+- provider 生命周期回收现在已经接入真实 CLI/TUI/subtask 路径，而不是只在 registry 类上单独测试
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

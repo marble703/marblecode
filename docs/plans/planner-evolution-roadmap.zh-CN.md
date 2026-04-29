@@ -181,6 +181,21 @@
 - 是否为外部 provider 增加更明确的 policy/logging/redaction 挂点
 - 首个真实 readonly diagnostics/symbols source 的加载方式
 
+### P1.2：本轮已完成 external readonly provider hooks
+
+在 P1.1 的 lifecycle foundation 之上，本轮继续补齐了 external readonly provider 的 host 接入钩子，但仍然没有接入真实 LSP/MCP：
+
+1. 新增共享 `src/tools/setup.ts`，集中 agent/planner registry 构造与 extra provider 注册入口。
+2. 新增 external provider gate：`metadata.kind === 'external'` 时必须满足 `tools.externalProvidersEnabled=true`、provider id 在 `tools.allow` 中，并且 access 为 `read_only`。
+3. CLI / TUI / planner subtask / manual-suite helper 现在统一走 shared registry setup，并在实际调用路径上执行 `disposeAll()`。
+4. 新增 deterministic external diagnostics fixture provider，以及 gate block / allowlist pass / dispose failure cases。
+
+这一轮的定位是 external hook foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- provider-level logging/redaction 挂点
+- 首个真实 readonly diagnostics/symbols source 的加载与生命周期管理
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

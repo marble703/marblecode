@@ -69,6 +69,9 @@ Representative cases:
 - `tool provider lifecycle`
 - `tool provider duplicate id`
 - `readonly diagnostics provider`
+- `external readonly provider gate blocks by default`
+- `external readonly provider gate allows allowlisted provider`
+- `tool provider dispose failure reports provider id`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`
@@ -138,7 +141,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 89 deterministic cases.
+At the moment, `npm run test:examples` covers 92 deterministic cases.
 
 ### Planner Execution
 

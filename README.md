@@ -320,7 +320,9 @@ node dist/index.js rollback --last
 ## Next Steps
 
 - continue tightening planner execution recovery so `execution.state.json` becomes a clearer resume truth source
-- then use the provider-compatible tool boundary as the base for read-only LSP diagnostics and local MCP experiments
+- use the provider-compatible tool boundary plus external readonly provider gating as the base for read-only LSP diagnostics and local MCP experiments
+
+External tool providers remain disabled by default. Shared config now reserves `tools.externalProvidersEnabled` and `tools.allow` so future readonly integrations must be explicitly enabled and allowlisted.
 
 ## Verifier Markdown
 

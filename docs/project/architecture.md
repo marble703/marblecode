@@ -152,6 +152,13 @@ The current provider boundary now also includes:
 - a minimal config boundary for future external providers via `tools.externalProvidersEnabled` and `tools.allow`
 - a deterministic readonly diagnostics fixture provider used only for regression coverage, not for production LSP/MCP integration
 
+The next layer now in place is shared registry setup in `src/tools/setup.ts`:
+
+- agent and planner callsites no longer need to hand-roll built-in provider registration
+- external providers are only accepted when they declare `kind: 'external'`, `access: 'read_only'`, and pass the config gate
+- external providers remain disabled by default until `tools.externalProvidersEnabled=true` and the provider id appears in `tools.allow`
+- lifecycle disposal is now exercised in real CLI/TUI/subtask paths, not just on the registry class in isolation
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.

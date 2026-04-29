@@ -316,7 +316,9 @@ node dist/index.js rollback --last
 ## 下一步
 
 - 继续收口 planner execution recovery，让 `execution.state.json` 更接近恢复主真相源
-- 在现有 `ToolProvider` 边界之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
+- 在现有 `ToolProvider` 边界和 external readonly provider gate 之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
+
+外部 tool provider 当前默认仍然禁用。共享配置现在预留了 `tools.externalProvidersEnabled` 和 `tools.allow`，后续只读集成必须显式启用并加入 allowlist。
 
 ## Verifier Markdown
 
