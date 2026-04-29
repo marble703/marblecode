@@ -320,6 +320,8 @@ node dist/index.js rollback --last
 
 外部 tool provider 当前默认仍然禁用。共享配置现在预留了 `tools.externalProvidersEnabled` 和 `tools.allow`，后续只读集成必须显式启用并加入 allowlist。
 
+tool 执行日志现在也会记录 provider id/kind/access/capabilities 等 metadata，external provider 还可以在常规 session redaction 之前先对自己的日志字段做最小 sanitize。
+
 ## Verifier Markdown
 
 `.marblecode/verifier.md` 中每个 `##` 小节代表一个 verifier 步骤。

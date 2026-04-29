@@ -159,6 +159,12 @@ The next layer now in place is shared registry setup in `src/tools/setup.ts`:
 - external providers remain disabled by default until `tools.externalProvidersEnabled=true` and the provider id appears in `tools.allow`
 - lifecycle disposal is now exercised in real CLI/TUI/subtask paths, not just on the registry class in isolation
 
+The current provider logging layer now also includes:
+
+- provider summaries for tool execution logs (`providerId`, `providerKind`, `providerAccess`, `providerCapabilities`)
+- provider-specific log sanitization hooks before session log redaction runs
+- disposal summaries for successful provider teardown and clearer provider-scoped disposal errors
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.

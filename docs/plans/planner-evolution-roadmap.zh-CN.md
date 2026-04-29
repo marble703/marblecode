@@ -196,6 +196,21 @@
 - 首个真实 readonly diagnostics/symbols source 的加载与生命周期管理
 - 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
 
+### P1.3：本轮已完成 provider logging/redaction hooks
+
+在 P1.2 的 external hook foundation 之上，本轮继续补齐了 provider-level logging/redaction 的最小闭环，仍然没有接入真实 LSP/MCP：
+
+1. `ToolRegistry` 增加 provider summary、provider-specific log sanitization，以及 `disposeAll()` 的返回 summary。
+2. external provider gate 错误现在带上 provider id/kind/access，方便后续诊断和审计。
+3. agent/planner 的 `tools.jsonl` 现在会记录 provider id、kind、access、capabilities，并允许 provider 自己对日志记录做最小 sanitize。
+4. deterministic suite 增加 provider summary、gate access reason、dispose summary、tool log metadata 等覆盖。
+
+这一轮的定位是 logging/redaction foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- 首个真实 readonly diagnostics/symbols source 的加载与生命周期管理
+- provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

@@ -324,6 +324,8 @@ node dist/index.js rollback --last
 
 External tool providers remain disabled by default. Shared config now reserves `tools.externalProvidersEnabled` and `tools.allow` so future readonly integrations must be explicitly enabled and allowlisted.
 
+Tool execution logs now also record provider metadata such as provider id/kind/access/capabilities, and external providers may sanitize their own log fields before normal session redaction runs.
+
 ## Verifier Markdown
 
 Each `##` section in `.marblecode/verifier.md` defines one verifier step.

@@ -159,6 +159,12 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - external provider 默认仍然禁用，只有 `tools.externalProvidersEnabled=true` 且 provider id 出现在 `tools.allow` 中才会放行
 - provider 生命周期回收现在已经接入真实 CLI/TUI/subtask 路径，而不是只在 registry 类上单独测试
 
+当前 provider logging 层还已经补上：
+
+- tool 执行日志中的 provider 摘要字段：`providerId`、`providerKind`、`providerAccess`、`providerCapabilities`
+- provider 自定义日志 sanitize hook，并且发生在 session log redaction 之前
+- provider 成功回收时的 disposal summary，以及更明确的 provider-scoped disposal error
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。
