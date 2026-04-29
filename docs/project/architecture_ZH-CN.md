@@ -162,6 +162,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 当前 provider logging 层还已经补上：
 
 - tool 执行日志中的 provider 摘要字段：`providerId`、`providerKind`、`providerAccess`、`providerCapabilities`
+- `src/tools/logging.ts` 中 agent/planner 共用的 tool-log DTO 组装
 - provider 自定义日志 sanitize hook，并且发生在 session log redaction 之前
 - provider 成功回收时的 disposal summary，以及更明确的 provider-scoped disposal error
 

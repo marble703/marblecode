@@ -326,6 +326,8 @@ External tool providers remain disabled by default. Shared config now reserves `
 
 Tool execution logs now also record provider metadata such as provider id/kind/access/capabilities, and external providers may sanitize their own log fields before normal session redaction runs.
 
+Provider-backed tool log records for agent and planner now also share a common DTO builder, so capability-specific source fields such as diagnostics/symbols/references stay consistent before provider sanitize hooks and normal session redaction run.
+
 The first real local readonly source now reads `.marblecode/diagnostics.json` through the same external-provider gate and logging path, while real LSP/MCP integrations remain future work.
 
 The second real local readonly source now reads `.marblecode/symbols.json` through the same external-provider gate and logging path, exposing `symbols_list` with `path` / `name` / `kind` filters while real LSP/MCP integrations remain future work.

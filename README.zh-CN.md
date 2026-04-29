@@ -322,6 +322,8 @@ node dist/index.js rollback --last
 
 tool 执行日志现在也会记录 provider id/kind/access/capabilities 等 metadata，external provider 还可以在常规 session redaction 之前先对自己的日志字段做最小 sanitize。
 
+agent/planner 的 provider-backed tool log record 现在也已经共用同一个 DTO builder，这样 diagnostics/symbols/references 等 capability-specific source 字段会在 provider sanitize hook 和常规 session redaction 之前保持一致。
+
 当前第一个真实的本地 readonly source 已经可以通过 `.marblecode/diagnostics.json` 读取 diagnostics，并复用同一套 external provider gate 和 logging 路径；真实 LSP/MCP 仍然是后续工作。
 
 当前第二个真实的本地 readonly source 已经可以通过 `.marblecode/symbols.json` 读取 symbols，并复用同一套 external provider gate 和 logging 路径；它暴露 `symbols_list`，支持 `path` / `name` / `kind` 过滤，真实 LSP/MCP 仍然是后续工作。

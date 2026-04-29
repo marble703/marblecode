@@ -162,6 +162,7 @@ The next layer now in place is shared registry setup in `src/tools/setup.ts`:
 The current provider logging layer now also includes:
 
 - provider summaries for tool execution logs (`providerId`, `providerKind`, `providerAccess`, `providerCapabilities`)
+- shared tool-log DTO construction in `src/tools/logging.ts` for agent and planner callsites
 - provider-specific log sanitization hooks before session log redaction runs
 - disposal summaries for successful provider teardown and clearer provider-scoped disposal errors
 

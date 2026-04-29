@@ -259,6 +259,21 @@
 - 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
 - 是否开始设计真实 LSP/MCP readonly source 的生命周期与错误模型
 
+### P1.7：本轮已完成 provider tool-log DTO 收敛
+
+在 P1.6 的 third local source foundation 之上，本轮优先收敛了 provider tool logging 的 host-side DTO 组装，而没有继续扩更多 source 类型：
+
+1. 新增 `src/tools/logging.ts`，集中构造 agent/planner 共用的 provider tool log record。
+2. agent/planner 不再各自手写 `providerId`、`providerKind`、`providerAccess`、`providerCapabilities` 以及 capability-specific source 字段。
+3. `diagnosticsSource`、`symbolsSource`、`referencesSource` 现在由共享 helper 按 capability 统一生成，provider sanitize hook 仍然发生在 session redaction 之前。
+4. deterministic suite 增加 tool log helper 的 provider metadata 与 capability source field 覆盖，同时保留现有 end-to-end sanitize 覆盖。
+
+这一轮的定位是 logging DTO foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+- 是否开始设计真实 LSP/MCP readonly source 的生命周期与错误模型
+- provider-level logging/redaction 是否还需要继续抽象出更明确的 event schema
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。
