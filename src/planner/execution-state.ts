@@ -12,6 +12,39 @@ export interface PersistedRecoverySnapshotFields {
   recoverySourceStepId?: string;
   recoverySubgraphStepIds?: string[];
   lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+  recoveryStepId?: string;
+  recoveryReason?: string;
+}
+
+export interface ExecutionRuntimeCursor {
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
+  epoch: number;
+  planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '';
+}
+
+export interface InitialExecutionRuntimeContext {
+  lockTable: ExecutionLockTable;
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
+  executionEpoch: number;
+  activeLockOwnerStepIds: string[];
+  recoverySourceStepId: string | null;
+  recoverySubgraphStepIds: string[];
+  lockResumeMode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']> | '';
+  planningWindowState: NonNullable<PlannerExecutionStateArtifact['planningWindowState']> | '';
+  reusedLockOwnerStepIds: string[];
+  preservedLockOwnerStepIds: string[];
+  downgradedLockOwnerStepIds: string[];
+  droppedLockOwnerStepIds: string[];
+  recoveryStepId: string | null;
+  recoveryReason: string;
+  lastEventReason: string;
+  resumeStrategy: PlannerExecutionStateArtifact['resumeStrategy'] | undefined;
 }
 
 export function createPlannerExecutionState(
@@ -91,6 +124,87 @@ export function copyPersistedRecoverySnapshot(executionState: PlannerExecutionSt
     ...(executionState.recoverySourceStepId ? { recoverySourceStepId: executionState.recoverySourceStepId } : {}),
     ...(executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: executionState.recoverySubgraphStepIds } : {}),
     ...(executionState.lockResumeMode ? { lockResumeMode: executionState.lockResumeMode } : {}),
+    ...(executionState.recoveryStepId ? { recoveryStepId: executionState.recoveryStepId } : {}),
+    ...(executionState.recoveryReason ? { recoveryReason: executionState.recoveryReason } : {}),
+  };
+}
+
+export function createInitialExecutionRuntimeCursor(initialRuntime: InitialExecutionRuntimeContext): ExecutionRuntimeCursor {
+  return {
+    currentWaveStepIds: initialRuntime.currentWaveStepIds,
+    lastCompletedWaveStepIds: initialRuntime.lastCompletedWaveStepIds,
+    selectedWaveStepIds: initialRuntime.selectedWaveStepIds,
+    interruptedStepIds: initialRuntime.interruptedStepIds,
+    epoch: initialRuntime.executionEpoch,
+    planningWindowState: initialRuntime.planningWindowState,
+  };
+}
+
+export function markWaveSelected(cursor: ExecutionRuntimeCursor, stepIds: string[]): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: stepIds,
+    selectedWaveStepIds: stepIds,
+    interruptedStepIds: stepIds,
+    epoch: cursor.epoch + 1,
+  };
+}
+
+export function clearInterruptedWave(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: [],
+    interruptedStepIds: [],
+  };
+}
+
+export function markWaveCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    lastCompletedWaveStepIds: cursor.currentWaveStepIds,
+    currentWaveStepIds: [],
+    interruptedStepIds: [],
+  };
+}
+
+export function markRecoveryFallback(cursor: ExecutionRuntimeCursor, fallbackStepIds: string[]): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: [],
+    interruptedStepIds: fallbackStepIds,
+  };
+}
+
+export function markPlanningWindowCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    planningWindowState: 'completed_waiting_append',
+  };
+}
+
+export function buildInitialExecutionStateExtras(
+  runtimeCursor: ExecutionRuntimeCursor,
+  initialRuntime: InitialExecutionRuntimeContext,
+): Omit<PlannerExecutionSnapshotInput, 'state' | 'strategy'> {
+  return {
+    currentWaveStepIds: runtimeCursor.currentWaveStepIds,
+    lastCompletedWaveStepIds: runtimeCursor.lastCompletedWaveStepIds,
+    epoch: runtimeCursor.epoch,
+    ...(runtimeCursor.selectedWaveStepIds.length > 0 ? { selectedWaveStepIds: runtimeCursor.selectedWaveStepIds } : {}),
+    ...(initialRuntime.resumeStrategy ? { resumeStrategy: initialRuntime.resumeStrategy } : {}),
+    ...(runtimeCursor.interruptedStepIds.length > 0 ? { interruptedStepIds: runtimeCursor.interruptedStepIds } : {}),
+    ...(initialRuntime.lastEventReason ? { lastEventReason: initialRuntime.lastEventReason } : {}),
+    ...(initialRuntime.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: initialRuntime.activeLockOwnerStepIds } : {}),
+    ...(initialRuntime.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: initialRuntime.preservedLockOwnerStepIds } : {}),
+    ...(initialRuntime.reusedLockOwnerStepIds.length > 0 ? { reusedLockOwnerStepIds: initialRuntime.reusedLockOwnerStepIds } : {}),
+    ...(initialRuntime.downgradedLockOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: initialRuntime.downgradedLockOwnerStepIds } : {}),
+    ...(initialRuntime.droppedLockOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: initialRuntime.droppedLockOwnerStepIds } : {}),
+    ...(initialRuntime.recoverySourceStepId ? { recoverySourceStepId: initialRuntime.recoverySourceStepId } : {}),
+    ...(initialRuntime.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: initialRuntime.recoverySubgraphStepIds } : {}),
+    ...(initialRuntime.lockResumeMode ? { lockResumeMode: initialRuntime.lockResumeMode } : {}),
+    ...(runtimeCursor.planningWindowState ? { planningWindowState: runtimeCursor.planningWindowState } : {}),
+    ...(initialRuntime.recoveryStepId ? { recoveryStepId: initialRuntime.recoveryStepId } : {}),
+    ...(initialRuntime.recoveryReason ? { recoveryReason: initialRuntime.recoveryReason } : {}),
   };
 }
 
@@ -129,23 +243,7 @@ export function buildExecutionDispatchSnapshot(input: {
 export function buildInitialExecutionRuntimeContext(
   lockTable: ExecutionLockTable,
   executionState?: PlannerExecutionStateArtifact,
-): {
-  lockTable: ExecutionLockTable;
-  currentWaveStepIds: string[];
-  lastCompletedWaveStepIds: string[];
-  selectedWaveStepIds: string[];
-  interruptedStepIds: string[];
-  executionEpoch: number;
-  activeLockOwnerStepIds: string[];
-  recoverySourceStepId: string | null;
-  recoverySubgraphStepIds: string[];
-  lockResumeMode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']> | '';
-  planningWindowState: NonNullable<PlannerExecutionStateArtifact['planningWindowState']> | '';
-  reusedLockOwnerStepIds: string[];
-  preservedLockOwnerStepIds: string[];
-  downgradedLockOwnerStepIds: string[];
-  droppedLockOwnerStepIds: string[];
-} {
+): InitialExecutionRuntimeContext {
   return {
     lockTable,
     currentWaveStepIds: executionState?.currentWaveStepIds ?? [],
@@ -162,5 +260,9 @@ export function buildInitialExecutionRuntimeContext(
     preservedLockOwnerStepIds: executionState?.preservedLockOwnerStepIds ?? [],
     downgradedLockOwnerStepIds: executionState?.downgradedLockOwnerStepIds ?? [],
     droppedLockOwnerStepIds: executionState?.droppedLockOwnerStepIds ?? [],
+    recoveryStepId: executionState?.recoveryStepId ?? null,
+    recoveryReason: executionState?.recoveryReason ?? '',
+    lastEventReason: executionState?.lastEventReason ?? '',
+    resumeStrategy: executionState?.resumeStrategy,
   };
 }

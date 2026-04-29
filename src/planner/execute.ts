@@ -10,7 +10,17 @@ import {
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
-import { buildExecutionDispatchSnapshot, buildInitialExecutionRuntimeContext } from './execution-state.js';
+import {
+  buildExecutionDispatchSnapshot,
+  buildInitialExecutionRuntimeContext,
+  buildInitialExecutionStateExtras,
+  clearInterruptedWave,
+  createInitialExecutionRuntimeCursor,
+  markPlanningWindowCompleted,
+  markRecoveryFallback,
+  markWaveCompleted,
+  markWaveSelected,
+} from './execution-state.js';
 import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerRequestArtifact, PlannerState, PlannerStep } from './types.js';
 import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
@@ -31,15 +41,6 @@ interface ExecutePlannerDependencies {
 interface ExecutePlannerInitialContext {
   lockTable?: ReturnType<typeof createExecutionLockTable>;
   executionState?: PlannerExecutionStateArtifact;
-}
-
-interface ExecutionRuntimeCursor {
-  currentWaveStepIds: string[];
-  lastCompletedWaveStepIds: string[];
-  selectedWaveStepIds: string[];
-  interruptedStepIds: string[];
-  epoch: number;
-  planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '';
 }
 
 export async function executePlannerPlan(
@@ -67,26 +68,7 @@ export async function executePlannerPlan(
     message: 'Planner finished planning. Starting subtask execution.',
   });
   let runtimeCursor = createInitialExecutionRuntimeCursor(initialRuntime);
-  let executionState = createInitialExecutionState(nextState, strategy.mode, {
-    currentWaveStepIds: runtimeCursor.currentWaveStepIds,
-    lastCompletedWaveStepIds: runtimeCursor.lastCompletedWaveStepIds,
-    epoch: runtimeCursor.epoch,
-    ...(runtimeCursor.selectedWaveStepIds.length > 0 ? { selectedWaveStepIds: runtimeCursor.selectedWaveStepIds } : {}),
-    ...(initialContext?.executionState?.resumeStrategy ? { resumeStrategy: initialContext.executionState.resumeStrategy } : {}),
-    ...(runtimeCursor.interruptedStepIds.length > 0 ? { interruptedStepIds: runtimeCursor.interruptedStepIds } : {}),
-    ...(initialContext?.executionState?.lastEventReason ? { lastEventReason: initialContext.executionState.lastEventReason } : {}),
-    ...(initialRuntime.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: initialRuntime.activeLockOwnerStepIds } : {}),
-    ...(initialRuntime.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: initialRuntime.preservedLockOwnerStepIds } : {}),
-    ...(initialRuntime.reusedLockOwnerStepIds.length > 0 ? { reusedLockOwnerStepIds: initialRuntime.reusedLockOwnerStepIds } : {}),
-    ...(initialRuntime.downgradedLockOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: initialRuntime.downgradedLockOwnerStepIds } : {}),
-    ...(initialRuntime.droppedLockOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: initialRuntime.droppedLockOwnerStepIds } : {}),
-    ...(initialRuntime.recoverySourceStepId ? { recoverySourceStepId: initialRuntime.recoverySourceStepId } : {}),
-    ...(initialRuntime.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: initialRuntime.recoverySubgraphStepIds } : {}),
-    ...(initialRuntime.lockResumeMode ? { lockResumeMode: initialRuntime.lockResumeMode } : {}),
-    ...(runtimeCursor.planningWindowState ? { planningWindowState: runtimeCursor.planningWindowState } : {}),
-    ...(initialContext?.executionState?.recoveryStepId ? { recoveryStepId: initialContext.executionState.recoveryStepId } : {}),
-    ...(initialContext?.executionState?.recoveryReason ? { recoveryReason: initialContext.executionState.recoveryReason } : {}),
-  });
+  let executionState = createInitialExecutionState(nextState, strategy.mode, buildInitialExecutionStateExtras(runtimeCursor, initialRuntime));
   let executedWaveCount = 0;
 
   const dispatchExecution = async (
@@ -435,57 +417,4 @@ export async function executePlannerPlan(
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
   return { plan: nextPlan, state: nextState };
-}
-
-function createInitialExecutionRuntimeCursor(initialRuntime: ReturnType<typeof buildInitialExecutionRuntimeContext>): ExecutionRuntimeCursor {
-  return {
-    currentWaveStepIds: initialRuntime.currentWaveStepIds,
-    lastCompletedWaveStepIds: initialRuntime.lastCompletedWaveStepIds,
-    selectedWaveStepIds: initialRuntime.selectedWaveStepIds,
-    interruptedStepIds: initialRuntime.interruptedStepIds,
-    epoch: initialRuntime.executionEpoch,
-    planningWindowState: initialRuntime.planningWindowState,
-  };
-}
-
-function markWaveSelected(cursor: ExecutionRuntimeCursor, stepIds: string[]): ExecutionRuntimeCursor {
-  return {
-    ...cursor,
-    currentWaveStepIds: stepIds,
-    selectedWaveStepIds: stepIds,
-    interruptedStepIds: stepIds,
-    epoch: cursor.epoch + 1,
-  };
-}
-
-function clearInterruptedWave(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
-  return {
-    ...cursor,
-    currentWaveStepIds: [],
-    interruptedStepIds: [],
-  };
-}
-
-function markWaveCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
-  return {
-    ...cursor,
-    lastCompletedWaveStepIds: cursor.currentWaveStepIds,
-    currentWaveStepIds: [],
-    interruptedStepIds: [],
-  };
-}
-
-function markRecoveryFallback(cursor: ExecutionRuntimeCursor, fallbackStepIds: string[]): ExecutionRuntimeCursor {
-  return {
-    ...cursor,
-    currentWaveStepIds: [],
-    interruptedStepIds: fallbackStepIds,
-  };
-}
-
-function markPlanningWindowCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
-  return {
-    ...cursor,
-    planningWindowState: 'completed_waiting_append',
-  };
 }
