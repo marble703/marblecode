@@ -328,6 +328,8 @@ Tool execution logs now also record provider metadata such as provider id/kind/a
 
 The first real local readonly source now reads `.marblecode/diagnostics.json` through the same external-provider gate and logging path, while real LSP/MCP integrations remain future work.
 
+The second real local readonly source now reads `.marblecode/symbols.json` through the same external-provider gate and logging path, exposing `symbols_list` with `path` / `name` / `kind` filters while real LSP/MCP integrations remain future work.
+
 ## Verifier Markdown
 
 Each `##` section in `.marblecode/verifier.md` defines one verifier step.

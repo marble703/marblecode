@@ -227,6 +227,22 @@
 - provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
 - 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
 
+### P1.5：本轮已完成 local readonly symbols source
+
+在 P1.4 的 first local source foundation 之上，本轮继续补齐了第二个真实但本地的 readonly source，仍然没有接入真实 LSP/MCP：
+
+1. 新增 `src/tools/local-symbols-provider.ts`，从 `.marblecode/symbols.json` 加载本地 symbols。
+2. local symbols source 继续走现有 external provider gate、shared setup、provider metadata logging 和 sanitize hook，证明 provider/source 抽象不只适用于 diagnostics。
+3. local source 支持 `path`、`name`、`kind` 过滤，对缺失 artifact 返回空结果，对 workspace escape 和无效 artifact 给出明确错误。
+4. agent/planner 的 tool logging 现在也会为 symbols capability 记录 `symbolsSource`，使 provider sanitize hook 走到真实日志路径上。
+5. deterministic suite 增加 local symbols source 的读取、过滤、缺失、invalid format、escape 和 logging sanitize 覆盖。
+
+这一轮的定位是 second local source foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- 首个真实 readonly references/source-location source
+- provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

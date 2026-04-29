@@ -172,6 +172,14 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - artifact 缺失时返回空 diagnostics 列表
 - 对无效或逃逸工作区的 diagnostics 路径会直接拒绝，而不是静默归一化
 
+当前第二个真实的本地 readonly source 也已经补上：`src/tools/local-symbols-provider.ts`
+
+- 它会从工作区下的 `.marblecode/symbols.json` 读取本地 symbols artifact
+- 它继续复用与 local diagnostics 相同的 external provider gate、provider metadata logging 和 sanitize hook
+- 它暴露 `symbols_list`，支持 `path`、`name`、`kind` 过滤
+- artifact 缺失时返回空 symbols 列表
+- 对无效或逃逸工作区的 symbol 路径会直接拒绝，而不是静默归一化
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

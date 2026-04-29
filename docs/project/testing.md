@@ -80,6 +80,12 @@ Representative cases:
 - `local diagnostics provider filters path and severity`
 - `local diagnostics provider returns empty when missing`
 - `local diagnostics provider rejects workspace escape`
+- `local symbols provider reads artifact`
+- `local symbols provider filters path name and kind`
+- `local symbols provider returns empty when missing`
+- `local symbols provider rejects invalid format`
+- `local symbols provider rejects workspace escape`
+- `tool log sanitizes local symbols source`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`
@@ -149,7 +155,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 100 deterministic cases.
+At the moment, `npm run test:examples` covers 106 deterministic cases.
 
 ### Planner Execution
 

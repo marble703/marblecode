@@ -172,6 +172,14 @@ The first real local readonly source now in place is `src/tools/local-diagnostic
 - missing artifacts return an empty diagnostics list
 - invalid or escaping diagnostic paths are rejected instead of being silently normalized
 
+The second real local readonly source now in place is `src/tools/local-symbols-provider.ts`:
+
+- it reads `.marblecode/symbols.json` from the workspace as a local symbols artifact
+- it uses the same external-provider gate, metadata logging, and sanitize hooks as local diagnostics
+- it exposes `symbols_list` with `path`, `name`, and `kind` filters
+- missing artifacts return an empty symbols list
+- invalid or escaping symbol paths are rejected instead of being silently normalized
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.

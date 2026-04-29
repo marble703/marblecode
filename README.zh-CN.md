@@ -324,6 +324,8 @@ tool 执行日志现在也会记录 provider id/kind/access/capabilities 等 met
 
 当前第一个真实的本地 readonly source 已经可以通过 `.marblecode/diagnostics.json` 读取 diagnostics，并复用同一套 external provider gate 和 logging 路径；真实 LSP/MCP 仍然是后续工作。
 
+当前第二个真实的本地 readonly source 已经可以通过 `.marblecode/symbols.json` 读取 symbols，并复用同一套 external provider gate 和 logging 路径；它暴露 `symbols_list`，支持 `path` / `name` / `kind` 过滤，真实 LSP/MCP 仍然是后续工作。
+
 ## Verifier Markdown
 
 `.marblecode/verifier.md` 中每个 `##` 小节代表一个 verifier 步骤。
