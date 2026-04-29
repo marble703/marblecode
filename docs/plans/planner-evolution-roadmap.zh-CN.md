@@ -274,6 +274,23 @@
 - 是否开始设计真实 LSP/MCP readonly source 的生命周期与错误模型
 - provider-level logging/redaction 是否还需要继续抽象出更明确的 event schema
 
+### P1.x：阶段性仓库整理候选项
+
+在继续扩真实 readonly source 之前，当前仓库也已经出现几处值得阶段性整理但不需要大重写的热点。建议单独以一次低风险 refactor 回合处理，而不是混在功能开发中：
+
+1. `src/tools/local-diagnostics-provider.ts`、`src/tools/local-symbols-provider.ts`、`src/tools/local-references-provider.ts` 已经形成明显重复，适合提取共享 local artifact helper。
+2. `scripts/manual-suite/core.ts` 与 `scripts/manual-suite/planner-runtime.ts` 已经是测试侧上帝文件，后续继续堆 case 会让维护成本快速上升。
+3. `src/session/index.ts -> src/planner/view-model.ts` 的依赖方向偏重，后续应考虑把 planner session summary 组合逻辑移出 session 基础层。
+4. `src/planner/loop.ts`、`src/planner/view-model.ts`、`src/planner/replan-merge.ts` 仍然偏大，但应该只在对应功能继续演进时顺手按职责拆分，而不是先做无目标重写。
+
+建议下一轮如果做“仓库整理”而不是新功能，优先顺序如下：
+
+- 先收敛 local provider/local artifact 重复
+- 再收敛 manual-suite fixture/setup 重复
+- 然后才考虑 session/planner 依赖方向和 planner 大文件细拆
+
+更细的审查结论与重构建议单独记录在 `docs/plans/repo-maintenance-review.zh-CN.md`，避免主路线图变成过长的审计文档。
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。
