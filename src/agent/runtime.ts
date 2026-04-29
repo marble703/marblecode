@@ -108,6 +108,7 @@ export async function runAgentRuntime(
           result: config.session.logToolBodies ? toolResult : { ok: toolResult.ok },
           diagnosticsSource: providerSummary.capabilities.includes('diagnostics') ? providerSummary.id : '',
           symbolsSource: providerSummary.capabilities.includes('symbols') ? providerSummary.id : '',
+          referencesSource: providerSummary.capabilities.includes('references') ? providerSummary.id : '',
         });
         await appendSessionLog(
           session,
