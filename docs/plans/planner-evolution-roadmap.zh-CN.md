@@ -211,6 +211,22 @@
 - provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
 - 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
 
+### P1.4：本轮已完成 local readonly diagnostics source
+
+在 P1.3 的 logging/redaction foundation 之上，本轮继续补齐了第一个真实但本地的 readonly source，仍然没有接入真实 LSP/MCP：
+
+1. 新增 `src/tools/local-diagnostics-provider.ts`，从 `.marblecode/diagnostics.json` 加载本地 diagnostics。
+2. local diagnostics source 走现有 external provider gate、shared setup、provider metadata logging 和 sanitize hook，不再只是 deterministic fixture。
+3. local source 对缺失 artifact 返回空结果，对 workspace escape 和无效 artifact 给出明确错误。
+4. `src/tui/session-actions.ts` 现在也走 shared planner registry setup，并在实际路径上执行 `disposeAll()`。
+5. deterministic suite 增加 local diagnostics source 的读取、过滤、缺失和 escape 覆盖。
+
+这一轮的定位是 first local source foundation，而不是生产级外部 provider 集成完成。下一轮如果继续推进 P1，应优先考虑：
+
+- 首个真实 readonly symbols/references source
+- provider-level logging/redaction 是否需要继续收敛为共享 event/DTO 形状
+- 是否再决定 `ToolProvider -> ToolSource` 的命名收敛
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

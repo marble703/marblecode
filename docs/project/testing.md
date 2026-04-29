@@ -76,6 +76,10 @@ Representative cases:
 - `external readonly provider gate reports access reason`
 - `tool provider dispose summary`
 - `tool log includes provider metadata`
+- `local diagnostics provider reads artifact`
+- `local diagnostics provider filters path and severity`
+- `local diagnostics provider returns empty when missing`
+- `local diagnostics provider rejects workspace escape`
 - `automatic context selection`
 - `git read only tools`
 - `shell tools`
@@ -145,7 +149,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 96 deterministic cases.
+At the moment, `npm run test:examples` covers 100 deterministic cases.
 
 ### Planner Execution
 

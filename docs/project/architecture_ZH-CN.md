@@ -165,6 +165,13 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - provider 自定义日志 sanitize hook，并且发生在 session log redaction 之前
 - provider 成功回收时的 disposal summary，以及更明确的 provider-scoped disposal error
 
+当前第一个真实的本地 readonly source 也已经补上：`src/tools/local-diagnostics-provider.ts`
+
+- 它会从工作区下的 `.marblecode/diagnostics.json` 读取本地 diagnostics artifact
+- 它继续复用现有的 external provider gate、provider metadata logging 和 sanitize hook
+- artifact 缺失时返回空 diagnostics 列表
+- 对无效或逃逸工作区的 diagnostics 路径会直接拒绝，而不是静默归一化
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

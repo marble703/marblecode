@@ -326,6 +326,8 @@ External tool providers remain disabled by default. Shared config now reserves `
 
 Tool execution logs now also record provider metadata such as provider id/kind/access/capabilities, and external providers may sanitize their own log fields before normal session redaction runs.
 
+The first real local readonly source now reads `.marblecode/diagnostics.json` through the same external-provider gate and logging path, while real LSP/MCP integrations remain future work.
+
 ## Verifier Markdown
 
 Each `##` section in `.marblecode/verifier.md` defines one verifier step.

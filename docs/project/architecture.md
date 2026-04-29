@@ -165,6 +165,13 @@ The current provider logging layer now also includes:
 - provider-specific log sanitization hooks before session log redaction runs
 - disposal summaries for successful provider teardown and clearer provider-scoped disposal errors
 
+The first real local readonly source now in place is `src/tools/local-diagnostics-provider.ts`:
+
+- it reads `.marblecode/diagnostics.json` from the workspace as a local diagnostics artifact
+- it still uses the existing external-provider gate, metadata logging, and sanitize hooks
+- missing artifacts return an empty diagnostics list
+- invalid or escaping diagnostic paths are rejected instead of being silently normalized
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.
