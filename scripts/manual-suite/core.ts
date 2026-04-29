@@ -6,6 +6,7 @@ import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { createLocalDiagnosticsProvider } from '../../src/tools/local-diagnostics-provider.js';
+import { createLocalSymbolsProvider } from '../../src/tools/local-symbols-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { createAgentToolRegistry } from '../../src/tools/setup.js';
@@ -33,6 +34,12 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
     { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
     { name: 'local diagnostics provider rejects workspace escape', run: testLocalDiagnosticsProviderRejectsWorkspaceEscape },
+    { name: 'local symbols provider reads artifact', run: testLocalSymbolsProviderReadsArtifact },
+    { name: 'local symbols provider filters path name and kind', run: testLocalSymbolsProviderFiltersPathNameAndKind },
+    { name: 'local symbols provider returns empty when missing', run: testLocalSymbolsProviderReturnsEmptyWhenMissing },
+    { name: 'local symbols provider rejects invalid format', run: testLocalSymbolsProviderRejectsInvalidFormat },
+    { name: 'local symbols provider rejects workspace escape', run: testLocalSymbolsProviderRejectsWorkspaceEscape },
+    { name: 'tool log sanitizes local symbols source', run: testToolLogSanitizesLocalSymbolsSource },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -506,6 +513,201 @@ async function testLocalDiagnosticsProviderRejectsWorkspaceEscape(): Promise<voi
       const result = await registry.execute({ name: 'diagnostics_list', input: {} });
       assert.equal(result.ok, false);
       assert.match(result.error ?? '', /escapes workspace/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalSymbolsProviderReadsArtifact(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+      version: '1',
+      symbols: [{
+        path: 'src/math.js',
+        name: 'multiply',
+        kind: 'function',
+        line: 5,
+        column: 1,
+        source: 'local-symbols',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'symbols_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/math.js',
+        name: 'multiply',
+        kind: 'function',
+        line: 5,
+        column: 1,
+        source: 'local-symbols',
+      }]);
+      assert.deepEqual(registry.getProviderForTool('symbols_list')?.metadata?.capabilities ?? [], ['symbols']);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalSymbolsProviderFiltersPathNameAndKind(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+      version: '1',
+      symbols: [
+        {
+          path: 'src/math.js',
+          name: 'multiply',
+          kind: 'function',
+          line: 5,
+          column: 1,
+          source: 'local-symbols',
+        },
+        {
+          path: 'src/router.js',
+          name: 'Router',
+          kind: 'class',
+          line: 1,
+          column: 1,
+          source: 'local-symbols',
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'symbols_list', input: { path: 'src/math.js', name: 'multiply', kind: 'function' } });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/math.js',
+        name: 'multiply',
+        kind: 'function',
+        line: 5,
+        column: 1,
+        source: 'local-symbols',
+      }]);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalSymbolsProviderReturnsEmptyWhenMissing(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'symbols_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, []);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalSymbolsProviderRejectsInvalidFormat(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+      version: '2',
+      symbols: [],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'symbols_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /Invalid local symbols artifact format/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalSymbolsProviderRejectsWorkspaceEscape(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+      version: '1',
+      symbols: [{
+        path: '../outside.txt',
+        name: 'steal',
+        kind: 'function',
+        line: 1,
+        column: 1,
+        source: 'local-symbols',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'symbols_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /escapes workspace/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.session.logToolBodies = true;
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-symbols'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'symbols.json'), JSON.stringify({
+      version: '1',
+      symbols: [{
+        path: 'src/math.js',
+        name: 'multiply',
+        kind: 'function',
+        line: 5,
+        column: 1,
+        source: 'workspace-symbol-index',
+      }],
+    }, null, 2), 'utf8');
+
+    const policy = new PolicyEngine(config);
+    const registry = createAgentToolRegistry(config, policy, [createLocalSymbolsProvider(config, policy)]);
+    const providers = new Map<string, ModelProvider>([['stub', new SequenceProvider([
+      JSON.stringify({
+        type: 'tool_call',
+        tool: 'symbols_list',
+        input: { path: 'src/math.js' },
+      }),
+      JSON.stringify({
+        type: 'final',
+        message: 'Symbols loaded.',
+      }),
+    ])]]);
+
+    try {
+      const result = await runAgent(config, providers, registry, {
+        prompt: 'Load symbols only',
+        explicitFiles: ['src/math.js'],
+        pastedSnippets: [],
+        manualVerifierCommands: [],
+        autoApprove: true,
+        confirm: async () => true,
+      });
+      assert.equal(result.status, 'completed');
+      const logPath = path.join(result.sessionDir, 'tools.jsonl');
+      const logContent = await readFile(logPath, 'utf8');
+      assert.match(logContent, /"providerId":"local-symbols"/);
+      assert.match(logContent, /"providerKind":"external"/);
+      assert.match(logContent, /"providerAccess":"read_only"/);
+      assert.match(logContent, /"providerCapabilities":\["symbols"\]/);
+      assert.match(logContent, /"symbolsSource":"\[local-symbols\]"/);
     } finally {
       await registry.disposeAll();
     }
