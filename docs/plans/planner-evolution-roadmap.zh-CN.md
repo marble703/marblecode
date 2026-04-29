@@ -291,6 +291,21 @@
 
 更细的审查结论与重构建议单独记录在 `docs/plans/repo-maintenance-review.zh-CN.md`，避免主路线图变成过长的审计文档。
 
+### P1.8：本轮已完成 local artifact/provider 重复收敛
+
+在前几轮 local readonly source foundation 之上，本轮优先收敛了 local artifact 读取与 manual-suite setup 重复，而没有继续扩 source 类型：
+
+1. 新增 `src/tools/local-artifacts.ts`，集中处理 `.marblecode/*.json` artifact 的共享读取与 workspace path 归一化。
+2. `src/tools/local-diagnostics-provider.ts`、`src/tools/local-symbols-provider.ts`、`src/tools/local-references-provider.ts` 不再各自手写相同的 artifact read / `ENOENT` / readable-path / workspace-escape 逻辑。
+3. `scripts/manual-suite/helpers.ts` 新增 `enableExternalProvider(...)` 与 `writeMarbleArtifact(...)`，收敛 local provider tests 的 setup 与 artifact 写入重复。
+4. deterministic suite 增加 local artifact helper 的 missing / workspace escape 覆盖，并保持现有 local provider 行为测试全部通过。
+
+这一轮的定位是 low-risk maintenance foundation，而不是 planner 大模块重拆完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 收敛 `scripts/manual-suite/core.ts` 与 `scripts/manual-suite/planner-runtime.ts` 的结构压力
+- 为 JSONL/tool log/planner event 增加 structured assertion helpers
+- 再评估 `session -> planner/view-model` 依赖方向的修正边界
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

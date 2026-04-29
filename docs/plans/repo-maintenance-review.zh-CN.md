@@ -206,6 +206,21 @@
 
 目标是减少重复与安全边界复制，而不是引入新的抽象层级。
 
+当前状态：已完成。
+
+本轮已经实际落地：
+
+- `src/tools/local-artifacts.ts`
+- local diagnostics/symbols/references provider 的共享 artifact/path helper 接入
+- manual-suite local provider setup/artifact helper
+- local artifact helper 的 deterministic tests
+
+后续仓库整理重点应转向：
+
+1. `scripts/manual-suite/core.ts` 与 `scripts/manual-suite/planner-runtime.ts` 的结构减压
+2. JSONL / planner events 的 structured assertion helpers
+3. `session -> planner/view-model` 依赖方向收敛
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

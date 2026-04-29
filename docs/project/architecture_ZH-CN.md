@@ -189,6 +189,8 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - 它会在返回结果前同时校验 `path` 和可选 `targetPath` 是否逃逸工作区
 - artifact 缺失时返回空 references 列表
 
+这些本地 readonly provider 现在也已经共用 `src/tools/local-artifacts.ts`，统一处理 `.marblecode/*.json` artifact 读取和 workspace path 归一化，从而让 missing-artifact、readable-path 和 escape 校验在 diagnostics、symbols、references 三类 source 之间保持一致。
+
 ### `src/policy`
 
 强制执行路径、Shell、环境以及提供商网络的限制。

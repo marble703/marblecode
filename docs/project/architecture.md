@@ -189,6 +189,8 @@ The third real local readonly source now in place is `src/tools/local-references
 - it validates both `path` and optional `targetPath` against workspace escape before returning results
 - missing artifacts return an empty references list
 
+Those local readonly providers now also share `src/tools/local-artifacts.ts` for common `.marblecode/*.json` loading and workspace-path normalization, so missing-artifact handling and readable-path checks stay aligned across diagnostics, symbols, and references.
+
 ### `src/policy`
 
 Enforces path, shell, environment, and provider-network restrictions.

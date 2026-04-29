@@ -78,6 +78,8 @@ Representative cases:
 - `tool log includes provider metadata`
 - `tool log helper includes provider metadata`
 - `tool log helper includes capability source fields`
+- `local artifact helper returns missing`
+- `local artifact helper rejects workspace escape`
 - `local diagnostics provider reads artifact`
 - `local diagnostics provider filters path and severity`
 - `local diagnostics provider returns empty when missing`
@@ -164,7 +166,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 115 deterministic cases.
+At the moment, `npm run test:examples` covers 117 deterministic cases.
 
 ### Planner Execution
 
