@@ -4,9 +4,10 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { runAgent } from '../../src/agent/index.js';
 import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
-import { createDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
+import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
+import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import { withWorkspace } from './helpers.js';
@@ -20,6 +21,9 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'tool provider lifecycle', run: testToolProviderLifecycle },
     { name: 'tool provider duplicate id', run: testToolProviderDuplicateId },
     { name: 'readonly diagnostics provider', run: testReadonlyDiagnosticsProvider },
+    { name: 'external readonly provider gate blocks by default', run: testExternalReadonlyProviderGateBlocksByDefault },
+    { name: 'external readonly provider gate allows allowlisted provider', run: testExternalReadonlyProviderGateAllowsAllowlistedProvider },
+    { name: 'tool provider dispose failure reports provider id', run: testToolProviderDisposeFailureReportsProviderId },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -187,6 +191,82 @@ async function testReadonlyDiagnosticsProvider(): Promise<void> {
       line: 2,
       column: 10,
     }]);
+  });
+}
+
+async function testExternalReadonlyProviderGateBlocksByDefault(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const externalProvider = createExternalDiagnosticsFixtureProvider([
+      {
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'External provider check.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+    assert.throws(
+      () => createAgentToolRegistry(config, policy, [externalProvider]),
+      /disabled by config\.tools\.externalProvidersEnabled/,
+    );
+  });
+}
+
+async function testExternalReadonlyProviderGateAllowsAllowlistedProvider(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['diagnostics-external-fixture'];
+    const externalProvider = createExternalDiagnosticsFixtureProvider([
+      {
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'External provider check.',
+        line: 2,
+        column: 1,
+      },
+    ]);
+    const registry = createAgentToolRegistry(config, policy, [externalProvider]);
+    try {
+      const result = await registry.execute({ name: 'diagnostics_list', input: { path: 'src/math.js' } });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'External provider check.',
+        line: 2,
+        column: 1,
+      }]);
+      assert.equal(registry.getProviderForTool('diagnostics_list')?.metadata?.kind, 'external');
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testToolProviderDisposeFailureReportsProviderId(): Promise<void> {
+  await withWorkspace(async () => {
+    const registry = new ToolRegistry();
+    registry.registerProvider({
+      id: 'dispose-failure-fixture',
+      metadata: {
+        kind: 'fixture',
+        access: 'read_only',
+      },
+      listTools() {
+        return [];
+      },
+      async executeTool() {
+        return { ok: false, error: 'unused' };
+      },
+      async dispose() {
+        throw new Error('dispose failed');
+      },
+    });
+
+    await assert.rejects(
+      () => registry.disposeAll(),
+      /dispose-failure-fixture: dispose failed/,
+    );
   });
 }
 
