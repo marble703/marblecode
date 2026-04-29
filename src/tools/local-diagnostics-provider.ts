@@ -1,7 +1,6 @@
-import path from 'node:path';
-import { readFile } from 'node:fs/promises';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
+import { normalizeWorkspacePath, readLocalArtifact } from './local-artifacts.js';
 import { StaticToolProvider } from './provider.js';
 import type { ToolProvider } from './types.js';
 
@@ -24,7 +23,6 @@ export function createLocalDiagnosticsProvider(
   policy: PolicyEngine,
   providerId = 'local-diagnostics',
 ): ToolProvider {
-  const artifactPath = path.join(config.workspaceRoot, '.marblecode', 'diagnostics.json');
   const provider = new StaticToolProvider(providerId, [{
     definition: {
       name: 'diagnostics_list',
@@ -38,20 +36,17 @@ export function createLocalDiagnosticsProvider(
       },
     },
     async execute(input) {
-      let artifact: LocalDiagnosticsArtifact;
-      try {
-        policy.assertReadable(artifactPath);
-        const raw = await readFile(artifactPath, 'utf8');
-        artifact = JSON.parse(raw) as LocalDiagnosticsArtifact;
-      } catch (error) {
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-          return { ok: true, data: [] };
-        }
+      const artifactResult = await readLocalArtifact<LocalDiagnosticsArtifact>(config, policy, 'diagnostics.json');
+      if (artifactResult.status === 'missing') {
+        return { ok: true, data: [] };
+      }
+      if (artifactResult.status === 'error') {
         return {
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: artifactResult.error,
         };
       }
+      const artifact = artifactResult.artifact;
 
       if (artifact.version !== '1' || !Array.isArray(artifact.diagnostics)) {
         return {
@@ -67,24 +62,15 @@ export function createLocalDiagnosticsProvider(
 
       const normalized: LocalDiagnosticsRecord[] = [];
       for (const diagnostic of artifact.diagnostics) {
-        const resolvedDiagnosticPath = path.resolve(config.workspaceRoot, diagnostic.path);
-        const relativeDiagnosticPath = path.relative(config.workspaceRoot, resolvedDiagnosticPath).replace(/\\/g, '/');
-        if (relativeDiagnosticPath.startsWith('..') || path.isAbsolute(relativeDiagnosticPath)) {
+        const normalizedPath = normalizeWorkspacePath(config, policy, diagnostic.path, 'Local diagnostics path escapes workspace');
+        if (normalizedPath.status === 'error') {
           return {
             ok: false,
-            error: `Local diagnostics path escapes workspace: ${diagnostic.path}`,
-          };
-        }
-        try {
-          policy.assertReadable(resolvedDiagnosticPath);
-        } catch (error) {
-          return {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: normalizedPath.error,
           };
         }
         normalized.push({
-          path: relativeDiagnosticPath,
+          path: normalizedPath.path,
           severity: diagnostic.severity,
           message: diagnostic.message,
           line: diagnostic.line,

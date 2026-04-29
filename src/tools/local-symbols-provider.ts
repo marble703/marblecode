@@ -1,7 +1,6 @@
-import path from 'node:path';
-import { readFile } from 'node:fs/promises';
 import type { AppConfig } from '../config/schema.js';
 import { PolicyEngine } from '../policy/index.js';
+import { normalizeWorkspacePath, readLocalArtifact } from './local-artifacts.js';
 import { StaticToolProvider } from './provider.js';
 import type { ToolProvider } from './types.js';
 
@@ -25,7 +24,6 @@ export function createLocalSymbolsProvider(
   policy: PolicyEngine,
   providerId = 'local-symbols',
 ): ToolProvider {
-  const artifactPath = path.join(config.workspaceRoot, '.marblecode', 'symbols.json');
   const provider = new StaticToolProvider(providerId, [{
     definition: {
       name: 'symbols_list',
@@ -40,20 +38,17 @@ export function createLocalSymbolsProvider(
       },
     },
     async execute(input) {
-      let artifact: LocalSymbolsArtifact;
-      try {
-        policy.assertReadable(artifactPath);
-        const raw = await readFile(artifactPath, 'utf8');
-        artifact = JSON.parse(raw) as LocalSymbolsArtifact;
-      } catch (error) {
-        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
-          return { ok: true, data: [] };
-        }
+      const artifactResult = await readLocalArtifact<LocalSymbolsArtifact>(config, policy, 'symbols.json');
+      if (artifactResult.status === 'missing') {
+        return { ok: true, data: [] };
+      }
+      if (artifactResult.status === 'error') {
         return {
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: artifactResult.error,
         };
       }
+      const artifact = artifactResult.artifact;
 
       if (artifact.version !== '1' || !Array.isArray(artifact.symbols)) {
         return {
@@ -75,24 +70,15 @@ export function createLocalSymbolsProvider(
 
       const normalized: LocalSymbolRecord[] = [];
       for (const symbol of artifact.symbols) {
-        const resolvedSymbolPath = path.resolve(config.workspaceRoot, symbol.path);
-        const relativeSymbolPath = path.relative(config.workspaceRoot, resolvedSymbolPath).replace(/\\/g, '/');
-        if (relativeSymbolPath.startsWith('..') || path.isAbsolute(relativeSymbolPath)) {
+        const normalizedPath = normalizeWorkspacePath(config, policy, symbol.path, 'Local symbols path escapes workspace');
+        if (normalizedPath.status === 'error') {
           return {
             ok: false,
-            error: `Local symbols path escapes workspace: ${symbol.path}`,
-          };
-        }
-        try {
-          policy.assertReadable(resolvedSymbolPath);
-        } catch (error) {
-          return {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            error: normalizedPath.error,
           };
         }
         normalized.push({
-          path: relativeSymbolPath,
+          path: normalizedPath.path,
           name: symbol.name,
           kind: symbol.kind,
           line: symbol.line,
