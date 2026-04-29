@@ -4,6 +4,7 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { runAgent } from '../../src/agent/index.js';
 import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
+import { createDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
@@ -16,6 +17,9 @@ export function createCoreCases(): ManualSuiteCase[] {
   return [
     { name: 'tool read/list/search', run: testReadListAndSearch },
     { name: 'tool provider registry', run: testToolProviderRegistry },
+    { name: 'tool provider lifecycle', run: testToolProviderLifecycle },
+    { name: 'tool provider duplicate id', run: testToolProviderDuplicateId },
+    { name: 'readonly diagnostics provider', run: testReadonlyDiagnosticsProvider },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -28,6 +32,11 @@ async function testToolProviderRegistry(): Promise<void> {
   await withWorkspace(async ({ config, policy }) => {
     const registry = new ToolRegistry();
     registry.registerProvider(createBuiltinToolProvider(config, policy));
+
+    const providers = registry.listProviders();
+    assert.equal(providers.length, 1);
+    assert.equal(providers[0]?.id, 'builtin');
+    assert.equal(providers[0]?.metadata?.access, 'read_write');
 
     const definitions = registry.listDefinitions().map((definition) => definition.name);
     assert.ok(definitions.includes('read_file'));
@@ -46,6 +55,7 @@ async function testToolProviderRegistry(): Promise<void> {
     assert.ok(plannerDefinitions.includes('read_file'));
     assert.ok(plannerDefinitions.includes('git_diff'));
     assert.equal(plannerDefinitions.includes('run_shell'), false);
+    assert.equal(plannerRegistry.getProviderForTool('read_file')?.metadata?.access, 'read_only');
 
     const duplicateRegistry = new ToolRegistry();
     duplicateRegistry.registerProvider(new StaticToolProvider('provider-a', [{
@@ -68,6 +78,115 @@ async function testToolProviderRegistry(): Promise<void> {
         return { ok: true };
       },
     }])), /Duplicate tool registration: dup_tool/);
+  });
+}
+
+async function testToolProviderLifecycle(): Promise<void> {
+  await withWorkspace(async () => {
+    let disposeCount = 0;
+    const registry = new ToolRegistry();
+    registry.registerProvider({
+      id: 'lifecycle-fixture',
+      metadata: {
+        kind: 'fixture',
+        access: 'read_only',
+        capabilities: ['diagnostics'],
+      },
+      listTools() {
+        return [{
+          definition: {
+            name: 'fixture_ping',
+            description: 'Ping fixture provider.',
+            inputSchema: { type: 'object', properties: {} },
+          },
+          async execute() {
+            return { ok: true, data: 'pong' };
+          },
+        }];
+      },
+      async executeTool() {
+        return { ok: true, data: 'pong' };
+      },
+      async dispose() {
+        disposeCount += 1;
+      },
+    });
+
+    const result = await registry.execute({ name: 'fixture_ping', input: {} });
+    assert.equal(result.ok, true);
+    assert.equal(result.data, 'pong');
+    assert.equal(registry.getProviderForTool('fixture_ping')?.id, 'lifecycle-fixture');
+    await registry.disposeAll();
+    assert.equal(disposeCount, 1);
+  });
+}
+
+async function testToolProviderDuplicateId(): Promise<void> {
+  await withWorkspace(async () => {
+    const registry = new ToolRegistry();
+    registry.registerProvider(new StaticToolProvider('duplicate-provider', [{
+      definition: {
+        name: 'dup_one',
+        description: 'duplicate provider one',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      async execute() {
+        return { ok: true };
+      },
+    }]));
+
+    assert.throws(() => registry.registerProvider(new StaticToolProvider('duplicate-provider', [{
+      definition: {
+        name: 'dup_two',
+        description: 'duplicate provider two',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      async execute() {
+        return { ok: true };
+      },
+    }])), /Duplicate tool provider registration: duplicate-provider/);
+  });
+}
+
+async function testReadonlyDiagnosticsProvider(): Promise<void> {
+  await withWorkspace(async () => {
+    const registry = new ToolRegistry();
+    registry.registerProvider(createDiagnosticsFixtureProvider([
+      {
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'Possible arithmetic mismatch.',
+        line: 2,
+        column: 10,
+      },
+      {
+        path: 'src/router.js',
+        severity: 'info',
+        message: 'Route ordering check.',
+        line: 5,
+        column: 1,
+      },
+    ]));
+
+    const provider = registry.getProviderForTool('diagnostics_list');
+    assert.equal(provider?.metadata?.kind, 'fixture');
+    assert.equal(provider?.metadata?.access, 'read_only');
+    assert.deepEqual(provider?.metadata?.capabilities ?? [], ['diagnostics']);
+
+    const allDiagnostics = await registry.execute({ name: 'diagnostics_list', input: {} });
+    assert.equal(allDiagnostics.ok, true);
+    assert.equal(Array.isArray(allDiagnostics.data), true);
+    assert.equal((allDiagnostics.data as Array<unknown>).length, 2);
+
+    const filteredDiagnostics = await registry.execute({ name: 'diagnostics_list', input: { path: 'src/math.js' } });
+    assert.equal(filteredDiagnostics.ok, true);
+    assert.deepEqual(filteredDiagnostics.data, [{
+      path: 'src/math.js',
+      severity: 'warning',
+      message: 'Possible arithmetic mismatch.',
+      line: 2,
+      column: 10,
+    }]);
   });
 }
 
