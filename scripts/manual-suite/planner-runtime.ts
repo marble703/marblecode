@@ -4,12 +4,15 @@ import {
   buildExecutionDispatchSnapshot,
   buildExecutionGraph,
   buildInitialExecutionRuntimeContext,
+  buildInitialExecutionStateExtras,
   buildMathFixStep,
   buildPlannerRequestArtifact,
+  clearInterruptedWave,
   copyPersistedRecoverySnapshot,
   classifyPlannerStep,
   createExecutionLockTable,
   createInitialExecutionState,
+  createInitialExecutionRuntimeCursor,
   createPlannerRegistry,
   createSession,
   dispatchExecutionEvent,
@@ -18,6 +21,10 @@ import {
   executePlannerVerifyStep,
   FlakyProvider,
   initializePlannerState,
+  markPlanningWindowCompleted,
+  markRecoveryFallback,
+  markWaveCompleted,
+  markWaveSelected,
   mapPlannerResult,
   path,
   PolicyEngine,
@@ -38,6 +45,8 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
     { name: 'planner execution snapshot builder', run: testPlannerExecutionSnapshotBuilder },
     { name: 'planner persisted recovery snapshot helper', run: testPlannerPersistedRecoverySnapshotHelper },
     { name: 'planner runtime recovery context helper', run: testPlannerRuntimeRecoveryContextHelper },
+    { name: 'planner runtime cursor helpers', run: testPlannerRuntimeCursorHelpers },
+    { name: 'planner initial execution state extras helper', run: testPlannerInitialExecutionStateExtrasHelper },
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
     { name: 'planner execute entry helper', run: testPlannerExecuteEntryHelper },
@@ -156,7 +165,123 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
   assert.deepEqual(context.preservedLockOwnerStepIds, []);
   assert.deepEqual(context.downgradedLockOwnerStepIds, []);
   assert.deepEqual(context.droppedLockOwnerStepIds, []);
+  assert.equal(context.recoveryStepId, 'step-2');
+  assert.equal(context.recoveryReason, 'recovering through step-2');
+  assert.equal(context.lastEventReason, '');
+  assert.equal(context.resumeStrategy, undefined);
   assert.equal(context.lockTable.entries.some((entry) => entry.ownerStepId === 'step-2' && entry.mode === 'write_locked'), true);
+}
+
+async function testPlannerRuntimeCursorHelpers(): Promise<void> {
+  const initialRuntime = buildInitialExecutionRuntimeContext({
+    version: '1',
+    revision: 2,
+    entries: [{ path: 'src/math.js', mode: 'write_locked', ownerStepId: 'step-2', revision: 2 }],
+  }, {
+    version: '1',
+    revision: 2,
+    executionPhase: 'executing_wave',
+    plannerPhase: 'PATCHING',
+    outcome: 'RUNNING',
+    activeStepIds: ['step-2'],
+    readyStepIds: [],
+    completedStepIds: ['step-1'],
+    failedStepIds: [],
+    blockedStepIds: ['step-3'],
+    degradedStepIds: [],
+    currentWaveStepIds: ['step-2'],
+    lastCompletedWaveStepIds: ['step-1'],
+    selectedWaveStepIds: ['step-2'],
+    interruptedStepIds: ['step-2'],
+    strategy: 'serial',
+    epoch: 4,
+    currentStepId: 'step-2',
+    message: 'recovering',
+    planningWindowState: 'executing',
+  });
+
+  const initialCursor = createInitialExecutionRuntimeCursor(initialRuntime);
+  assert.deepEqual(initialCursor.currentWaveStepIds, ['step-2']);
+  assert.deepEqual(initialCursor.lastCompletedWaveStepIds, ['step-1']);
+  assert.equal(initialCursor.epoch, 4);
+  assert.equal(initialCursor.planningWindowState, 'executing');
+
+  const selectedCursor = markWaveSelected(initialCursor, ['step-4', 'step-5']);
+  assert.deepEqual(selectedCursor.currentWaveStepIds, ['step-4', 'step-5']);
+  assert.deepEqual(selectedCursor.selectedWaveStepIds, ['step-4', 'step-5']);
+  assert.deepEqual(selectedCursor.interruptedStepIds, ['step-4', 'step-5']);
+  assert.equal(selectedCursor.epoch, 5);
+
+  const fallbackCursor = markRecoveryFallback(selectedCursor, ['step-4-fallback']);
+  assert.deepEqual(fallbackCursor.currentWaveStepIds, []);
+  assert.deepEqual(fallbackCursor.interruptedStepIds, ['step-4-fallback']);
+
+  const clearedCursor = clearInterruptedWave(fallbackCursor);
+  assert.deepEqual(clearedCursor.currentWaveStepIds, []);
+  assert.deepEqual(clearedCursor.interruptedStepIds, []);
+
+  const completedCursor = markWaveCompleted(selectedCursor);
+  assert.deepEqual(completedCursor.lastCompletedWaveStepIds, ['step-4', 'step-5']);
+  assert.deepEqual(completedCursor.currentWaveStepIds, []);
+  assert.deepEqual(completedCursor.interruptedStepIds, []);
+
+  const completedWindowCursor = markPlanningWindowCompleted(completedCursor);
+  assert.equal(completedWindowCursor.planningWindowState, 'completed_waiting_append');
+}
+
+async function testPlannerInitialExecutionStateExtrasHelper(): Promise<void> {
+  const runtime = buildInitialExecutionRuntimeContext({
+    version: '1',
+    revision: 3,
+    entries: [{ path: 'src/math.js', mode: 'write_locked', ownerStepId: 'step-2', revision: 3 }],
+  }, {
+    version: '1',
+    revision: 3,
+    executionPhase: 'recovering',
+    plannerPhase: 'RETRYING',
+    outcome: 'RUNNING',
+    activeStepIds: ['step-2'],
+    readyStepIds: [],
+    completedStepIds: ['step-1'],
+    failedStepIds: [],
+    blockedStepIds: ['step-3'],
+    degradedStepIds: [],
+    currentWaveStepIds: ['step-2'],
+    lastCompletedWaveStepIds: ['step-1'],
+    selectedWaveStepIds: ['step-2'],
+    interruptedStepIds: ['step-2'],
+    strategy: 'serial',
+    epoch: 3,
+    currentStepId: 'step-2',
+    message: 'resuming',
+    resumeStrategy: 'resume_recovering',
+    lastEventReason: 'continue recovery',
+    activeLockOwnerStepIds: ['step-2'],
+    preservedLockOwnerStepIds: ['step-1'],
+    reusedLockOwnerStepIds: ['step-1'],
+    downgradedLockOwnerStepIds: ['step-2'],
+    droppedLockOwnerStepIds: ['step-unrelated'],
+    recoverySourceStepId: 'step-1',
+    recoverySubgraphStepIds: ['step-1', 'step-2', 'step-3'],
+    lockResumeMode: 'drop_unrelated_writes',
+    planningWindowState: 'executing',
+    recoveryStepId: 'step-2',
+    recoveryReason: 'continue recovery',
+  });
+  const cursor = createInitialExecutionRuntimeCursor(runtime);
+  const extras = buildInitialExecutionStateExtras(cursor, runtime);
+
+  assert.deepEqual(extras.currentWaveStepIds, ['step-2']);
+  assert.deepEqual(extras.lastCompletedWaveStepIds, ['step-1']);
+  assert.deepEqual(extras.selectedWaveStepIds, ['step-2']);
+  assert.deepEqual(extras.interruptedStepIds, ['step-2']);
+  assert.equal(extras.resumeStrategy, 'resume_recovering');
+  assert.deepEqual(extras.activeLockOwnerStepIds, ['step-2']);
+  assert.deepEqual(extras.reusedLockOwnerStepIds, ['step-1']);
+  assert.equal(extras.lockResumeMode, 'drop_unrelated_writes');
+  assert.equal(extras.planningWindowState, 'executing');
+  assert.equal(extras.recoveryStepId, 'step-2');
+  assert.equal(extras.recoveryReason, 'continue recovery');
 }
 
 async function testPlannerPersistedRecoverySnapshotHelper(): Promise<void> {
@@ -186,6 +311,8 @@ async function testPlannerPersistedRecoverySnapshotHelper(): Promise<void> {
     recoverySourceStepId: 'step-1',
     recoverySubgraphStepIds: ['step-1', 'step-2', 'step-3'],
     lockResumeMode: 'drop_unrelated_writes',
+    recoveryStepId: 'step-2',
+    recoveryReason: 'continue recovery',
   });
 
   assert.equal(snapshot.resumeStrategy, 'resume_fallback_path');
@@ -194,6 +321,8 @@ async function testPlannerPersistedRecoverySnapshotHelper(): Promise<void> {
   assert.deepEqual(snapshot.droppedLockOwnerStepIds, ['step-unrelated']);
   assert.equal(snapshot.recoverySourceStepId, 'step-1');
   assert.equal(snapshot.lockResumeMode, 'drop_unrelated_writes');
+  assert.equal(snapshot.recoveryStepId, 'step-2');
+  assert.equal(snapshot.recoveryReason, 'continue recovery');
 }
 
 async function testPlannerExecutionSnapshotBuilder(): Promise<void> {
@@ -269,6 +398,7 @@ async function testPlannerExecutionSnapshotBuilder(): Promise<void> {
   assert.deepEqual(snapshot.activeLockOwnerStepIds, ['step-2']);
   assert.deepEqual(snapshot.reusedLockOwnerStepIds, ['step-1']);
   assert.equal(snapshot.planningWindowState, 'executing');
+  assert.equal(snapshot.recoveryStepId, 'step-2');
   assert.equal(snapshot.recoveryReason, 'continue recovery');
 }
 
