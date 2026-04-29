@@ -118,14 +118,25 @@
 
 这些工作已经落地。下一轮不应继续扩字段，而应继续收口 execution snapshot / reducer / truth-source 边界。
 
-### P0.2：下一轮具体落点
+### P0.2：上一轮已完成落点
+
+上一轮已经完成以下恢复主线落点：
+
+1. 把 execution dispatch snapshot helper 从薄包装推进为真正的单点构造入口。
+2. 为 persisted recovery metadata 增加集中复制 helper，减少恢复字段散落展开。
+3. 补 interrupted partial planning window 的恢复矩阵测试，覆盖 active wave 与 fallback recovery path。
+4. 继续收口 `execute.ts` 中的 wave/window 运行时状态。
+
+这些工作已经落地。下一轮不应继续堆恢复分支，而应继续把 execution state / runtime cursor / truth-source 的职责边界说清楚。
+
+### P0.3：下一轮具体落点
 
 下一轮建议继续专注恢复主线，不切到外部 provider。建议按以下顺序推进：
 
-1. 把 execution dispatch snapshot helper 从薄包装推进为真正的单点构造入口，明确 persisted truth 与 runtime-derived 字段边界。
-2. 继续收口 `execute.ts` 中的局部运行时状态，减少 wave/epoch/recovery/planning-window 字段的重复拼装。
-3. 补 interrupted partial planning window 的恢复矩阵测试，覆盖执行中断后 resume 继续 active wave / recovery path 的语义。
-4. 在文档中明确 `execution.state.json` 中哪些字段是恢复主真相源，哪些字段仍是派生解释信息。
+1. 明确 `execution.state.json` 中 persisted truth、runtime-derived、mixed 字段的分类，并把这套边界写入代码与文档。
+2. 继续精简 `execute.ts` 的局部运行时状态更新，让 runtime cursor 更接近单点状态容器，而不是若干 helper 的集合。
+3. 评估 owner reuse metadata 是否应进一步细化到 path 级别，或在最终 artifact 中更稳定保留。
+4. 收尾恢复主线后，再决定是否切入 provider 生命周期、命名收敛和首个只读外部 provider。
 
 完成这一轮后，再评估是否进入 provider 生命周期和首个只读外部能力接入。
 

@@ -117,6 +117,8 @@ Representative cases:
 
 - `planner execution state machine transitions`
 - `planner execution event dispatch`
+- `planner execution snapshot builder`
+- `planner persisted recovery snapshot helper`
 - `planner invalid retry and resume`
 - `planner resume classifier favors active wave`
 - `planner runtime recovery context helper`
@@ -125,6 +127,7 @@ Representative cases:
 - `planner resume reuses eligible lock owners`
 - `planner resume drops ineligible active writers`
 - `planner resume interrupted planning window reruns active wave`
+- `planner resume interrupted planning window recovers fallback path`
 - `planner resume completed planning window does not rerun`
 - `planner model retry`
 - `planner model retry exhaustion`
