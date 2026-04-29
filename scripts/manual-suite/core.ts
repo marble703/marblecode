@@ -6,6 +6,7 @@ import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { createLocalDiagnosticsProvider } from '../../src/tools/local-diagnostics-provider.js';
+import { buildToolLogRecord } from '../../src/tools/logging.js';
 import { createLocalReferencesProvider } from '../../src/tools/local-references-provider.js';
 import { createLocalSymbolsProvider } from '../../src/tools/local-symbols-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
@@ -31,6 +32,8 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'external readonly provider gate reports access reason', run: testExternalReadonlyProviderGateReportsAccessReason },
     { name: 'tool provider dispose summary', run: testToolProviderDisposeSummary },
     { name: 'tool log includes provider metadata', run: testToolLogIncludesProviderMetadata },
+    { name: 'tool log helper includes provider metadata', run: testToolLogHelperIncludesProviderMetadata },
+    { name: 'tool log helper includes capability source fields', run: testToolLogHelperIncludesCapabilitySourceFields },
     { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
     { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
@@ -405,6 +408,75 @@ async function testToolLogIncludesProviderMetadata(): Promise<void> {
       await registry.disposeAll();
     }
   });
+}
+
+async function testToolLogHelperIncludesProviderMetadata(): Promise<void> {
+  const record = buildToolLogRecord({
+    mode: 'agent',
+    tool: 'diagnostics_list',
+    input: { path: 'src/math.js' },
+    result: { ok: true, data: [] },
+    providerSummary: {
+      id: 'diagnostics-external-fixture',
+      kind: 'external',
+      access: 'read_only',
+      description: 'fixture',
+      capabilities: ['diagnostics'],
+    },
+    logToolBodies: false,
+  });
+
+  assert.deepEqual(record, {
+    mode: 'agent',
+    tool: 'diagnostics_list',
+    providerId: 'diagnostics-external-fixture',
+    providerKind: 'external',
+    providerAccess: 'read_only',
+    providerCapabilities: ['diagnostics'],
+    input: '[omitted]',
+    result: { ok: true },
+    diagnosticsSource: 'diagnostics-external-fixture',
+    symbolsSource: '',
+    referencesSource: '',
+  });
+}
+
+async function testToolLogHelperIncludesCapabilitySourceFields(): Promise<void> {
+  const symbolsRecord = buildToolLogRecord({
+    mode: 'planner',
+    tool: 'symbols_list',
+    input: { path: 'src/math.js' },
+    result: { ok: true, data: [{ name: 'multiply' }] },
+    providerSummary: {
+      id: 'local-symbols',
+      kind: 'external',
+      access: 'read_only',
+      description: 'symbols',
+      capabilities: ['symbols'],
+    },
+    logToolBodies: true,
+  });
+  assert.equal(symbolsRecord.diagnosticsSource, '');
+  assert.equal(symbolsRecord.symbolsSource, 'local-symbols');
+  assert.equal(symbolsRecord.referencesSource, '');
+
+  const referencesRecord = buildToolLogRecord({
+    mode: 'planner',
+    tool: 'references_list',
+    input: { path: 'src/router.js' },
+    result: { ok: true, data: [{ symbolName: 'registerRoute' }] },
+    providerSummary: {
+      id: 'local-references',
+      kind: 'external',
+      access: 'read_only',
+      description: 'references',
+      capabilities: ['references'],
+    },
+    logToolBodies: true,
+  });
+  assert.equal(referencesRecord.diagnosticsSource, '');
+  assert.equal(referencesRecord.symbolsSource, '');
+  assert.equal(referencesRecord.referencesSource, 'local-references');
 }
 
 async function testLocalDiagnosticsProviderReadsArtifact(): Promise<void> {
