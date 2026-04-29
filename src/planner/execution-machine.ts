@@ -38,9 +38,14 @@ export interface PlannerExecutionSnapshotInput {
   interruptedStepIds?: string[];
   lastEventReason?: string;
   activeLockOwnerStepIds?: string[];
+  preservedLockOwnerStepIds?: string[];
+  reusedLockOwnerStepIds?: string[];
+  downgradedLockOwnerStepIds?: string[];
+  droppedLockOwnerStepIds?: string[];
   recoverySourceStepId?: string;
   recoverySubgraphStepIds?: string[];
   lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+  planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
   recoveryStepId?: string;
   recoveryReason?: string;
 }
@@ -129,9 +134,14 @@ export async function dispatchExecutionEvent(
     lastEventType: event.type as PlannerExecutionEventType,
     ...(input.lastEventReason ? { lastEventReason: input.lastEventReason } : {}),
     ...(input.activeLockOwnerStepIds ? { activeLockOwnerStepIds: input.activeLockOwnerStepIds } : {}),
+    ...(input.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: input.preservedLockOwnerStepIds } : {}),
+    ...(input.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: input.reusedLockOwnerStepIds } : {}),
+    ...(input.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: input.downgradedLockOwnerStepIds } : {}),
+    ...(input.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: input.droppedLockOwnerStepIds } : {}),
     ...(input.recoverySourceStepId ? { recoverySourceStepId: input.recoverySourceStepId } : {}),
     ...(input.recoverySubgraphStepIds ? { recoverySubgraphStepIds: input.recoverySubgraphStepIds } : {}),
     ...(input.lockResumeMode ? { lockResumeMode: input.lockResumeMode } : {}),
+    ...(input.planningWindowState ? { planningWindowState: input.planningWindowState } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
     ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
   });

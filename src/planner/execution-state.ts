@@ -17,11 +17,13 @@ export function createPlannerExecutionState(
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
     preservedLockOwnerStepIds?: string[];
+    reusedLockOwnerStepIds?: string[];
     downgradedLockOwnerStepIds?: string[];
     droppedLockOwnerStepIds?: string[];
     recoverySourceStepId?: string;
     recoverySubgraphStepIds?: string[];
     lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+    planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
     recoveryStepId?: string;
     recoveryReason?: string;
   },
@@ -51,11 +53,13 @@ export function createPlannerExecutionState(
     ...(extras?.lastEventReason ? { lastEventReason: extras.lastEventReason } : {}),
     ...(extras?.activeLockOwnerStepIds && extras.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: extras.activeLockOwnerStepIds } : {}),
     ...(extras?.preservedLockOwnerStepIds && extras.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: extras.preservedLockOwnerStepIds } : {}),
+    ...(extras?.reusedLockOwnerStepIds && extras.reusedLockOwnerStepIds.length > 0 ? { reusedLockOwnerStepIds: extras.reusedLockOwnerStepIds } : {}),
     ...(extras?.downgradedLockOwnerStepIds && extras.downgradedLockOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: extras.downgradedLockOwnerStepIds } : {}),
     ...(extras?.droppedLockOwnerStepIds && extras.droppedLockOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: extras.droppedLockOwnerStepIds } : {}),
     ...(extras?.recoverySourceStepId ? { recoverySourceStepId: extras.recoverySourceStepId } : {}),
     ...(extras?.recoverySubgraphStepIds && extras.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: extras.recoverySubgraphStepIds } : {}),
     ...(extras?.lockResumeMode ? { lockResumeMode: extras.lockResumeMode } : {}),
+    ...(extras?.planningWindowState ? { planningWindowState: extras.planningWindowState } : {}),
     ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
     ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
   };
@@ -79,6 +83,11 @@ export function buildInitialExecutionRuntimeContext(
   recoverySourceStepId: string | null;
   recoverySubgraphStepIds: string[];
   lockResumeMode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']> | '';
+  planningWindowState: NonNullable<PlannerExecutionStateArtifact['planningWindowState']> | '';
+  reusedLockOwnerStepIds: string[];
+  preservedLockOwnerStepIds: string[];
+  downgradedLockOwnerStepIds: string[];
+  droppedLockOwnerStepIds: string[];
 } {
   return {
     lockTable,
@@ -91,5 +100,10 @@ export function buildInitialExecutionRuntimeContext(
     recoverySourceStepId: executionState?.recoverySourceStepId ?? null,
     recoverySubgraphStepIds: executionState?.recoverySubgraphStepIds ?? [],
     lockResumeMode: executionState?.lockResumeMode ?? '',
+    planningWindowState: executionState?.planningWindowState ?? '',
+    reusedLockOwnerStepIds: executionState?.reusedLockOwnerStepIds ?? [],
+    preservedLockOwnerStepIds: executionState?.preservedLockOwnerStepIds ?? [],
+    downgradedLockOwnerStepIds: executionState?.downgradedLockOwnerStepIds ?? [],
+    droppedLockOwnerStepIds: executionState?.droppedLockOwnerStepIds ?? [],
   };
 }

@@ -122,11 +122,13 @@ export interface PlannerViewModel {
   lastEventReason: string;
   activeLockOwnerStepIds: string[];
   preservedLockOwnerStepIds: string[];
+  reusedLockOwnerStepIds: string[];
   downgradedLockOwnerStepIds: string[];
   droppedLockOwnerStepIds: string[];
   recoverySourceStepId: string | null;
   recoverySubgraphStepIds: string[];
   lockResumeMode: string;
+  planningWindowState: string;
 }
 
 export async function loadPlannerView(sessionDir: string): Promise<PlannerViewModel> {
@@ -221,11 +223,13 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventReason: '',
     activeLockOwnerStepIds: [],
     preservedLockOwnerStepIds: [],
+    reusedLockOwnerStepIds: [],
     downgradedLockOwnerStepIds: [],
     droppedLockOwnerStepIds: [],
     recoverySourceStepId: null,
     recoverySubgraphStepIds: [],
     lockResumeMode: '',
+    planningWindowState: '',
     recoveryStepId: null,
     recoveryReason: '',
   }) as {
@@ -241,11 +245,13 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventReason?: string;
     activeLockOwnerStepIds?: string[];
     preservedLockOwnerStepIds?: string[];
+    reusedLockOwnerStepIds?: string[];
     downgradedLockOwnerStepIds?: string[];
     droppedLockOwnerStepIds?: string[];
     recoverySourceStepId?: string | null;
     recoverySubgraphStepIds?: string[];
     lockResumeMode?: string;
+    planningWindowState?: string;
     recoveryStepId?: string | null;
     recoveryReason?: string;
   };
@@ -317,11 +323,13 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lastEventReason: executionState.lastEventReason ?? '',
     activeLockOwnerStepIds: executionState.activeLockOwnerStepIds ?? [],
     preservedLockOwnerStepIds: executionState.preservedLockOwnerStepIds ?? [],
+    reusedLockOwnerStepIds: executionState.reusedLockOwnerStepIds ?? [],
     downgradedLockOwnerStepIds: executionState.downgradedLockOwnerStepIds ?? [],
     droppedLockOwnerStepIds: executionState.droppedLockOwnerStepIds ?? [],
     recoverySourceStepId: executionState.recoverySourceStepId ?? null,
     recoverySubgraphStepIds: executionState.recoverySubgraphStepIds ?? [],
     lockResumeMode: executionState.lockResumeMode ?? '',
+    planningWindowState: executionState.planningWindowState ?? '',
   };
 }
 

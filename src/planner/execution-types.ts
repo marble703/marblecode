@@ -31,11 +31,13 @@ export interface PlannerExecutionStateArtifact {
   lastEventReason?: string;
   activeLockOwnerStepIds?: string[];
   preservedLockOwnerStepIds?: string[];
+  reusedLockOwnerStepIds?: string[];
   downgradedLockOwnerStepIds?: string[];
   droppedLockOwnerStepIds?: string[];
   recoverySourceStepId?: string;
   recoverySubgraphStepIds?: string[];
   lockResumeMode?: 'reacquire' | 'preserve_guarded' | 'drop_unrelated_writes';
+  planningWindowState?: 'executing' | 'completed_waiting_append';
   recoveryStepId?: string;
   recoveryReason?: string;
 }

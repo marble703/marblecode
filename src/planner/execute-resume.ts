@@ -4,6 +4,7 @@ import type { SessionRecord } from '../session/index.js';
 import type { PlannerExecutionArtifacts, PlannerExecutionStateArtifact } from './execution-types.js';
 import { buildExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
+import { canTransferOwnership } from './ownership.js';
 import type { PlannerRequestArtifact, PlannerPlan, PlannerState, PlannerStep } from './types.js';
 import { executePlannerPlan } from './execute.js';
 import { classifyPlannerStep, updatePlannerStep } from './runtime.js';
@@ -14,6 +15,7 @@ interface PlannerResumeDecision {
   strategy: PlannerResumeStrategy;
   stepIdsToReset: string[];
   reason: string;
+  planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
   recoverySourceStepId?: string;
   recoveryStepId?: string;
   recoverySubgraphStepIds?: string[];
@@ -25,6 +27,7 @@ interface PlannerResumeDecision {
 interface PlannerResumeLockOutcome {
   nextLockTable: ExecutionLockTable;
   preservedOwnerStepIds: string[];
+  reusedOwnerStepIds: string[];
   downgradedOwnerStepIds: string[];
   droppedOwnerStepIds: string[];
   mode: NonNullable<PlannerExecutionStateArtifact['lockResumeMode']>;
@@ -47,7 +50,7 @@ export async function resumePlannerExecution(
 
   let plan = artifacts.plan;
   let state = artifacts.state;
-  const lockOutcome = computeResumeLockOutcome(artifacts.lockTable, decision);
+  const lockOutcome = computeResumeLockOutcome(artifacts.lockTable, decision, artifacts.plan);
   let lockTable = lockOutcome.nextLockTable;
 
   if (decision.stepIdsToReset.length > 0) {
@@ -95,9 +98,11 @@ export async function resumePlannerExecution(
       ...(decision.recoveryStepId ? { recoveryStepId: decision.recoveryStepId } : {}),
       ...(decision.recoverySubgraphStepIds && decision.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: decision.recoverySubgraphStepIds } : {}),
       ...(lockOutcome.preservedOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: lockOutcome.preservedOwnerStepIds } : {}),
+      ...(lockOutcome.reusedOwnerStepIds.length > 0 ? { reusedLockOwnerStepIds: lockOutcome.reusedOwnerStepIds } : {}),
       ...(lockOutcome.downgradedOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: lockOutcome.downgradedOwnerStepIds } : {}),
       ...(lockOutcome.droppedOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: lockOutcome.droppedOwnerStepIds } : {}),
       lockResumeMode: lockOutcome.mode,
+      ...(decision.planningWindowState ? { planningWindowState: decision.planningWindowState } : {}),
       lastEventReason: decision.reason,
     },
   });
@@ -126,6 +131,16 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
     };
   }
 
+  if (artifacts.executionState.planningWindowState === 'completed_waiting_append') {
+    return {
+      strategy: 'return_terminal',
+      stepIdsToReset: [],
+      reason: 'partial planning window already completed; waiting for append.',
+      planningWindowState: 'completed_waiting_append',
+      returnExistingState: true,
+    };
+  }
+
   const currentWaveStepIds = artifacts.executionState.currentWaveStepIds ?? [];
   const activeStepIds = artifacts.executionState.activeStepIds ?? [];
   const readyStepIds = artifacts.executionState.readyStepIds ?? [];
@@ -149,6 +164,7 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
         ...(recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds } : {}),
         preserveGuardedLocks: true,
         lockResumeMode: 'drop_unrelated_writes',
+        planningWindowState: 'executing',
       };
     }
   }
@@ -162,6 +178,7 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
       strategy: 'rerun_active',
       stepIdsToReset: currentWaveStepIds,
       reason: 'resuming the interrupted active wave.',
+      planningWindowState: 'executing',
     };
   }
 
@@ -170,6 +187,7 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
       strategy: 'rerun_active',
       stepIdsToReset: activeStepIds,
       reason: 'resuming interrupted active steps.',
+      planningWindowState: 'executing',
     };
   }
 
@@ -178,6 +196,7 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
       strategy: 'rerun_ready',
       stepIdsToReset: readyStepIds,
       reason: 're-running ready steps from the last persisted snapshot.',
+      planningWindowState: 'executing',
     };
   }
 
@@ -185,16 +204,18 @@ function classifyResumeDecision(artifacts: PlannerExecutionArtifacts): PlannerRe
     strategy: 'rebuild_from_plan',
     stepIdsToReset: pendingStepIds,
     reason: 'rebuilding runnable steps from the persisted plan.',
+    ...(artifacts.plan.isPartial === true ? { planningWindowState: 'executing' as const } : {}),
   };
 }
 
-function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: PlannerResumeDecision): PlannerResumeLockOutcome {
+function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: PlannerResumeDecision, plan: PlannerPlan): PlannerResumeLockOutcome {
   const stepIds = new Set(decision.stepIdsToReset);
   const recoverySubgraph = new Set(decision.recoverySubgraphStepIds ?? []);
   if (stepIds.size === 0 && recoverySubgraph.size === 0) {
     return {
       nextLockTable: lockTable,
       preservedOwnerStepIds: [],
+      reusedOwnerStepIds: [],
       downgradedOwnerStepIds: [],
       droppedOwnerStepIds: [],
       mode: decision.lockResumeMode ?? 'drop_unrelated_writes',
@@ -202,8 +223,10 @@ function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: Plann
   }
 
   const preservedOwnerStepIds = new Set<string>();
+  const reusedOwnerStepIds = new Set<string>();
   const downgradedOwnerStepIds = new Set<string>();
   const droppedOwnerStepIds = new Set<string>();
+  const targetStepIds = [...new Set([...(decision.stepIdsToReset ?? []), ...(decision.recoverySubgraphStepIds ?? [])])];
 
   const nextEntries = lockTable.entries
     .filter((entry) => {
@@ -222,6 +245,10 @@ function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: Plann
         downgradedOwnerStepIds.add(entry.ownerStepId);
         return { ...entry, mode: 'guarded_read' as const };
       }
+      if (entry.mode === 'guarded_read' && canReuseGuardedOwner(plan, entry.ownerStepId, targetStepIds)) {
+        preservedOwnerStepIds.add(entry.ownerStepId);
+        reusedOwnerStepIds.add(entry.ownerStepId);
+      }
       return entry;
     });
 
@@ -231,10 +258,15 @@ function computeResumeLockOutcome(lockTable: ExecutionLockTable, decision: Plann
       entries: nextEntries,
     },
     preservedOwnerStepIds: [...preservedOwnerStepIds],
+    reusedOwnerStepIds: [...reusedOwnerStepIds],
     downgradedOwnerStepIds: [...downgradedOwnerStepIds],
     droppedOwnerStepIds: [...droppedOwnerStepIds],
     mode: decision.lockResumeMode ?? 'drop_unrelated_writes',
   };
+}
+
+function canReuseGuardedOwner(plan: PlannerPlan, ownerStepId: string, targetStepIds: string[]): boolean {
+  return targetStepIds.some((stepId) => canTransferOwnership(plan, ownerStepId, stepId));
 }
 
 function shouldPreserveCurrentWave(strategy: PlannerResumeDecision['strategy']): boolean {

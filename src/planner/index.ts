@@ -75,7 +75,7 @@ export async function runPlanner(
   if (prior && !input.prompt.trim() && input.executeSubtasks) {
     try {
       const executionArtifacts = await loadPlannerExecutionArtifacts(session.dir);
-      if (executionArtifacts.executionState.executionPhase !== 'done') {
+      if (executionArtifacts.executionState.planningWindowState !== 'completed_waiting_append' && executionArtifacts.executionState.executionPhase !== 'done') {
         const resumedExecution = await resumePlannerExecution(config, providers, session, requestArtifact, executionArtifacts);
         const resumedOutcome = resumedExecution.state.outcome === 'DONE'
           ? 'completed'

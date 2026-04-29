@@ -33,6 +33,29 @@ interface ExecutePlannerInitialContext {
   executionState?: PlannerExecutionStateArtifact;
 }
 
+interface ExecuteDispatchSnapshot {
+  state: PlannerState;
+  strategy: ReturnType<typeof getPlannerExecutionStrategy>['mode'];
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  epoch: number;
+  selectedWaveStepIds?: string[];
+  interruptedStepIds?: string[];
+  activeLockOwnerStepIds?: string[];
+  resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
+  preservedLockOwnerStepIds?: string[];
+  reusedLockOwnerStepIds?: string[];
+  downgradedLockOwnerStepIds?: string[];
+  droppedLockOwnerStepIds?: string[];
+  recoverySourceStepId?: string;
+  recoverySubgraphStepIds?: string[];
+  lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+  planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
+  recoveryStepId?: string;
+  recoveryReason?: string;
+  lastEventReason?: string;
+}
+
 export async function executePlannerPlan(
   config: AppConfig,
   providers: Map<string, ModelProvider>,
@@ -62,6 +85,7 @@ export async function executePlannerPlan(
   let selectedWaveStepIds: string[] = initialRuntime.selectedWaveStepIds;
   let interruptedStepIds: string[] = initialRuntime.interruptedStepIds;
   let executionEpoch = initialRuntime.executionEpoch;
+  let planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '' = initialRuntime.planningWindowState;
   let executionState = createInitialExecutionState(nextState, strategy.mode, {
     currentWaveStepIds,
     lastCompletedWaveStepIds,
@@ -71,9 +95,14 @@ export async function executePlannerPlan(
     ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
     ...(initialContext?.executionState?.lastEventReason ? { lastEventReason: initialContext.executionState.lastEventReason } : {}),
     ...(initialRuntime.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: initialRuntime.activeLockOwnerStepIds } : {}),
+    ...(initialRuntime.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: initialRuntime.preservedLockOwnerStepIds } : {}),
+    ...(initialRuntime.reusedLockOwnerStepIds.length > 0 ? { reusedLockOwnerStepIds: initialRuntime.reusedLockOwnerStepIds } : {}),
+    ...(initialRuntime.downgradedLockOwnerStepIds.length > 0 ? { downgradedLockOwnerStepIds: initialRuntime.downgradedLockOwnerStepIds } : {}),
+    ...(initialRuntime.droppedLockOwnerStepIds.length > 0 ? { droppedLockOwnerStepIds: initialRuntime.droppedLockOwnerStepIds } : {}),
     ...(initialRuntime.recoverySourceStepId ? { recoverySourceStepId: initialRuntime.recoverySourceStepId } : {}),
     ...(initialRuntime.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: initialRuntime.recoverySubgraphStepIds } : {}),
     ...(initialRuntime.lockResumeMode ? { lockResumeMode: initialRuntime.lockResumeMode } : {}),
+    ...(planningWindowState ? { planningWindowState } : {}),
     ...(initialContext?.executionState?.recoveryStepId ? { recoveryStepId: initialContext.executionState.recoveryStepId } : {}),
     ...(initialContext?.executionState?.recoveryReason ? { recoveryReason: initialContext.executionState.recoveryReason } : {}),
   });
@@ -86,29 +115,35 @@ export async function executePlannerPlan(
       recoveryReason?: string;
     },
   ): Promise<void> => {
+    const snapshot = buildExecutionDispatchSnapshot({
+      state: nextState,
+      strategy: strategy.mode,
+      currentWaveStepIds,
+      lastCompletedWaveStepIds,
+      epoch: executionEpoch,
+      ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
+      ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
+      ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
+      ...(executionState.resumeStrategy ? { resumeStrategy: executionState.resumeStrategy } : {}),
+      ...(executionState.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: executionState.preservedLockOwnerStepIds } : {}),
+      ...(executionState.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: executionState.reusedLockOwnerStepIds } : {}),
+      ...(executionState.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: executionState.downgradedLockOwnerStepIds } : {}),
+      ...(executionState.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: executionState.droppedLockOwnerStepIds } : {}),
+      ...(executionState.recoverySourceStepId ? { recoverySourceStepId: executionState.recoverySourceStepId } : {}),
+      ...(executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: executionState.recoverySubgraphStepIds } : {}),
+      ...(executionState.lockResumeMode ? { lockResumeMode: executionState.lockResumeMode } : {}),
+      ...(planningWindowState ? { planningWindowState } : {}),
+      ...(extras?.recoveryReason ? { lastEventReason: extras.recoveryReason } : {}),
+      ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
+      ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
+    });
     executionState = await dispatchExecutionEvent(
       session,
       executionGraph,
       lockTable,
       executionState,
       event,
-      {
-        state: nextState,
-        strategy: strategy.mode,
-        currentWaveStepIds,
-        lastCompletedWaveStepIds,
-        epoch: executionEpoch,
-        ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
-        ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
-        ...(summarizeActiveLockOwners(lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(lockTable) } : {}),
-        ...(executionState.resumeStrategy ? { resumeStrategy: executionState.resumeStrategy } : {}),
-        ...(executionState.recoverySourceStepId ? { recoverySourceStepId: executionState.recoverySourceStepId } : {}),
-        ...(executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: executionState.recoverySubgraphStepIds } : {}),
-        ...(executionState.lockResumeMode ? { lockResumeMode: executionState.lockResumeMode } : {}),
-        ...(extras?.recoveryReason ? { lastEventReason: extras.recoveryReason } : {}),
-        ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
-        ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
-      },
+      snapshot,
     );
   };
 
@@ -401,6 +436,7 @@ export async function executePlannerPlan(
     executedWaveCount += 1;
     await dispatchExecution({ type: 'WAVE_CONVERGED' });
     if (nextPlan.isPartial === true && executedWaveCount >= config.routing.planningWindowWaves) {
+      planningWindowState = 'completed_waiting_append';
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
         phase: 'PENDING',
@@ -417,6 +453,7 @@ export async function executePlannerPlan(
       }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+      await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
       return { plan: nextPlan, state: nextState };
     }
   }
@@ -437,4 +474,8 @@ export async function executePlannerPlan(
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
   return { plan: nextPlan, state: nextState };
+}
+
+function buildExecutionDispatchSnapshot(snapshot: ExecuteDispatchSnapshot): ExecuteDispatchSnapshot {
+  return snapshot;
 }
