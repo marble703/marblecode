@@ -4,6 +4,7 @@ import { applyPatch, previewPatch } from '../patch/apply.js';
 import type { PatchApplyResult } from '../patch/types.js';
 import { invokeWithRetry } from '../provider/retry.js';
 import type { ModelProvider } from '../provider/types.js';
+import { buildToolLogRecord } from '../tools/logging.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { runVerifier } from '../verifier/index.js';
 import type { AppConfig } from '../config/schema.js';
@@ -97,19 +98,14 @@ export async function runAgentRuntime(
       if (step.type === 'tool_call') {
         const toolResult = await tools.execute({ name: step.tool, input: step.input });
         const providerSummary = tools.getProviderSummaryForTool(step.tool);
-        const toolLogRecord = tools.sanitizeProviderLogRecord(step.tool, {
+        const toolLogRecord = tools.sanitizeProviderLogRecord(step.tool, buildToolLogRecord({
           mode: 'agent',
           tool: step.tool,
-          providerId: providerSummary.id,
-          providerKind: providerSummary.kind,
-          providerAccess: providerSummary.access,
-          providerCapabilities: providerSummary.capabilities,
-          input: config.session.logToolBodies ? step.input : '[omitted]',
-          result: config.session.logToolBodies ? toolResult : { ok: toolResult.ok },
-          diagnosticsSource: providerSummary.capabilities.includes('diagnostics') ? providerSummary.id : '',
-          symbolsSource: providerSummary.capabilities.includes('symbols') ? providerSummary.id : '',
-          referencesSource: providerSummary.capabilities.includes('references') ? providerSummary.id : '',
-        });
+          input: step.input,
+          result: toolResult,
+          providerSummary,
+          logToolBodies: config.session.logToolBodies,
+        }));
         await appendSessionLog(
           session,
           'tools.jsonl',
