@@ -1,12 +1,19 @@
-import type { Tool, ToolCall, ToolProvider, ToolResult } from './types.js';
+import type { Tool, ToolCall, ToolProvider, ToolProviderMetadata, ToolResult } from './types.js';
 
 export class StaticToolProvider implements ToolProvider {
   public readonly id: string;
+  public readonly metadata: ToolProviderMetadata;
 
   private readonly tools = new Map<string, Tool>();
 
-  public constructor(id: string, tools: Tool[]) {
+  public constructor(id: string, tools: Tool[], metadata?: ToolProviderMetadata) {
     this.id = id;
+    this.metadata = {
+      kind: metadata?.kind ?? 'builtin',
+      access: metadata?.access ?? 'read_write',
+      ...(metadata?.description ? { description: metadata.description } : {}),
+      ...(metadata?.capabilities ? { capabilities: metadata.capabilities } : {}),
+    };
     for (const tool of tools) {
       this.tools.set(tool.definition.name, tool);
     }

@@ -14,6 +14,7 @@ import type {
   RoutingConfig,
   SessionConfig,
   ShellPolicyConfig,
+  ToolProvidersConfig,
   VerifierConfigInput,
 } from './schema.js';
 
@@ -27,6 +28,7 @@ interface AppConfigInput {
   models?: Record<string, ModelProfileConfigInput>;
   routing?: Partial<RoutingConfig>;
   context?: Partial<ContextConfig>;
+  tools?: Partial<ToolProvidersConfig>;
   policy?: {
     path?: Partial<PathPolicyConfig>;
     shell?: Partial<ShellPolicyConfig>;
@@ -88,6 +90,10 @@ export async function loadConfig(configPath?: string, workspaceOverride?: string
       exclude: projectConfig.context?.exclude ?? parsed.context?.exclude ?? ['node_modules/**', '.git/**', '.agent/**'],
       sensitive: projectConfig.context?.sensitive ?? parsed.context?.sensitive ?? ['.env*', '**/*.pem', '**/*.key'],
       autoDeny: projectConfig.context?.autoDeny ?? parsed.context?.autoDeny ?? [],
+    },
+    tools: {
+      externalProvidersEnabled: projectConfig.tools?.externalProvidersEnabled ?? parsed.tools?.externalProvidersEnabled ?? false,
+      allow: projectConfig.tools?.allow ?? parsed.tools?.allow ?? [],
     },
     policy: {
       path: {

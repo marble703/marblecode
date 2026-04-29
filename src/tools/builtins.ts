@@ -32,11 +32,21 @@ export function createPlannerTools(config: AppConfig, policy: PolicyEngine): Too
 }
 
 export function createBuiltinToolProvider(config: AppConfig, policy: PolicyEngine): ToolProvider {
-  return new StaticToolProvider('builtin', createBuiltinTools(config, policy));
+  return new StaticToolProvider('builtin', createBuiltinTools(config, policy), {
+    kind: 'builtin',
+    access: 'read_write',
+    description: 'Default built-in host tools.',
+    capabilities: ['read_file', 'list_files', 'search_text', 'run_shell', 'git'],
+  });
 }
 
 export function createPlannerToolProvider(config: AppConfig, policy: PolicyEngine): ToolProvider {
-  return new StaticToolProvider('planner-builtin', createPlannerTools(config, policy));
+  return new StaticToolProvider('planner-builtin', createPlannerTools(config, policy), {
+    kind: 'builtin',
+    access: 'read_only',
+    description: 'Planner-safe read-only built-in tools.',
+    capabilities: ['read_file', 'list_files', 'search_text', 'git'],
+  });
 }
 
 function createReadFileTool(config: AppConfig, policy: PolicyEngine): Tool {

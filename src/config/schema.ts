@@ -99,11 +99,17 @@ export interface SessionConfig {
   modelRetryDelayMs: number;
 }
 
+export interface ToolProvidersConfig {
+  externalProvidersEnabled: boolean;
+  allow: string[];
+}
+
 export interface ProjectConfigInput {
   providers?: Record<string, ProviderConfigInput>;
   models?: Record<string, ModelProfileConfigInput>;
   routing?: Partial<RoutingConfig>;
   context?: Partial<ContextConfig>;
+  tools?: Partial<ToolProvidersConfig>;
   policy?: {
     path?: Partial<PathPolicyConfig>;
     shell?: Partial<ShellPolicyConfig>;
@@ -126,6 +132,7 @@ export interface AppConfig {
   models: Record<string, ModelProfileConfig>;
   routing: RoutingConfig;
   context: ContextConfig;
+  tools: ToolProvidersConfig;
   policy: PolicyConfig;
   verifier: VerifierConfig;
   session: SessionConfig;

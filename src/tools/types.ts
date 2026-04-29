@@ -23,8 +23,20 @@ export interface Tool {
   execute(input: Record<string, unknown>): Promise<ToolResult>;
 }
 
+export type ToolProviderKind = 'builtin' | 'external' | 'fixture';
+
+export type ToolProviderAccess = 'read_only' | 'read_write';
+
+export interface ToolProviderMetadata {
+  kind?: ToolProviderKind;
+  access?: ToolProviderAccess;
+  description?: string;
+  capabilities?: string[];
+}
+
 export interface ToolProvider {
   id: string;
+  metadata?: ToolProviderMetadata;
   listTools(): Tool[];
   executeTool(call: ToolCall): Promise<ToolResult>;
   dispose?(): Promise<void> | void;
