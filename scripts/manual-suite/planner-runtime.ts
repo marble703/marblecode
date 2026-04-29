@@ -6,6 +6,7 @@ import {
   buildInitialExecutionRuntimeContext,
   buildMathFixStep,
   buildPlannerRequestArtifact,
+  copyPersistedRecoverySnapshot,
   classifyPlannerStep,
   createExecutionLockTable,
   createInitialExecutionState,
@@ -35,6 +36,7 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
   return [
     { name: 'planner runtime helpers', run: testPlannerRuntimeHelpers },
     { name: 'planner execution snapshot builder', run: testPlannerExecutionSnapshotBuilder },
+    { name: 'planner persisted recovery snapshot helper', run: testPlannerPersistedRecoverySnapshotHelper },
     { name: 'planner runtime recovery context helper', run: testPlannerRuntimeRecoveryContextHelper },
     { name: 'planner execution state machine transitions', run: testPlannerExecutionStateMachineTransitions },
     { name: 'planner execution event dispatch', run: testPlannerExecutionEventDispatch },
@@ -49,6 +51,7 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
     { name: 'planner resume reuses eligible lock owners', run: testPlannerResumeReusesEligibleLockOwners },
     { name: 'planner resume drops ineligible active writers', run: testPlannerResumeDropsIneligibleActiveWriters },
     { name: 'planner resume interrupted planning window reruns active wave', run: testPlannerResumeInterruptedPlanningWindowRerunsActiveWave },
+    { name: 'planner resume interrupted planning window recovers fallback path', run: testPlannerResumeInterruptedPlanningWindowRecoversFallbackPath },
     { name: 'planner resume completed planning window does not rerun', run: testPlannerResumeCompletedPlanningWindowDoesNotRerun },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
@@ -154,6 +157,43 @@ async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
   assert.deepEqual(context.downgradedLockOwnerStepIds, []);
   assert.deepEqual(context.droppedLockOwnerStepIds, []);
   assert.equal(context.lockTable.entries.some((entry) => entry.ownerStepId === 'step-2' && entry.mode === 'write_locked'), true);
+}
+
+async function testPlannerPersistedRecoverySnapshotHelper(): Promise<void> {
+  const snapshot = copyPersistedRecoverySnapshot({
+    version: '1',
+    revision: 2,
+    executionPhase: 'recovering',
+    plannerPhase: 'RETRYING',
+    outcome: 'RUNNING',
+    activeStepIds: ['step-2'],
+    readyStepIds: [],
+    completedStepIds: ['step-1'],
+    failedStepIds: [],
+    blockedStepIds: ['step-3'],
+    degradedStepIds: [],
+    currentWaveStepIds: ['step-2'],
+    lastCompletedWaveStepIds: ['step-1'],
+    strategy: 'serial',
+    epoch: 2,
+    currentStepId: 'step-2',
+    message: 'recovering',
+    resumeStrategy: 'resume_fallback_path',
+    preservedLockOwnerStepIds: ['step-1'],
+    reusedLockOwnerStepIds: ['step-1'],
+    downgradedLockOwnerStepIds: ['step-2'],
+    droppedLockOwnerStepIds: ['step-unrelated'],
+    recoverySourceStepId: 'step-1',
+    recoverySubgraphStepIds: ['step-1', 'step-2', 'step-3'],
+    lockResumeMode: 'drop_unrelated_writes',
+  });
+
+  assert.equal(snapshot.resumeStrategy, 'resume_fallback_path');
+  assert.deepEqual(snapshot.preservedLockOwnerStepIds, ['step-1']);
+  assert.deepEqual(snapshot.reusedLockOwnerStepIds, ['step-1']);
+  assert.deepEqual(snapshot.droppedLockOwnerStepIds, ['step-unrelated']);
+  assert.equal(snapshot.recoverySourceStepId, 'step-1');
+  assert.equal(snapshot.lockResumeMode, 'drop_unrelated_writes');
 }
 
 async function testPlannerExecutionSnapshotBuilder(): Promise<void> {
@@ -778,7 +818,7 @@ async function testPlannerResumeRecoversFallbackPath(): Promise<void> {
               version: '1',
               summary: 'Resume through a fallback recovery path.',
               steps: [
-                { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Fail first.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'] },
+                { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Fail first.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'], ownershipTransfers: ['step-1-fallback'] },
                 { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING', kind: 'code', details: 'Use fallback to fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
                 { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Verify after fallback.', dependencies: ['step-1'], children: [] },
               ],
@@ -1148,6 +1188,95 @@ async function testPlannerResumeInterruptedPlanningWindowRerunsActiveWave(): Pro
     assert.equal(resumedExecutionState.resumeStrategy, 'rerun_active');
     assert.equal(resumedExecutionState.planningWindowState, 'completed_waiting_append');
     assert.deepEqual(resumedExecutionState.lastCompletedWaveStepIds ?? [], ['step-1']);
+  });
+}
+
+async function testPlannerResumeInterruptedPlanningWindowRecoversFallbackPath(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.planningWindowWaves = 1;
+    let fallbackExecutions = 0;
+    const provider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!content.includes('"id": "step-1"') && !content.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Interrupted partial planning window through fallback recovery.',
+              isPartial: true,
+              planningHorizon: { waveCount: 1 },
+              steps: [
+                { id: 'step-1', title: 'Primary impossible implementation', status: 'PENDING', kind: 'code', details: 'Fail first.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'] },
+                { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING', kind: 'code', details: 'Use fallback to fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Verify after fallback.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Interrupted partial planning window through fallback recovery.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        if (content.includes('Fallback add implementation')) {
+          fallbackExecutions += 1;
+          return buildMathFixStep(workspaceRoot);
+        }
+        throw new Error('Primary step should not be rerun during interrupted fallback planning window resume');
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const session = await createSession(config);
+    const interruptedPlan = {
+      version: '1' as const,
+      revision: 1,
+      summary: 'Interrupted partial planning window through fallback recovery.',
+      isPartial: true,
+      planningHorizon: { waveCount: 1 },
+      steps: [
+        { id: 'step-1', title: 'Primary impossible implementation', status: 'FAILED' as const, kind: 'code' as const, attempts: 1, details: 'Fail first.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], fallbackStepIds: ['step-1-fallback'], ownershipTransfers: ['step-1-fallback'], executionState: 'failed' as const, lastError: 'Primary implementation failed intentionally' },
+        { id: 'step-1-fallback', title: 'Fallback add implementation', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, details: 'Use fallback to fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [], executionState: 'ready' as const, lastError: 'Activated as fallback for step-1.' },
+        { id: 'step-2', title: 'Record fallback note', status: 'PENDING' as const, kind: 'search' as const, attempts: 0, details: 'No-op step after fallback.', dependencies: ['step-1'], children: [], executionState: 'blocked' as const },
+      ],
+    };
+    const interruptedState = { version: '1' as const, revision: 1, phase: 'RETRYING' as const, outcome: 'RUNNING' as const, currentStepId: 'step-1-fallback', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], invalidResponseAttempts: 0, message: 'Activated fallback step(s): step-1-fallback.', consistencyErrors: [] };
+    await writeFile(path.join(workspaceRoot, 'src/math.js'), 'export function add(a, b) {\n  return a - b;\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n', 'utf8');
+    const resumedExecution = await executePlannerPlan(
+      config,
+      new Map([['stub', provider]]),
+      session,
+      {
+        promptHistory: ['生成一个会在 partial window 中断并走 fallback 的计划'],
+        explicitFiles: ['src/math.js', 'tests/check-math.js'],
+        pastedSnippets: [],
+        resumedFrom: session.dir,
+      },
+      interruptedPlan,
+      interruptedState,
+      {
+        classifyPlannerStep,
+        updatePlannerStep,
+      },
+      {
+        lockTable: { version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'guarded_read', ownerStepId: 'step-1', revision: 1 }, { path: 'src/notes.txt', mode: 'write_locked', ownerStepId: 'step-unrelated', revision: 1 }] },
+        executionState: { version: '1', revision: 1, executionPhase: 'recovering', plannerPhase: 'RETRYING', outcome: 'RUNNING', activeStepIds: [], readyStepIds: ['step-1-fallback'], completedStepIds: [], failedStepIds: ['step-1'], blockedStepIds: ['step-2'], degradedStepIds: [], currentWaveStepIds: [], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1-fallback'], interruptedStepIds: ['step-1-fallback'], resumeStrategy: 'resume_fallback_path', lastEventType: 'FALLBACK_ACTIVATED', lastEventReason: 'continuing fallback recovery through step-1-fallback.', strategy: 'serial', epoch: 1, currentStepId: 'step-1-fallback', message: 'Activated fallback step(s): step-1-fallback.', recoverySourceStepId: 'step-1', recoveryStepId: 'step-1-fallback', recoverySubgraphStepIds: ['step-1', 'step-1-fallback', 'step-2'], lockResumeMode: 'drop_unrelated_writes', planningWindowState: 'executing', recoveryReason: 'Activated fallback step(s): step-1-fallback.' },
+      },
+    );
+
+    assert.equal(resumedExecution.state.outcome, 'DONE');
+    assert.equal(fallbackExecutions, 1);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const resumedExecutionState = JSON.parse(await readFile(path.join(session.dir, 'execution.state.json'), 'utf8')) as {
+      resumeStrategy?: string;
+      planningWindowState?: string;
+    };
+    assert.equal(resumedExecutionState.resumeStrategy, 'resume_fallback_path');
+    assert.equal(resumedExecutionState.planningWindowState, 'completed_waiting_append');
+    const resumedPlan = JSON.parse(await readFile(path.join(session.dir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
+    assert.equal(resumedPlan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(resumedPlan.steps.find((step) => step.id === 'step-1-fallback')?.status, 'DONE');
   });
 }
 

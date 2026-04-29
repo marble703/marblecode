@@ -33,6 +33,15 @@ interface ExecutePlannerInitialContext {
   executionState?: PlannerExecutionStateArtifact;
 }
 
+interface ExecutionRuntimeCursor {
+  currentWaveStepIds: string[];
+  lastCompletedWaveStepIds: string[];
+  selectedWaveStepIds: string[];
+  interruptedStepIds: string[];
+  epoch: number;
+  planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '';
+}
+
 export async function executePlannerPlan(
   config: AppConfig,
   providers: Map<string, ModelProvider>,
@@ -57,19 +66,14 @@ export async function executePlannerPlan(
     phase: 'PATCHING',
     message: 'Planner finished planning. Starting subtask execution.',
   });
-  let currentWaveStepIds: string[] = initialRuntime.currentWaveStepIds;
-  let lastCompletedWaveStepIds: string[] = initialRuntime.lastCompletedWaveStepIds;
-  let selectedWaveStepIds: string[] = initialRuntime.selectedWaveStepIds;
-  let interruptedStepIds: string[] = initialRuntime.interruptedStepIds;
-  let executionEpoch = initialRuntime.executionEpoch;
-  let planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '' = initialRuntime.planningWindowState;
+  let runtimeCursor = createInitialExecutionRuntimeCursor(initialRuntime);
   let executionState = createInitialExecutionState(nextState, strategy.mode, {
-    currentWaveStepIds,
-    lastCompletedWaveStepIds,
-    epoch: executionEpoch,
-    ...(selectedWaveStepIds.length > 0 ? { selectedWaveStepIds } : {}),
+    currentWaveStepIds: runtimeCursor.currentWaveStepIds,
+    lastCompletedWaveStepIds: runtimeCursor.lastCompletedWaveStepIds,
+    epoch: runtimeCursor.epoch,
+    ...(runtimeCursor.selectedWaveStepIds.length > 0 ? { selectedWaveStepIds: runtimeCursor.selectedWaveStepIds } : {}),
     ...(initialContext?.executionState?.resumeStrategy ? { resumeStrategy: initialContext.executionState.resumeStrategy } : {}),
-    ...(interruptedStepIds.length > 0 ? { interruptedStepIds } : {}),
+    ...(runtimeCursor.interruptedStepIds.length > 0 ? { interruptedStepIds: runtimeCursor.interruptedStepIds } : {}),
     ...(initialContext?.executionState?.lastEventReason ? { lastEventReason: initialContext.executionState.lastEventReason } : {}),
     ...(initialRuntime.activeLockOwnerStepIds.length > 0 ? { activeLockOwnerStepIds: initialRuntime.activeLockOwnerStepIds } : {}),
     ...(initialRuntime.preservedLockOwnerStepIds.length > 0 ? { preservedLockOwnerStepIds: initialRuntime.preservedLockOwnerStepIds } : {}),
@@ -79,7 +83,7 @@ export async function executePlannerPlan(
     ...(initialRuntime.recoverySourceStepId ? { recoverySourceStepId: initialRuntime.recoverySourceStepId } : {}),
     ...(initialRuntime.recoverySubgraphStepIds.length > 0 ? { recoverySubgraphStepIds: initialRuntime.recoverySubgraphStepIds } : {}),
     ...(initialRuntime.lockResumeMode ? { lockResumeMode: initialRuntime.lockResumeMode } : {}),
-    ...(planningWindowState ? { planningWindowState } : {}),
+    ...(runtimeCursor.planningWindowState ? { planningWindowState: runtimeCursor.planningWindowState } : {}),
     ...(initialContext?.executionState?.recoveryStepId ? { recoveryStepId: initialContext.executionState.recoveryStepId } : {}),
     ...(initialContext?.executionState?.recoveryReason ? { recoveryReason: initialContext.executionState.recoveryReason } : {}),
   });
@@ -97,12 +101,12 @@ export async function executePlannerPlan(
       strategy: strategy.mode,
       lockTable,
       executionState,
-      currentWaveStepIds,
-      lastCompletedWaveStepIds,
-      selectedWaveStepIds,
-      interruptedStepIds,
-      epoch: executionEpoch,
-      planningWindowState,
+      currentWaveStepIds: runtimeCursor.currentWaveStepIds,
+      lastCompletedWaveStepIds: runtimeCursor.lastCompletedWaveStepIds,
+      selectedWaveStepIds: runtimeCursor.selectedWaveStepIds,
+      interruptedStepIds: runtimeCursor.interruptedStepIds,
+      epoch: runtimeCursor.epoch,
+      planningWindowState: runtimeCursor.planningWindowState,
       ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
       ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
     });
@@ -178,10 +182,7 @@ export async function executePlannerPlan(
     if (selectedWave.length === 0) {
       break;
     }
-    currentWaveStepIds = selectedWave.map((step) => step.id);
-    selectedWaveStepIds = currentWaveStepIds;
-    interruptedStepIds = currentWaveStepIds;
-    executionEpoch += 1;
+    runtimeCursor = markWaveSelected(runtimeCursor, selectedWave.map((step) => step.id));
     const skippable = selectedWave.filter((step) => dependencies.classifyPlannerStep(step) === 'skip');
     if (skippable.length === selectedWave.length) {
       for (const step of skippable) {
@@ -191,9 +192,7 @@ export async function executePlannerPlan(
       nextState = refreshPlannerStateFromPlan(nextPlan, nextState);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      lastCompletedWaveStepIds = currentWaveStepIds;
-      currentWaveStepIds = [];
-      interruptedStepIds = [];
+      runtimeCursor = markWaveCompleted(runtimeCursor);
       await dispatchExecution({ type: 'SKIP_WAVE_COMPLETED' });
       continue;
     }
@@ -226,16 +225,14 @@ export async function executePlannerPlan(
       }
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      lastCompletedWaveStepIds = currentWaveStepIds;
-      currentWaveStepIds = [];
-      interruptedStepIds = [];
+      runtimeCursor = markWaveCompleted(runtimeCursor);
       await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
       {
         const verifyStep = nextPlan.steps.find((candidate) => candidate.id === step.id) ?? step;
         const feedback: PlannerExecutionFeedbackArtifact = {
           version: '1',
           planRevision: nextPlan.revision,
-          executionEpoch,
+          executionEpoch: runtimeCursor.epoch,
           changedFiles: verifyResult.changedFiles,
           undeclaredChangedFiles: [],
           verifyFailures: verifyResult.stop
@@ -258,7 +255,7 @@ export async function executePlannerPlan(
           await appendPlannerEvent(session, {
             type: 'execution_feedback_verify_failed',
             stepId: step.id,
-            epoch: executionEpoch,
+            epoch: runtimeCursor.epoch,
           }, config.session.redactSecrets);
         }
       }
@@ -317,7 +314,7 @@ export async function executePlannerPlan(
       const feedback: PlannerExecutionFeedbackArtifact = {
         version: '1',
         planRevision: nextPlan.revision,
-        executionEpoch,
+        executionEpoch: runtimeCursor.epoch,
         changedFiles: waveResult.changedFiles,
         undeclaredChangedFiles: [...new Set(allUndeclared)],
         verifyFailures: [],
@@ -332,7 +329,7 @@ export async function executePlannerPlan(
       if (allUndeclared.length > 0) {
         await appendPlannerEvent(session, {
           type: 'execution_feedback_undeclared_files',
-          epoch: executionEpoch,
+          epoch: runtimeCursor.epoch,
           undeclaredFiles: feedback.undeclaredChangedFiles,
           triggerReplan: true,
         }, config.session.redactSecrets);
@@ -359,8 +356,7 @@ export async function executePlannerPlan(
           if (replanned) {
             nextPlan = replanned.plan;
             nextState = replanned.state;
-            currentWaveStepIds = [];
-            interruptedStepIds = [];
+            runtimeCursor = clearInterruptedWave(runtimeCursor);
             await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
               recoveryStepId: firstFailed.stepId,
               recoveryReason: feedback.replanReason,
@@ -371,8 +367,7 @@ export async function executePlannerPlan(
       }
     }
     if (waveResult.fallbackActivated) {
-      currentWaveStepIds = [];
-      interruptedStepIds = waveResult.activatedFallbackStepIds;
+      runtimeCursor = markRecoveryFallback(runtimeCursor, waveResult.activatedFallbackStepIds);
       executionGraph = buildPlannerExecutionGraph(nextPlan, strategy.mode === 'fail' ? 'fail' : 'serial');
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
@@ -383,8 +378,7 @@ export async function executePlannerPlan(
       continue;
     }
     if (waveResult.replanned) {
-      currentWaveStepIds = [];
-      interruptedStepIds = [];
+      runtimeCursor = clearInterruptedWave(runtimeCursor);
       await dispatchExecution({ type: 'WAVE_REPLANNED' }, {
         ...(nextState.lastReplanReason ? { recoveryReason: nextState.lastReplanReason } : {}),
       });
@@ -399,13 +393,11 @@ export async function executePlannerPlan(
       });
       return { plan: nextPlan, state: nextState };
     }
-    lastCompletedWaveStepIds = currentWaveStepIds;
-    currentWaveStepIds = [];
-    interruptedStepIds = [];
+    runtimeCursor = markWaveCompleted(runtimeCursor);
     executedWaveCount += 1;
     await dispatchExecution({ type: 'WAVE_CONVERGED' });
     if (nextPlan.isPartial === true && executedWaveCount >= config.routing.planningWindowWaves) {
-      planningWindowState = 'completed_waiting_append';
+      runtimeCursor = markPlanningWindowCompleted(runtimeCursor);
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
         phase: 'PENDING',
@@ -443,4 +435,57 @@ export async function executePlannerPlan(
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await dispatchExecution({ type: 'EXECUTION_COMPLETED' });
   return { plan: nextPlan, state: nextState };
+}
+
+function createInitialExecutionRuntimeCursor(initialRuntime: ReturnType<typeof buildInitialExecutionRuntimeContext>): ExecutionRuntimeCursor {
+  return {
+    currentWaveStepIds: initialRuntime.currentWaveStepIds,
+    lastCompletedWaveStepIds: initialRuntime.lastCompletedWaveStepIds,
+    selectedWaveStepIds: initialRuntime.selectedWaveStepIds,
+    interruptedStepIds: initialRuntime.interruptedStepIds,
+    epoch: initialRuntime.executionEpoch,
+    planningWindowState: initialRuntime.planningWindowState,
+  };
+}
+
+function markWaveSelected(cursor: ExecutionRuntimeCursor, stepIds: string[]): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: stepIds,
+    selectedWaveStepIds: stepIds,
+    interruptedStepIds: stepIds,
+    epoch: cursor.epoch + 1,
+  };
+}
+
+function clearInterruptedWave(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: [],
+    interruptedStepIds: [],
+  };
+}
+
+function markWaveCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    lastCompletedWaveStepIds: cursor.currentWaveStepIds,
+    currentWaveStepIds: [],
+    interruptedStepIds: [],
+  };
+}
+
+function markRecoveryFallback(cursor: ExecutionRuntimeCursor, fallbackStepIds: string[]): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    currentWaveStepIds: [],
+    interruptedStepIds: fallbackStepIds,
+  };
+}
+
+function markPlanningWindowCompleted(cursor: ExecutionRuntimeCursor): ExecutionRuntimeCursor {
+  return {
+    ...cursor,
+    planningWindowState: 'completed_waiting_append',
+  };
 }

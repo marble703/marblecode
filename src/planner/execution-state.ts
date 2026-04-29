@@ -3,6 +3,17 @@ import type { ExecutionLockTable } from './locks.js';
 import type { PlannerState } from './types.js';
 import type { PlannerExecutionSnapshotInput } from './execution-machine.js';
 
+export interface PersistedRecoverySnapshotFields {
+  resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
+  preservedLockOwnerStepIds?: string[];
+  reusedLockOwnerStepIds?: string[];
+  downgradedLockOwnerStepIds?: string[];
+  droppedLockOwnerStepIds?: string[];
+  recoverySourceStepId?: string;
+  recoverySubgraphStepIds?: string[];
+  lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+}
+
 export function createPlannerExecutionState(
   state: PlannerState,
   strategy: PlannerExecutionStrategyMode,
@@ -70,6 +81,19 @@ export function summarizeActiveLockOwners(lockTable: ExecutionLockTable): string
   return [...new Set(lockTable.entries.filter((entry) => entry.mode === 'write_locked').map((entry) => entry.ownerStepId))];
 }
 
+export function copyPersistedRecoverySnapshot(executionState: PlannerExecutionStateArtifact): PersistedRecoverySnapshotFields {
+  return {
+    ...(executionState.resumeStrategy ? { resumeStrategy: executionState.resumeStrategy } : {}),
+    ...(executionState.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: executionState.preservedLockOwnerStepIds } : {}),
+    ...(executionState.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: executionState.reusedLockOwnerStepIds } : {}),
+    ...(executionState.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: executionState.downgradedLockOwnerStepIds } : {}),
+    ...(executionState.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: executionState.droppedLockOwnerStepIds } : {}),
+    ...(executionState.recoverySourceStepId ? { recoverySourceStepId: executionState.recoverySourceStepId } : {}),
+    ...(executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: executionState.recoverySubgraphStepIds } : {}),
+    ...(executionState.lockResumeMode ? { lockResumeMode: executionState.lockResumeMode } : {}),
+  };
+}
+
 export function buildExecutionDispatchSnapshot(input: {
   state: PlannerState;
   strategy: PlannerExecutionStrategyMode;
@@ -84,6 +108,7 @@ export function buildExecutionDispatchSnapshot(input: {
   recoveryStepId?: string;
   recoveryReason?: string;
 }): PlannerExecutionSnapshotInput {
+  const persistedRecovery = copyPersistedRecoverySnapshot(input.executionState);
   return {
     state: input.state,
     strategy: input.strategy,
@@ -93,14 +118,7 @@ export function buildExecutionDispatchSnapshot(input: {
     ...(input.selectedWaveStepIds.length > 0 ? { selectedWaveStepIds: input.selectedWaveStepIds } : {}),
     ...(input.interruptedStepIds.length > 0 ? { interruptedStepIds: input.interruptedStepIds } : {}),
     ...(summarizeActiveLockOwners(input.lockTable).length > 0 ? { activeLockOwnerStepIds: summarizeActiveLockOwners(input.lockTable) } : {}),
-    ...(input.executionState.resumeStrategy ? { resumeStrategy: input.executionState.resumeStrategy } : {}),
-    ...(input.executionState.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: input.executionState.preservedLockOwnerStepIds } : {}),
-    ...(input.executionState.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: input.executionState.reusedLockOwnerStepIds } : {}),
-    ...(input.executionState.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: input.executionState.downgradedLockOwnerStepIds } : {}),
-    ...(input.executionState.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: input.executionState.droppedLockOwnerStepIds } : {}),
-    ...(input.executionState.recoverySourceStepId ? { recoverySourceStepId: input.executionState.recoverySourceStepId } : {}),
-    ...(input.executionState.recoverySubgraphStepIds ? { recoverySubgraphStepIds: input.executionState.recoverySubgraphStepIds } : {}),
-    ...(input.executionState.lockResumeMode ? { lockResumeMode: input.executionState.lockResumeMode } : {}),
+    ...persistedRecovery,
     ...(input.planningWindowState ? { planningWindowState: input.planningWindowState } : {}),
     ...(input.recoveryReason ? { lastEventReason: input.recoveryReason } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
