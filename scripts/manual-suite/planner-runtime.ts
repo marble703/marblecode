@@ -48,6 +48,7 @@ export function createPlannerRuntimeCases(): ManualSuiteCase[] {
     { name: 'planner execute resume from artifacts', run: testPlannerExecuteResumeFromArtifacts },
     { name: 'planner resume reuses eligible lock owners', run: testPlannerResumeReusesEligibleLockOwners },
     { name: 'planner resume drops ineligible active writers', run: testPlannerResumeDropsIneligibleActiveWriters },
+    { name: 'planner resume interrupted planning window reruns active wave', run: testPlannerResumeInterruptedPlanningWindowRerunsActiveWave },
     { name: 'planner resume completed planning window does not rerun', run: testPlannerResumeCompletedPlanningWindowDoesNotRerun },
     { name: 'planner model retry', run: testPlannerModelRetry },
     { name: 'planner model retry exhaustion', run: testPlannerModelRetryExhaustion },
@@ -1071,6 +1072,82 @@ async function testPlannerResumeCompletedPlanningWindowDoesNotRerun(): Promise<v
     assert.equal(finalPlan.isPartial, false);
     assert.equal(finalPlan.steps.find((step) => step.id === 'step-1')?.status, 'DONE');
     assert.equal(finalPlan.steps.find((step) => step.id === 'step-2')?.status, 'DONE');
+  });
+}
+
+async function testPlannerResumeInterruptedPlanningWindowRerunsActiveWave(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.routing.planningWindowWaves = 1;
+    let subtaskExecutions = 0;
+    const provider = new BranchingProvider(async (request) => {
+      const content = request.messages[0]?.content ?? '';
+      if (request.metadata?.mode === 'planner-json-loop') {
+        if (!content.includes('"id": "step-1"') && !content.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'Interrupted partial planning window.',
+              isPartial: true,
+              planningHorizon: { waveCount: 1 },
+              steps: [
+                { id: 'step-1', title: 'Fix add implementation', status: 'PENDING', kind: 'code', details: 'Fix add.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], dependencies: [], children: [] },
+                { id: 'step-2', title: 'Run final verify', status: 'PENDING', kind: 'verify', details: 'Verify.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'Interrupted partial planning window.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        subtaskExecutions += 1;
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const first = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '生成一个会在 partial window 中断的计划',
+      explicitFiles: ['src/math.js', 'tests/check-math.js'],
+      pastedSnippets: [],
+    });
+
+    assert.equal(first.status, 'completed');
+    const plan = JSON.parse(await readFile(path.join(first.sessionDir, 'plan.json'), 'utf8')) as { isPartial?: boolean; planningHorizon?: { waveCount?: number }; steps: Array<Record<string, unknown>> };
+    const interruptedPlan = {
+      ...plan,
+      steps: plan.steps.map((step) => {
+        if (step.id === 'step-1') {
+          return { ...step, status: 'PENDING', executionState: 'running', lastError: 'Interrupted during partial planning window.' };
+        }
+        return step;
+      }),
+    };
+    await writeFile(path.join(first.sessionDir, 'plan.json'), JSON.stringify(interruptedPlan, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'plan.state.json'), JSON.stringify({ version: '1', revision: 1, phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-1', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: [], failedStepIds: [], blockedStepIds: ['step-2'], invalidResponseAttempts: 0, message: 'Interrupted during partial planning window.', consistencyErrors: [] }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.graph.json'), JSON.stringify(buildExecutionGraph(interruptedPlan), null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.state.json'), JSON.stringify({ version: '1', revision: 1, executionPhase: 'executing_wave', plannerPhase: 'PATCHING', outcome: 'RUNNING', activeStepIds: ['step-1'], readyStepIds: [], completedStepIds: [], failedStepIds: [], blockedStepIds: ['step-2'], degradedStepIds: [], currentWaveStepIds: ['step-1'], lastCompletedWaveStepIds: [], selectedWaveStepIds: ['step-1'], interruptedStepIds: ['step-1'], resumeStrategy: 'rerun_active', strategy: 'serial', epoch: 1, currentStepId: 'step-1', message: 'Interrupted during partial planning window.', planningWindowState: 'executing' }, null, 2), 'utf8');
+    await writeFile(path.join(first.sessionDir, 'execution.locks.json'), JSON.stringify({ version: '1', revision: 1, entries: [{ path: 'src/math.js', mode: 'write_locked', ownerStepId: 'step-1', revision: 1 }] }, null, 2), 'utf8');
+    await writeFile(path.join(workspaceRoot, 'src/math.js'), 'export function add(a, b) {\n  return a - b;\n}\n\nexport function multiply(a, b) {\n  return a * b;\n}\n', 'utf8');
+
+    const resumed = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '',
+      explicitFiles: [],
+      pastedSnippets: [],
+      executeSubtasks: true,
+      resumeSessionRef: first.sessionDir,
+    });
+
+    assert.equal(resumed.status, 'completed');
+    assert.equal(subtaskExecutions, 1);
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+    const resumedExecutionState = JSON.parse(await readFile(path.join(resumed.sessionDir, 'execution.state.json'), 'utf8')) as { planningWindowState?: string; resumeStrategy?: string; lastCompletedWaveStepIds?: string[] };
+    assert.equal(resumedExecutionState.resumeStrategy, 'rerun_active');
+    assert.equal(resumedExecutionState.planningWindowState, 'completed_waiting_append');
+    assert.deepEqual(resumedExecutionState.lastCompletedWaveStepIds ?? [], ['step-1']);
   });
 }
 

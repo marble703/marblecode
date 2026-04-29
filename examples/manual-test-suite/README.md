@@ -35,7 +35,7 @@ Do not run this suite as part of the default verifier on every change. It is int
 
 The suite automatically asserts all results without using AI to judge correctness.
 
-The deterministic suite currently covers 80 cases across these groups:
+The deterministic suite currently covers 82 cases across these groups:
 
 - core tools, context, and policy
 - planner graph, runtime, execution, and recovery
@@ -74,7 +74,7 @@ For a maintained breakdown of test groups, commands, and when to run them, see `
 - planner execute tests also cover deterministic node retry, fallback, and local replan recovery paths
 - planner graph, wave calculation, execution locks, and restrictive write-scope enforcement are covered deterministically
 - planner execute tests also cover same-wave concurrency for disjoint file scopes and fail-fast conflict policy behavior
-- planner runtime tests cover execution-state metadata, active-wave resume behavior, guarded owner reuse, unrelated writer drop, completed planning-window resume boundaries, and lock preservation across resume
+- planner runtime tests cover execution-state metadata, active-wave resume behavior, guarded owner reuse, unrelated writer drop, interrupted/completed planning-window resume boundaries, and lock preservation across resume
 
 ## Companion Manual Checks
 

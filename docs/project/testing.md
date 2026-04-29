@@ -124,6 +124,7 @@ Representative cases:
 - `planner resume recovers fallback path`
 - `planner resume reuses eligible lock owners`
 - `planner resume drops ineligible active writers`
+- `planner resume interrupted planning window reruns active wave`
 - `planner resume completed planning window does not rerun`
 - `planner model retry`
 - `planner model retry exhaustion`
