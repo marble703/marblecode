@@ -6,6 +6,7 @@ import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
 import { createLocalDiagnosticsProvider } from '../../src/tools/local-diagnostics-provider.js';
+import { createLocalReferencesProvider } from '../../src/tools/local-references-provider.js';
 import { createLocalSymbolsProvider } from '../../src/tools/local-symbols-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
@@ -40,6 +41,13 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'local symbols provider rejects invalid format', run: testLocalSymbolsProviderRejectsInvalidFormat },
     { name: 'local symbols provider rejects workspace escape', run: testLocalSymbolsProviderRejectsWorkspaceEscape },
     { name: 'tool log sanitizes local symbols source', run: testToolLogSanitizesLocalSymbolsSource },
+    { name: 'local references provider reads artifact', run: testLocalReferencesProviderReadsArtifact },
+    { name: 'local references provider filters path symbol and kind', run: testLocalReferencesProviderFiltersPathSymbolAndKind },
+    { name: 'local references provider returns empty when missing', run: testLocalReferencesProviderReturnsEmptyWhenMissing },
+    { name: 'local references provider rejects invalid format', run: testLocalReferencesProviderRejectsInvalidFormat },
+    { name: 'local references provider rejects workspace escape', run: testLocalReferencesProviderRejectsWorkspaceEscape },
+    { name: 'local references provider rejects target workspace escape', run: testLocalReferencesProviderRejectsTargetWorkspaceEscape },
+    { name: 'tool log sanitizes local references source', run: testToolLogSanitizesLocalReferencesSource },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -708,6 +716,249 @@ async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
       assert.match(logContent, /"providerAccess":"read_only"/);
       assert.match(logContent, /"providerCapabilities":\["symbols"\]/);
       assert.match(logContent, /"symbolsSource":"\[local-symbols\]"/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderReadsArtifact(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '1',
+      references: [{
+        path: 'src/router.js',
+        symbolName: 'registerRoute',
+        line: 8,
+        column: 3,
+        kind: 'reference',
+        targetPath: 'src/register-routes.js',
+        targetLine: 2,
+        targetColumn: 1,
+        source: 'local-references',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'references_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/router.js',
+        symbolName: 'registerRoute',
+        line: 8,
+        column: 3,
+        kind: 'reference',
+        targetPath: 'src/register-routes.js',
+        targetLine: 2,
+        targetColumn: 1,
+        source: 'local-references',
+      }]);
+      assert.deepEqual(registry.getProviderForTool('references_list')?.metadata?.capabilities ?? [], ['references']);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderFiltersPathSymbolAndKind(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '1',
+      references: [
+        {
+          path: 'src/router.js',
+          symbolName: 'registerRoute',
+          line: 8,
+          column: 3,
+          kind: 'reference',
+          targetPath: 'src/register-routes.js',
+          targetLine: 2,
+          targetColumn: 1,
+          source: 'local-references',
+        },
+        {
+          path: 'src/server.js',
+          symbolName: 'startServer',
+          line: 4,
+          column: 1,
+          kind: 'definition',
+          source: 'local-references',
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({
+        name: 'references_list',
+        input: { path: 'src/router.js', symbolName: 'registerRoute', kind: 'reference' },
+      });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/router.js',
+        symbolName: 'registerRoute',
+        line: 8,
+        column: 3,
+        kind: 'reference',
+        targetPath: 'src/register-routes.js',
+        targetLine: 2,
+        targetColumn: 1,
+        source: 'local-references',
+      }]);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderReturnsEmptyWhenMissing(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'references_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, []);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderRejectsInvalidFormat(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '2',
+      references: [],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'references_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /Invalid local references artifact format/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderRejectsWorkspaceEscape(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '1',
+      references: [{
+        path: '../outside.txt',
+        symbolName: 'registerRoute',
+        line: 1,
+        column: 1,
+        kind: 'reference',
+        source: 'local-references',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'references_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /Local references path escapes workspace/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalReferencesProviderRejectsTargetWorkspaceEscape(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '1',
+      references: [{
+        path: 'src/router.js',
+        symbolName: 'registerRoute',
+        line: 8,
+        column: 3,
+        kind: 'reference',
+        targetPath: '../outside.txt',
+        targetLine: 1,
+        targetColumn: 1,
+        source: 'local-references',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'references_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /Local references target path escapes workspace/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testToolLogSanitizesLocalReferencesSource(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.session.logToolBodies = true;
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-references'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'references.json'), JSON.stringify({
+      version: '1',
+      references: [{
+        path: 'src/router.js',
+        symbolName: 'registerRoute',
+        line: 8,
+        column: 3,
+        kind: 'reference',
+        targetPath: 'src/register-routes.js',
+        targetLine: 2,
+        targetColumn: 1,
+        source: 'workspace-reference-index',
+      }],
+    }, null, 2), 'utf8');
+
+    const policy = new PolicyEngine(config);
+    const registry = createAgentToolRegistry(config, policy, [createLocalReferencesProvider(config, policy)]);
+    const providers = new Map<string, ModelProvider>([['stub', new SequenceProvider([
+      JSON.stringify({
+        type: 'tool_call',
+        tool: 'references_list',
+        input: { path: 'src/router.js' },
+      }),
+      JSON.stringify({
+        type: 'final',
+        message: 'References loaded.',
+      }),
+    ])]]);
+
+    try {
+      const result = await runAgent(config, providers, registry, {
+        prompt: 'Load references only',
+        explicitFiles: ['src/router.js'],
+        pastedSnippets: [],
+        manualVerifierCommands: [],
+        autoApprove: true,
+        confirm: async () => true,
+      });
+      assert.equal(result.status, 'completed');
+      const logPath = path.join(result.sessionDir, 'tools.jsonl');
+      const logContent = await readFile(logPath, 'utf8');
+      assert.match(logContent, /"providerId":"local-references"/);
+      assert.match(logContent, /"providerKind":"external"/);
+      assert.match(logContent, /"providerAccess":"read_only"/);
+      assert.match(logContent, /"providerCapabilities":\["references"\]/);
+      assert.match(logContent, /"referencesSource":"\[local-references\]"/);
     } finally {
       await registry.disposeAll();
     }
