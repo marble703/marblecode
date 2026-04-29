@@ -11,7 +11,7 @@ import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import { withWorkspace } from './helpers.js';
-import { InspectingProvider } from './providers.js';
+import { InspectingProvider, SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
 export function createCoreCases(): ManualSuiteCase[] {
@@ -24,6 +24,10 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'external readonly provider gate blocks by default', run: testExternalReadonlyProviderGateBlocksByDefault },
     { name: 'external readonly provider gate allows allowlisted provider', run: testExternalReadonlyProviderGateAllowsAllowlistedProvider },
     { name: 'tool provider dispose failure reports provider id', run: testToolProviderDisposeFailureReportsProviderId },
+    { name: 'tool provider summary helper', run: testToolProviderSummaryHelper },
+    { name: 'external readonly provider gate reports access reason', run: testExternalReadonlyProviderGateReportsAccessReason },
+    { name: 'tool provider dispose summary', run: testToolProviderDisposeSummary },
+    { name: 'tool log includes provider metadata', run: testToolLogIncludesProviderMetadata },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -267,6 +271,119 @@ async function testToolProviderDisposeFailureReportsProviderId(): Promise<void> 
       () => registry.disposeAll(),
       /dispose-failure-fixture: dispose failed/,
     );
+  });
+}
+
+async function testToolProviderSummaryHelper(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const registry = createAgentToolRegistry(config, policy);
+    const summary = registry.getProviderSummaryForTool('read_file');
+    assert.equal(summary.id, 'builtin');
+    assert.equal(summary.kind, 'builtin');
+    assert.equal(summary.access, 'read_write');
+    assert.equal(summary.capabilities.includes('read_file'), true);
+  });
+}
+
+async function testExternalReadonlyProviderGateReportsAccessReason(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    const externalProvider = new StaticToolProvider('external-write-fixture', [{
+      definition: {
+        name: 'external_write_tool',
+        description: 'disallowed external write fixture',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      async execute() {
+        return { ok: true };
+      },
+    }], {
+      kind: 'external',
+      access: 'read_write',
+      capabilities: ['diagnostics'],
+    });
+
+    assert.throws(
+      () => createAgentToolRegistry(config, policy, [externalProvider]),
+      /external-write-fixture .*access=read_write.*must be read_only/,
+    );
+  });
+}
+
+async function testToolProviderDisposeSummary(): Promise<void> {
+  await withWorkspace(async () => {
+    const registry = new ToolRegistry();
+    registry.registerProvider({
+      id: 'dispose-summary-fixture',
+      metadata: {
+        kind: 'fixture',
+        access: 'read_only',
+      },
+      listTools() {
+        return [];
+      },
+      async executeTool() {
+        return { ok: false, error: 'unused' };
+      },
+      async dispose() {
+        return;
+      },
+    });
+
+    const summary = await registry.disposeAll();
+    assert.deepEqual(summary.disposedProviderIds, ['dispose-summary-fixture']);
+  });
+}
+
+async function testToolLogIncludesProviderMetadata(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    config.session.logToolBodies = true;
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['diagnostics-external-fixture'];
+
+    const externalProvider = createExternalDiagnosticsFixtureProvider([
+      {
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'External provider check.',
+        line: 2,
+        column: 1,
+        source: 'external-diagnostics-service',
+      },
+    ]);
+    const policy = new PolicyEngine(config);
+    const registry = createAgentToolRegistry(config, policy, [externalProvider]);
+    const providers = new Map<string, ModelProvider>([['stub', new SequenceProvider([
+      JSON.stringify({
+        type: 'tool_call',
+        tool: 'diagnostics_list',
+        input: { path: 'src/math.js' },
+      }),
+      JSON.stringify({
+        type: 'final',
+        message: 'Diagnostics loaded.',
+      }),
+    ])]]);
+
+    try {
+      const result = await runAgent(config, providers, registry, {
+        prompt: 'Load diagnostics only',
+        explicitFiles: ['src/math.js'],
+        pastedSnippets: [],
+        manualVerifierCommands: [],
+        autoApprove: true,
+        confirm: async () => true,
+      });
+      assert.equal(result.status, 'completed');
+      const logPath = path.join(result.sessionDir, 'tools.jsonl');
+      const logContent = await readFile(logPath, 'utf8');
+      assert.match(logContent, /"providerId":"diagnostics-external-fixture"/);
+      assert.match(logContent, /"providerKind":"external"/);
+      assert.match(logContent, /"providerAccess":"read_only"/);
+      assert.match(logContent, /"providerCapabilities":\["diagnostics"\]/);
+      assert.match(logContent, /"diagnosticsSource":"\[external-diagnostics\]"/);
+    } finally {
+      await registry.disposeAll();
+    }
   });
 }
 
