@@ -34,7 +34,7 @@
 - 新增调度能力时容易把状态分散回编排层
 - UI 与恢复逻辑仍需要从多个 artifact 反推运行时意图
 
-当前已经开始把恢复相关元数据写入 `execution.state.json`，例如 `resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds` 与 `lockResumeMode`。下一步重点不再是继续堆更多字段，而是让执行器更多地围绕这些字段初始化和推进，而不是依赖局部变量和隐式推导。
+当前已经开始把恢复相关元数据写入 `execution.state.json`，例如 `resumeStrategy`、`recoverySourceStepId`、`recoverySubgraphStepIds` 与 `lockResumeMode`。下一步重点不再是继续堆更多字段，而是定义更稳定的恢复规则和恢复边界，并让执行器更多地围绕这些字段初始化和推进，而不是依赖局部变量和隐式推导。
 
 当前锁恢复仍偏保守：它已经能保留 guarded read、降级恢复子图内写锁、并丢弃无关活跃写锁，而且这些结果已经开始通过 recovery metadata 对外可见；但它还没有形成更精细的 ownership-preserving 恢复规则模型。这会是后续恢复主线的下一个重点，而不是新的 provider 或 UI 能力。
 
@@ -84,28 +84,39 @@
 
 ## 推荐优先级
 
-### P0：补齐执行状态闭环与精确恢复
+### P0：补齐恢复规则闭环与精确恢复
 
 这是最值得继续投入的主线。
 
 目标：
 
-- 让 `execution.state.json` 更接近调度与恢复的唯一依据
+- 让 `execution.state.json` 更接近调度与恢复的主要依据
 - 把 wave/lock/fallback/replan 的更多决策纳入统一状态推进
-- 将 resume 从“重置后重跑”提升到“尽可能按原执行态恢复”
+- 将 resume 从“重置后重跑”提升到“按明确恢复规则继续执行”
 
 建议任务：
 
-1. 扩展 execution-state artifact，显式记录恢复所需的更多中间元数据。
-2. 让 active wave、fallback activation、recovery metadata 在 resume 时可直接消费，而不是只靠重新推导。
-3. 将锁状态变化和 wave 收敛结果进一步收口到 execution machine 周围。
-4. 为精确 resume 增加 manual-suite 覆盖，尤其是中断于 active wave / recovering / verify 前后的场景。
+1. 定义 ownership-preserving 恢复规则，而不只是保守地保留 guarded read、降级恢复子图写锁、丢弃无关活跃写锁。
+2. 定义 `partial planning window` 的恢复边界，区分“当前窗口已完成但等待 append”与“当前窗口执行中断后继续恢复”。
+3. 继续收口恢复快照和 dispatch snapshot 的构造入口，让执行器可以围绕 persisted execution state 初始化，而不是继续在编排层散落拼装上下文。
+4. 为新的恢复规则和恢复边界补 deterministic manual-suite 覆盖，尤其是 active wave、recovering、fallback path、window boundary、verify 前后中断等场景。
 
 完成标准：
 
 - resume 不再默认把所有未完成步骤重置为 `PENDING`
-- active wave 与 recovering 状态可被更精确恢复
-- 执行状态 artifact 足以解释“为什么从这里继续跑”
+- active wave、recovering、fallback path 与 planning window boundary 可被更精确恢复
+- 恢复路径可以解释“为什么从这里继续跑，以及为什么保留/降级/丢弃某些锁 owner”
+
+### P0.1：下一轮具体落点
+
+下一轮建议继续专注恢复主线，不切到外部 provider。建议按以下顺序推进：
+
+1. 扩展恢复锁结果模型，新增“可安全复用 owner”的表达，并让恢复决策可复用现有 ownership 语义。
+2. 为 `partial planning window` 恢复定义显式 boundary mode，并把它写入 execution state / view model。
+3. 抽统一的恢复快照构造 helper，继续减少 `execute.ts` / `execute-resume.ts` / execution machine 之间的重复拼装。
+4. 补 deterministic tests，覆盖 owner reuse、ineligible writer drop、completed window resume、boundary metadata projection。
+
+完成这一轮后，再评估是否进入 provider 生命周期和首个只读外部能力接入。
 
 ### P1：在 provider 边界上接入只读扩展能力
 
@@ -119,9 +130,10 @@
 建议任务：
 
 1. 定义 provider 生命周期和 disposal 约定，而不只是静态注册。
-2. 为外部 provider 增加默认禁用和显式 allowlist 的配置路径。
-3. 先接入只读 diagnostics/symbols 能力，再评估更复杂的 MCP bridge。
-4. 在 provider 层保留 policy、session logging、redaction 的统一挂点。
+2. 评估工具层命名是否需要从 `ToolProvider` 收敛为更不易与 `ModelProvider` 混淆的术语，例如 `ToolSource`。
+3. 为外部 provider 增加默认禁用和显式 allowlist 的配置路径。
+4. 先接入只读 diagnostics/symbols 能力，再评估更复杂的 MCP bridge。
+5. 在 provider 层保留 policy、session logging、redaction 的统一挂点。
 
 完成标准：
 

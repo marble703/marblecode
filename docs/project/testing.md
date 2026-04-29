@@ -36,6 +36,8 @@ It is the primary safety net for:
 - policy and tool boundary changes
 - tool provider and registry changes
 
+For the current planner roadmap, any change to resume logic should keep `npm run build` green and add or update deterministic manual-suite coverage for the affected recovery rule or boundary. Resume work is not considered complete if it only updates artifacts or view-model projection without a runtime-level case.
+
 ### Real-Model Checks
 
 - `check:planner` validates the read-only planner loop with a real configured planning model.
@@ -108,6 +110,7 @@ Purpose:
 - recovery snapshot initialization helpers
 - recovery lock-strategy metadata
 - recovery lock-owner outcome metadata
+- recovery boundary and planning-window resume behavior
 - planner model retry behavior
 
 Representative cases:
@@ -119,6 +122,9 @@ Representative cases:
 - `planner runtime recovery context helper`
 - `planner execute resume from artifacts`
 - `planner resume recovers fallback path`
+- `planner resume reuses eligible lock owners`
+- `planner resume drops ineligible active writers`
+- `planner resume completed planning window does not rerun`
 - `planner model retry`
 - `planner model retry exhaustion`
 
