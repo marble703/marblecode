@@ -5,6 +5,7 @@ import { runAgent } from '../../src/agent/index.js';
 import { buildContext } from '../../src/context/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import { createDiagnosticsFixtureProvider, createExternalDiagnosticsFixtureProvider } from '../../src/tools/diagnostics-provider.js';
+import { createLocalDiagnosticsProvider } from '../../src/tools/local-diagnostics-provider.js';
 import { StaticToolProvider } from '../../src/tools/provider.js';
 import { ToolRegistry } from '../../src/tools/registry.js';
 import { createAgentToolRegistry } from '../../src/tools/setup.js';
@@ -28,6 +29,10 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'external readonly provider gate reports access reason', run: testExternalReadonlyProviderGateReportsAccessReason },
     { name: 'tool provider dispose summary', run: testToolProviderDisposeSummary },
     { name: 'tool log includes provider metadata', run: testToolLogIncludesProviderMetadata },
+    { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
+    { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
+    { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
+    { name: 'local diagnostics provider rejects workspace escape', run: testLocalDiagnosticsProviderRejectsWorkspaceEscape },
     { name: 'automatic context selection', run: testAutomaticContextSelection },
     { name: 'git read only tools', run: testGitReadOnlyTools },
     { name: 'shell tools', run: testShellTools },
@@ -381,6 +386,126 @@ async function testToolLogIncludesProviderMetadata(): Promise<void> {
       assert.match(logContent, /"providerAccess":"read_only"/);
       assert.match(logContent, /"providerCapabilities":\["diagnostics"\]/);
       assert.match(logContent, /"diagnosticsSource":"\[external-diagnostics\]"/);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalDiagnosticsProviderReadsArtifact(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-diagnostics'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+      version: '1',
+      diagnostics: [{
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'Possible arithmetic mismatch.',
+        line: 2,
+        column: 10,
+        source: 'local-diagnostics',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'diagnostics_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'Possible arithmetic mismatch.',
+        line: 2,
+        column: 10,
+        source: 'local-diagnostics',
+      }]);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalDiagnosticsProviderFiltersPathAndSeverity(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-diagnostics'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+      version: '1',
+      diagnostics: [
+        {
+          path: 'src/math.js',
+          severity: 'warning',
+          message: 'Possible arithmetic mismatch.',
+          line: 2,
+          column: 10,
+          source: 'local-diagnostics',
+        },
+        {
+          path: 'src/router.js',
+          severity: 'info',
+          message: 'Route order note.',
+          line: 5,
+          column: 1,
+          source: 'local-diagnostics',
+        },
+      ],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'diagnostics_list', input: { path: 'src/math.js', severity: 'warning' } });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, [{
+        path: 'src/math.js',
+        severity: 'warning',
+        message: 'Possible arithmetic mismatch.',
+        line: 2,
+        column: 10,
+        source: 'local-diagnostics',
+      }]);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalDiagnosticsProviderReturnsEmptyWhenMissing(): Promise<void> {
+  await withWorkspace(async ({ config, policy }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-diagnostics'];
+    const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'diagnostics_list', input: {} });
+      assert.equal(result.ok, true);
+      assert.deepEqual(result.data, []);
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+}
+
+async function testLocalDiagnosticsProviderRejectsWorkspaceEscape(): Promise<void> {
+  await withWorkspace(async ({ config, policy, workspaceRoot }) => {
+    config.tools.externalProvidersEnabled = true;
+    config.tools.allow = ['local-diagnostics'];
+    await writeFile(path.join(workspaceRoot, '.marblecode', 'diagnostics.json'), JSON.stringify({
+      version: '1',
+      diagnostics: [{
+        path: '../outside.txt',
+        severity: 'error',
+        message: 'Outside workspace.',
+        line: 1,
+        column: 1,
+        source: 'local-diagnostics',
+      }],
+    }, null, 2), 'utf8');
+
+    const registry = createAgentToolRegistry(config, policy, [createLocalDiagnosticsProvider(config, policy)]);
+    try {
+      const result = await registry.execute({ name: 'diagnostics_list', input: {} });
+      assert.equal(result.ok, false);
+      assert.match(result.error ?? '', /escapes workspace/);
     } finally {
       await registry.disposeAll();
     }
