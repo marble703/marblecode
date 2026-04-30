@@ -7,7 +7,14 @@ import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '.
 import { executeTuiAction, inspectPlannerStep, resolvePlannerChildSession } from '../../src/tui/session-actions.js';
 import { refreshTuiState } from '../../src/tui/state.js';
 import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
-import { withWorkspace } from './helpers.js';
+import {
+  createExecutionState,
+  createPlannerPlan,
+  createPlannerState,
+  withWorkspace,
+  writePlannerArtifacts,
+  writePlannerEvents,
+} from './helpers.js';
 import type { ManualSuiteCase } from './types.js';
 
 export function createTuiCases(): ManualSuiteCase[] {
@@ -33,11 +40,12 @@ async function testPlannerSessionResolution(): Promise<void> {
     const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-00-000Z');
     const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-01-000Z');
     await mkdir(childSessionDir, { recursive: true });
-    await mkdir(plannerSessionDir, { recursive: true });
     await writeFile(path.join(childSessionDir, 'request.json'), '{}', 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'plan.json'), JSON.stringify({ summary: '', steps: [] }), 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'plan.state.json'), JSON.stringify({ outcome: 'DONE', phase: 'PENDING', currentStepId: null, consistencyErrors: [] }), 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'plan.events.jsonl'), JSON.stringify({ type: 'planner_finished' }) + '\n', 'utf8');
+    await writePlannerArtifacts(plannerSessionDir, {
+      plan: createPlannerPlan({ summary: '', steps: [] }),
+      planState: createPlannerState({ outcome: 'DONE', phase: 'PENDING', currentStepId: null }),
+    });
+    await writePlannerEvents(plannerSessionDir, [{ type: 'planner_finished' }]);
 
     const resolved = await resolvePlannerSessionDir(config, undefined, true);
     assert.equal(resolved, plannerSessionDir);
@@ -162,12 +170,13 @@ async function testRecentSessionSummaries(): Promise<void> {
     const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
     const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-01-000Z');
     const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-00-000Z');
-    await mkdir(plannerSessionDir, { recursive: true });
     await mkdir(childSessionDir, { recursive: true });
-    await writeFile(path.join(plannerSessionDir, 'plan.json'), JSON.stringify({ summary: 'Refactor router safely', steps: [] }), 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'plan.state.json'), JSON.stringify({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-2', consistencyErrors: [] }), 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'plan.events.jsonl'), JSON.stringify({ type: 'planner_started' }) + '\n', 'utf8');
-    await writeFile(path.join(plannerSessionDir, 'planner.request.json'), JSON.stringify({ promptHistory: ['Refactor the router module'] }), 'utf8');
+    await writePlannerArtifacts(plannerSessionDir, {
+      plannerRequest: { promptHistory: ['Refactor the router module'] },
+      plan: createPlannerPlan({ summary: 'Refactor router safely', steps: [] }),
+      planState: createPlannerState({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-2' }),
+    });
+    await writePlannerEvents(plannerSessionDir, [{ type: 'planner_started' }]);
     await writeFile(path.join(childSessionDir, 'request.json'), JSON.stringify({ prompt: 'Fix the add function' }), 'utf8');
 
     const sessions = await listRecentSessions(config, 4);
@@ -184,10 +193,11 @@ async function testRecentSessionSummaries(): Promise<void> {
 async function testTuiStateRefreshHydratesPlannerView(): Promise<void> {
   await withWorkspace(async ({ config, workspaceRoot }) => {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-01-000Z');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ summary: 'Hydrate planner panel', steps: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1', consistencyErrors: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), JSON.stringify({ type: 'planner_started' }) + '\n', 'utf8');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ summary: 'Hydrate planner panel', steps: [] }),
+      planState: createPlannerState({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1' }),
+    });
+    await writePlannerEvents(sessionDir, [{ type: 'planner_started' }]);
 
     const state = await refreshTuiState(undefined, {
       ...createInitialTuiState(workspaceRoot),
@@ -207,11 +217,9 @@ async function testTuiPlannerSessionActions(): Promise<void> {
     const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
     const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-08-000Z');
     const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-09-000Z');
-    await mkdir(plannerSessionDir, { recursive: true });
     await mkdir(childSessionDir, { recursive: true });
-    await writeFile(
-      path.join(plannerSessionDir, 'plan.json'),
-      JSON.stringify({
+    await writePlannerArtifacts(plannerSessionDir, {
+      plan: createPlannerPlan({
         summary: 'Inspect planner actions',
         steps: [
           {
@@ -225,18 +233,9 @@ async function testTuiPlannerSessionActions(): Promise<void> {
           },
         ],
       }),
-      'utf8',
-    );
-    await writeFile(
-      path.join(plannerSessionDir, 'plan.state.json'),
-      JSON.stringify({ outcome: 'RUNNING', phase: 'PATCHING', currentStepId: 'step-1', consistencyErrors: [] }),
-      'utf8',
-    );
-    await writeFile(
-      path.join(plannerSessionDir, 'plan.events.jsonl'),
-      `${JSON.stringify({ type: 'subtask_completed', stepId: 'step-1', sessionDir: childSessionDir, changedFiles: ['src/router.ts'] })}\n`,
-      'utf8',
-    );
+      planState: createPlannerState({ outcome: 'RUNNING', phase: 'PATCHING', currentStepId: 'step-1' }),
+    });
+    await writePlannerEvents(plannerSessionDir, [{ type: 'subtask_completed', stepId: 'step-1', sessionDir: childSessionDir, changedFiles: ['src/router.ts'] }]);
     await writeFile(path.join(plannerSessionDir, 'subtask.step-1.json'), JSON.stringify({ ok: true }), 'utf8');
     await writeFile(path.join(childSessionDir, 'request.json'), JSON.stringify({ prompt: 'Fix router flow' }), 'utf8');
     await writeFile(path.join(childSessionDir, 'verify.json'), JSON.stringify({ success: true, failures: [] }), 'utf8');
@@ -379,10 +378,11 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
 async function testPlannerViewLoadsDeltaAndFeedbackArtifacts(): Promise<void> {
   await withWorkspace(async ({ workspaceRoot }) => {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-03-000Z');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 3, summary: 'Rolling plan', isPartial: false, planningHorizon: { waveCount: 1 }, steps: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'PENDING', outcome: 'DONE', message: 'done', currentStepId: null, consistencyErrors: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), `${JSON.stringify({ type: 'plan_appended', revision: 3, stepCount: 1 })}\n`, 'utf8');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ revision: 3, summary: 'Rolling plan', isPartial: false, planningHorizon: { waveCount: 1 }, steps: [] }),
+      planState: createPlannerState({ phase: 'PENDING', outcome: 'DONE', message: 'done', currentStepId: null }),
+    });
+    await writePlannerEvents(sessionDir, [{ type: 'plan_appended', revision: 3, stepCount: 1 }]);
     await writeFile(path.join(sessionDir, 'planner.log.jsonl'), `${JSON.stringify({ type: 'planner_terminal', outcome: 'DONE', message: 'done' })}\n`, 'utf8');
     await writeFile(path.join(sessionDir, 'plan.delta.2.json'), JSON.stringify({ baseRevision: 1, nextRevision: 2, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-2'], combinedIsPartial: true }), 'utf8');
     await writeFile(path.join(sessionDir, 'plan.delta.3.json'), JSON.stringify({ baseRevision: 2, nextRevision: 3, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-3'], combinedIsPartial: false }), 'utf8');
@@ -403,10 +403,11 @@ async function testPlannerViewLoadsDeltaAndFeedbackArtifacts(): Promise<void> {
 async function testPlannerViewLoadsReplanRejectionArtifacts(): Promise<void> {
   await withWorkspace(async ({ workspaceRoot }) => {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-04-000Z');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 2, summary: 'Replan session', steps: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2', consistencyErrors: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.events.jsonl'), '', 'utf8');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ revision: 2, summary: 'Replan session', steps: [] }),
+      planState: createPlannerState({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2' }),
+    });
+    await writePlannerEvents(sessionDir, []);
     await writeFile(path.join(sessionDir, 'replan.rejected.step-2.json'), JSON.stringify({ failedStepId: 'step-2', errors: ['lock conflict', 'scope mismatch'] }), 'utf8');
 
     const view = await loadPlannerView(sessionDir);
@@ -419,18 +420,15 @@ async function testPlannerViewLoadsReplanRejectionArtifacts(): Promise<void> {
 async function testPlannerViewNormalizesTimelineEvents(): Promise<void> {
   await withWorkspace(async ({ workspaceRoot }) => {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-05-000Z');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify({ revision: 2, summary: 'Timeline session', steps: [] }), 'utf8');
-    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2', consistencyErrors: [] }), 'utf8');
-    await writeFile(
-      path.join(sessionDir, 'plan.events.jsonl'),
-      [
-        JSON.stringify({ type: 'plan_appended', revision: 2, stepCount: 1 }),
-        JSON.stringify({ type: 'planner_execution_window_completed', revision: 2, executedWaveCount: 1 }),
-        JSON.stringify({ type: 'execution_feedback_undeclared_files', epoch: 3, undeclaredFiles: ['src/notes.txt'] }),
-      ].join('\n') + '\n',
-      'utf8',
-    );
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ revision: 2, summary: 'Timeline session', steps: [] }),
+      planState: createPlannerState({ phase: 'REPLANNING', outcome: 'RUNNING', message: 'replanning', currentStepId: 'step-2' }),
+    });
+    await writePlannerEvents(sessionDir, [
+      { type: 'plan_appended', revision: 2, stepCount: 1 },
+      { type: 'planner_execution_window_completed', revision: 2, executedWaveCount: 1 },
+      { type: 'execution_feedback_undeclared_files', epoch: 3, undeclaredFiles: ['src/notes.txt'] },
+    ]);
 
     const view = await loadPlannerView(sessionDir);
     assert.equal(view.timeline.length, 3);
@@ -465,27 +463,12 @@ async function testPlannerReadModelApiExposesRawAndNormalizedEvents(): Promise<v
 async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<void> {
   await withWorkspace(async ({ workspaceRoot }) => {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-07-000Z');
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(
-      path.join(sessionDir, 'plan.json'),
-      JSON.stringify({ revision: 5, summary: 'Session summary metadata', isPartial: true, steps: [] }),
-      'utf8',
-    );
-    await writeFile(
-      path.join(sessionDir, 'plan.state.json'),
-      JSON.stringify({ phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-3', consistencyErrors: [] }),
-      'utf8',
-    );
-    await writeFile(
-      path.join(sessionDir, 'plan.events.jsonl'),
-      `${JSON.stringify({ type: 'planner_started', prompt: 'metadata' })}\n`,
-      'utf8',
-    );
-    await writeFile(
-      path.join(sessionDir, 'execution.state.json'),
-      JSON.stringify({ executionPhase: 'executing_wave', strategy: 'serial', epoch: 2, currentWaveStepIds: ['step-3'], lastCompletedWaveStepIds: [] }),
-      'utf8',
-    );
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ revision: 5, summary: 'Session summary metadata', isPartial: true, steps: [] }),
+      planState: createPlannerState({ phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-3' }),
+      executionState: createExecutionState({ executionPhase: 'executing_wave', epoch: 2, currentWaveStepIds: ['step-3'], lastCompletedWaveStepIds: [] }),
+    });
+    await writePlannerEvents(sessionDir, [{ type: 'planner_started', prompt: 'metadata' }]);
 
     const summary = await loadPlannerSessionSummary('2026-04-20T10-00-07-000Z', sessionDir);
     assert.equal(summary.executionPhase, 'executing_wave');
