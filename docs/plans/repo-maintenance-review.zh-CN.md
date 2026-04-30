@@ -439,6 +439,23 @@
 2. 继续把其他 external-style planner read consumers 收敛到 `read-api.ts`
 3. `conflictDomains` registry 继续后置，除非出现明确约束需求
 
+## 阶段性收口判断
+
+当前这条“仓库整理 / read-model consumer / inspector foundation”主线已经可以视为阶段性完成，已落地的关键结果包括：
+
+- local artifact/provider 重复收敛
+- manual-suite 结构减压、fixture helper 与 structured assertions
+- `session -> planner/view-model` 依赖方向修正
+- planner read-model DTO 稳定化与 facade 提取
+- facade consumer wiring 与 `show:planner --json` 真实 CLI inspector 入口
+- `AGENTS.md`、`README.md`、`docs/project/architecture.md` 的 module map 收口
+
+后续不建议继续做无目标整理。新的整理动作应只在以下情况下再启动：
+
+1. 真实外部 inspector / WebUI 需求要求继续扩只读 API 边界
+2. execution / recovery 语义继续演进，逼出新的 planner 模块拆分压力
+3. 真实外部 readonly provider（LSP/MCP）接入时，需要新的生命周期与 host boundary 收敛
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

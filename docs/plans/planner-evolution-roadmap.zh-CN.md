@@ -54,9 +54,9 @@
 
 剩余结构性缺口主要是：
 
-- provider 生命周期、权限边界和日志接口
-- 外部 provider 配置与默认禁用策略
-- 面向 diagnostics / symbols / references 这类只读能力的 provider 设计
+- 真实外部 readonly source 的加载/连接生命周期与错误模型
+- 面向 LSP/MCP 这类长生命周期 provider 的超时、降级与审计策略
+- 是否还需要把当前 `ToolProvider` 命名进一步收敛为更明确的 host/source 术语
 
 在这一步完成前，不建议直接引入真实 LSP/MCP provider。
 
@@ -75,7 +75,8 @@
 但如果要支持真实 WebUI transport 或外部 inspector，仍缺：
 
 - 更明确的 history/event 协议
-- 面向外部工具的 machine-readable CLI / transport 入口
+- planner session list 的 machine-readable inspector 入口（如确有必要）
+- 更正式的 transport/server 边界，而不只是当前 detail JSON CLI
 
 这应放在执行内核进一步稳定之后，而不是当前优先级最高的事项。
 
@@ -466,20 +467,6 @@
 - degraded 结果不会和真正失败混淆
 - 并发执行的限制原因能在 artifact / TUI 中更直接解释
 
-### P3.4：本轮已完成 facade consumer wiring 第一轮
-
-这一轮不新增 machine-readable CLI，也不引入 WebUI transport，而是先把已经存在的 planner read-only facade 接到真实运行时 consumer 上：
-
-1. `src/planner/read-api.ts` 现在直接 re-export `loadPlannerSessionSummary()`，作为 TUI/planner read consumer 的统一入口之一。
-2. `src/tui/recent-sessions.ts` 现在改为从 `read-api.ts` 引用 planner summary loader，而不再直接绕过 facade 依赖 `view-model.ts`。
-3. 这一轮不改变 recent-session 行为、排序或非 planner session 路径，只收敛 read-only 依赖边界，并继续保持 deterministic suite 覆盖。
-
-这一轮的定位是 facade wiring，而不是 machine-readable inspector 输出已经完成。下一轮如果继续推进 P3，应优先考虑：
-
-- 是否为 `show:planner --json` 或类似 inspector CLI 输出真正复用 `loadPlannerSessionDetail()`
-- 是否继续把其他 planner-only read consumers 收敛到 `read-api.ts`
-- 仅在这些入口更清晰后，再评估更具体的 WebUI/transport 设计
-
 ### P3：产品化只读接口
 
 这部分应建立在前面几项稳定之后。
@@ -548,6 +535,20 @@
 - 是否为外部只读 inspector 场景进一步收敛 session list/detail/timeline 的 API 入口
 - 仅在这些只读 API 更稳定后，再考虑更具体的 WebUI/transport 设计
 
+### P3.4：本轮已完成 facade consumer wiring 第一轮
+
+这一轮不新增 machine-readable CLI，也不引入 WebUI transport，而是先把已经存在的 planner read-only facade 接到真实运行时 consumer 上：
+
+1. `src/planner/read-api.ts` 现在直接 re-export `loadPlannerSessionSummary()`，作为 TUI/planner read consumer 的统一入口之一。
+2. `src/tui/recent-sessions.ts` 现在改为从 `read-api.ts` 引用 planner summary loader，而不再直接绕过 facade 依赖 `view-model.ts`。
+3. 这一轮不改变 recent-session 行为、排序或非 planner session 路径，只收敛 read-only 依赖边界，并继续保持 deterministic suite 覆盖。
+
+这一轮的定位是 facade wiring，而不是 machine-readable inspector 输出已经完成。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否为 `show:planner --json` 或类似 inspector CLI 输出真正复用 `loadPlannerSessionDetail()`
+- 是否继续把其他 planner-only read consumers 收敛到 `read-api.ts`
+- 仅在这些入口更清晰后，再评估更具体的 WebUI/transport 设计
+
 ### P3.5：本轮已完成 machine-readable inspector output 第一轮
 
 这一轮不引入 WebUI server，也不增加 transport 层，而是先让已经存在的 planner session detail facade 成为真实 CLI inspector 入口：
@@ -561,6 +562,15 @@
 - 是否需要为只读 inspector 场景补 session list 的 machine-readable CLI 入口
 - 是否继续把更多 external-style read consumers 收敛到 `read-api.ts`
 - 仅在这些只读 inspector 入口更稳定后，再考虑更具体的 WebUI/transport 设计
+
+## 阶段性判断
+
+- 当前 P3 read-model / inspector foundation 已基本收口：DTO、facade、recent-session consumer wiring 与 detail JSON CLI 都已落地。
+- 如果没有明确的外部 inspector / WebUI 产品需求，不建议继续为了“补齐编号”而线性堆更多 P3.x。
+- 下一步应在三个方向中择一推进，而不是同时展开：
+  1. P3 小幅继续：补 planner session list 的 machine-readable CLI 入口。
+  2. P0 深化：继续把 execution state / resume truth-source 收敛到更统一的状态推进模型。
+  3. P1 深化：开始设计真实外部 readonly source（LSP/MCP）的生命周期与错误模型。
 
 ## 暂不建议优先做的事
 
