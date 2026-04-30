@@ -254,7 +254,9 @@ Current internal split:
 
 Stores local artifacts under `.agent/sessions` and cleans old sessions by age and count.
 
-This module also resolves normal and planner sessions, powers recent-session views, and provides the persistence backbone for rollback and planner inspection.
+This module also resolves normal and planner sessions, exposes storage-scoped recent-session entry listing, and provides the persistence backbone for rollback and planner inspection.
+
+Planner-rich recent-session projection now lives above the storage layer in `src/tui/recent-sessions.ts`, so `src/session` no longer depends on planner read-model composition.
 
 ### `src/provider`
 
@@ -280,6 +282,7 @@ Current internal split:
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
 - `view-model.ts`: planner artifact aggregation for TUI/WebUI-facing read models
 - `read-api.ts`: read-only planner session list/detail facade for future inspectors and external consumers
+- `ownership.ts`: ownership-transfer compatibility helpers for lock recovery and reuse
 - `execute.ts`: top-level planner execution orchestration and wave handoff
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff
@@ -288,6 +291,7 @@ Current internal split:
 - `prompts.ts`: subtask, repair, and replan prompt builders
 - `state.ts`: ready/active/blocked/done derivation
 - `recovery.ts`: local replan flow
+- `replan-merge.ts`: proposal/replan merge helpers for bounded local recovery
 - `graph.ts`: execution graph, conflict edges, and waves
 - `locks.ts`: file lock ownership and write assertions
 - `utils.ts`: planner-shared helpers
@@ -298,7 +302,20 @@ For the details of task graphs, waves, and file locks, see `docs/project/planner
 
 Provides the interactive terminal UI and planner-session viewers.
 
-Planner artifact loading, event normalization, and planner read-model APIs now live in `src/planner/view-model.ts`, while `src/tui/planner-view.ts` focuses on terminal formatting and rendering normalized timeline entries.
+Planner artifact loading, event normalization, and planner read-model APIs now live in `src/planner/view-model.ts`, while `src/planner/read-api.ts` provides the narrower planner session list/detail facade for inspector-style consumers.
+
+Current internal split:
+
+- `agent-repl.ts`: top-level terminal loop
+- `commands.ts`: slash-command parsing and validation
+- `paste.ts`: paste capture and patch confirmation helpers
+- `state.ts`: TUI state refresh and planner view hydration
+- `render.ts`: main screen rendering
+- `planner-view.ts`: planner terminal formatting and normalized timeline rendering
+- `planner-live.ts`: live planner dashboard formatting and watch loop helpers
+- `recent-sessions.ts`: recent-session projection that combines storage entries with planner summaries
+- `session-actions.ts`: planner session open/reopen/detail actions
+- `run-prompt.ts`: prompt dispatch for run/plan/execute flows
 
 The TUI is not a separate runtime stack; it is a front end over the same `run` / `plan` / `plan --execute` flows.
 

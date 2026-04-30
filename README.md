@@ -294,18 +294,21 @@ node dist/index.js rollback --last
 - `src/agent`: agent loop
 - `src/config`: config schema and config loading
 - `src/planner`: read-only planning loop and wave-based planner execution flow
-- `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `recovery.ts`, `utils.ts`, `execute.ts`, `execute-wave.ts`, `execute-verify.ts`, `execute-subtask.ts`, `execute-resume.ts`, `execution-types.ts`, `execution-state.ts`, `execution-strategies.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, recovery, execution orchestration, execution-wave handling, verify-step execution, subtask execution, artifact-based resume, execution-state snapshots, and strategy-driven scheduling
+- `src/planner/model.ts`, `parse.ts`, `artifacts.ts`, `prompts.ts`, `state.ts`, `runtime.ts`, `recovery.ts`, `replan-merge.ts`, `ownership.ts`, `utils.ts`, `execute.ts`, `execute-wave.ts`, `execute-verify.ts`, `execute-subtask.ts`, `execute-resume.ts`, `execution-types.ts`, `execution-state.ts`, `execution-machine.ts`, `execution-strategies.ts`, `view-model.ts`, `read-api.ts`: split planner helper modules for requests, parsing, artifacts, prompts, state refresh, runtime helpers, recovery, bounded replan merge, ownership checks, execution orchestration, artifact-based resume, execution-state snapshots, phase transitions, internal read models, and read-only planner session facades
 - `src/planner/graph.ts`: execution graph, conflict edges, and execution wave helpers
 - `src/planner/locks.ts`: file lock ownership helpers used by planner execute
 - `src/provider`: model abstraction and OpenAI-compatible provider
 - `src/router`: static model routing
 - `src/context`: bounded context construction
 - `src/tools`: tool registry and built-in tools
+- `src/tools/provider.ts`, `registry.ts`, `types.ts`, `setup.ts`, `logging.ts`: provider-compatible registry internals, shared setup, and tool-log DTO helpers
+- `src/tools/local-artifacts.ts`, `local-diagnostics-provider.ts`, `local-symbols-provider.ts`, `local-references-provider.ts`, `diagnostics-provider.ts`: local readonly artifact-backed sources plus deterministic fixture provider coverage
 - `src/patch`: patch format, preview, apply, rollback
 - `src/policy`: path and shell policy enforcement
 - `src/verifier`: post-patch verification
-- `src/session`: local session persistence and cleanup
+- `src/session`: local session persistence, rollback resolution, and storage-scoped recent-session entry listing
 - `src/tui`: interactive terminal UI and planner session rendering
+- `src/tui/planner-view.ts`, `planner-live.ts`, `recent-sessions.ts`, `session-actions.ts`, `state.ts`, `run-prompt.ts`: planner viewers, live inspection, recent-session projection, TUI session actions, state refresh, and prompt dispatch
 - `src/shared`: shared helpers used across modules
 - `src/shared/json-response.ts`: shared fenced/balanced JSON extraction used by agent, planner, and verifier flows
 - `src/shared/file-walk.ts`: shared recursive workspace file walking used by context and tool discovery
