@@ -12,6 +12,8 @@ import {
   type PlannerViewModel,
 } from './view-model.js';
 
+export { loadPlannerSessionSummary, type PlannerSessionSummary } from './view-model.js';
+
 export interface PlannerSessionListView {
   schemaVersion: PlannerReadModelSchemaVersion;
   sessions: PlannerSessionSummary[];

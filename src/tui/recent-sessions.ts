@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig } from '../config/schema.js';
-import { loadPlannerSessionSummary } from '../planner/view-model.js';
+import { loadPlannerSessionSummary } from '../planner/read-api.js';
 import { listRecentSessionEntries, type SessionEntry } from '../session/index.js';
 
 export interface SessionListItem {
