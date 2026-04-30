@@ -336,6 +336,21 @@
 - 继续替换剩余 regex-style JSONL / event assertions
 - 再评估 `session -> planner/view-model` 依赖方向的修正边界
 
+### P1.11：本轮已完成 planner artifact / session fixture builder 第一轮
+
+在 P1.10 的 suite structure foundation 之上，本轮继续优先收敛 planner resume / partial-window 相关测试里的手写 artifact fixture，同时保持 runtime 行为不变：
+
+1. `scripts/manual-suite/helpers.ts` 新增 `createPlannerPlan(...)`、`createPlannerState(...)`、`createExecutionState(...)`、`createExecutionLocks(...)`、`writePlannerArtifacts(...)`、`writePlannerEvents(...)`。
+2. `scripts/manual-suite/planner-runtime-resume.ts` 中代表性的 active-wave、fallback-path、owner-reuse、planning-window resume 场景，已经改为复用共享 fixture helper，而不再逐段手写 `plan.json` / `plan.state.json` / `execution.state.json` / `execution.locks.json`。
+3. 部分 `plan.events.jsonl` regex 断言继续迁移为 `assertPlannerEvent(...)`，覆盖 invalid output、replanned、fallback subtask completed、model retry 等事件。
+4. deterministic suite 新增 fixture helper 直接覆盖 case，确保这些 builder/write helper 本身也受回归保护。
+
+这一轮的定位是 planner test fixture foundation，而不是 session/read-model 依赖方向收敛完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 继续替换剩余 regex-style JSONL / event assertions
+- 在 `planner-execution.ts`、`tui.ts` 等仍有较多手写 artifact 的场景继续推广 fixture helper
+- 再评估 `session -> planner/view-model` 依赖方向的修正边界
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

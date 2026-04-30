@@ -252,6 +252,24 @@
 2. 剩余 regex-style JSONL / event assertions 的 structured migration
 3. `session -> planner/view-model` 依赖方向收敛
 
+当前状态更新：planner artifact / session fixture builder 第一轮已完成。
+
+本轮已经实际落地：
+
+- `createPlannerPlan(...)`
+- `createPlannerState(...)`
+- `createExecutionState(...)`
+- `createExecutionLocks(...)`
+- `writePlannerArtifacts(...)`
+- `writePlannerEvents(...)`
+- `planner-runtime-resume.ts` 中代表性 resume / partial-window fixture 迁移
+
+因此后续仓库整理重点应进一步转向：
+
+1. 剩余 regex-style JSONL / event assertions 的 structured migration
+2. `planner-execution.ts` / `tui.ts` 中仍然手写较多的 planner artifact fixture 继续收敛
+3. `session -> planner/view-model` 依赖方向收敛
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑
