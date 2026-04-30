@@ -252,6 +252,7 @@ Purpose:
 - planner view artifact tolerance
 - read-model APIs for planner sessions
 - recovery metadata projection for planner sessions
+- read-model DTO schema/version stability
 - shared planner fixture helper usage for normal session artifacts, while preserving explicit malformed/partial fixtures where the test intent depends on them
 - session storage boundary coverage for recent-session entry enumeration
 
@@ -262,9 +263,12 @@ Representative cases:
 - `planner view tolerates partial artifacts`
 - `planner view loads delta and feedback artifacts`
 - `planner read-model api exposes raw and normalized events`
+- `planner event renderer uses structured blocking metadata`
 - `planner session summary includes execution metadata`
 
 For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
+
+When stabilizing read-model DTOs, verify both the named TypeScript return shapes and the runtime `schemaVersion` fields exposed by `loadPlannerView()`, `loadPlannerEvents()`, and `loadPlannerSessionSummary()`. A DTO boundary is not considered stable if only the type definition changes while the runtime payload shape is left implicit.
 
 Session-layer tests should treat recent-session directory enumeration and planner-summary projection as separate concerns. Storage-scoped entry listing belongs in `src/session`, while planner/child summary projection belongs in the higher-level TUI/read-model layer.
 

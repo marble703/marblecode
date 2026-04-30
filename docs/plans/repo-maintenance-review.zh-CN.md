@@ -365,6 +365,22 @@
 2. `conflictDomains` 的更强约束或 registry（若确有必要）
 3. 在这些字段稳定后，再进入只读 WebUI / external inspector 接口
 
+当前状态更新：read-model DTO stabilization 第一轮已完成。
+
+本轮已经实际落地：
+
+- `PlannerViewModel` / `PlannerSessionSummary` / `PlannerEventsView` 的 `schemaVersion: '1'`
+- `PlannerStepView` / `PlannerBlockedReasonView` / `PlannerLatestConflictView` 等命名 DTO/view types
+- summary 层对 `degradedCompletion` / `blockedStepIds` / `degradedStepIds` 的稳定投影
+- read-model normalizer helper 收敛，减少内联 shape / 宽松 cast
+- deterministic TUI/read-model 覆盖扩展
+
+因此后续优先级可继续收敛到：
+
+1. external inspector / WebUI 前置只读 API 边界
+2. recent-session / planner-live 的轻量 UI polish（如确有收益）
+3. `conflictDomains` registry 仅在出现明确约束需求时再做
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

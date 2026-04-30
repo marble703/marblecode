@@ -491,6 +491,22 @@
 - UI 层不需要理解底层多 artifact 细节
 - 外部读取 planner session 的协议可稳定复用
 
+### P3.1：本轮已完成 read-model DTO stabilization 第一轮
+
+这一轮不引入 WebUI server，也不改 execution 行为，而是先稳定现有 planner read-model 的字段边界与返回形状：
+
+1. `src/planner/view-model.ts` 现在导出稳定的命名 DTO/view types，包括 `PlannerStepView`、`PlannerBlockedReasonView`、`PlannerConflictEdgeView`、`PlannerLatestConflictView`、`PlannerExecutionWaveView`、`PlannerLockEntryView` 与 `PlannerEventsView`。
+2. `PlannerViewModel`、`PlannerSessionSummary`、`loadPlannerEvents()` 现在都带有 `schemaVersion: '1'`，为未来 WebUI / external inspector 提供明确的只读协议边界。
+3. `PlannerSessionSummary` 现在直接暴露轻量但稳定的 execution-facing 字段，如 `degradedCompletion`、`blockedStepIds`、`degradedStepIds`，recent-session 层可直接复用，而无需重新理解 planner artifacts。
+4. `loadPlannerView()` 现在对 blocked/conflict/lock/wave projection 使用更明确的 normalize helpers，而不再只依赖内联 object shape 与宽松 `as` cast。
+5. deterministic suite 已扩展 read-model / TUI 覆盖，验证 `schemaVersion`、summary 字段与 DTO projection 的稳定行为。
+
+这一轮的定位是 read-model boundary stabilization，而不是 external inspector/WebUI 接口已经开始。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否把 `loadPlannerView()` / `loadPlannerEvents()` / `loadPlannerSessionSummary()` 进一步整理成更明确的 external read API 入口
+- 是否为 TUI recent-session / planner live 视图补充最小的 degraded/blocked badge polish
+- 仅在这些只读边界更稳定后，再考虑更具体的 inspector/WebUI 适配
+
 ## 暂不建议优先做的事
 
 - 不建议重新展开已完成的 runtime/TUI/agent/verifier 拆分工作。

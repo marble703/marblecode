@@ -50,6 +50,7 @@ Implemented today:
 - Distinguish fully successful planner execution from degraded completion through structured execution-state and planner-event metadata while keeping successful runs on the `DONE` outcome path
 - Let non-verify downstream steps explicitly accept degraded dependencies through `dependencyTolerances` while keeping verifier dependencies conservative by default
 - Expose structured blocked/conflict explainability through planner events, execution-state artifacts, and planner session views
+- Expose planner read models with stable `schemaVersion: '1'` boundaries for session summaries, full planner views, and normalized planner event timelines
 
 ## Current Limits
 
