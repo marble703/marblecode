@@ -317,6 +317,22 @@
 2. 如有明确收益，再小范围处理 `planner-execution.ts` 等剩余少量 fixture 重复
 3. 后续优先级应转回 P2 planner execution 语义演进或 P3 read-model DTO 稳定化，而不是继续做无目标整理
 
+当前状态更新：degraded completion metadata 第一轮已完成。
+
+本轮已经实际落地：
+
+- `PlannerState.degradedCompletion`
+- degraded completion 时 `plan.state.json` 的结构化标记
+- `planner_execution_finished` event 中的 `degradedCompletion` / `degradedStepIds`
+- `PlannerViewModel` / TUI planner view 对 degraded completion 的直接投影
+- degraded execution / read-model deterministic 覆盖扩展
+
+因此后续优先级应进一步转向：
+
+1. dependency-level optional / degraded acceptance 的最小语义
+2. conflict domain / blocked wave 原因的更强解释性
+3. 在这些 execution 语义更稳定后，再进入 P3 read-model DTO 固化
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

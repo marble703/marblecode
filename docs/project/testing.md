@@ -195,6 +195,7 @@ Purpose:
 - rolling append
 - degraded execution
 - execution feedback artifacts
+- degraded completion metadata
 
 Representative cases:
 
@@ -206,6 +207,8 @@ Representative cases:
 - `planner execute degraded optional docs`
 - `planner execute feedback writes undeclared changes`
 - `planner execute feedback records changed files`
+
+For degraded execution coverage, keep testing three layers together when behavior changes: the final `plan.state.json` fields, the corresponding `planner_execution_finished` event metadata, and the planner/read-model projection consumed by the TUI. Degraded completion is not considered fully covered if only the human-readable message changes.
 
 ### Planner Recovery
 

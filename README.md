@@ -47,6 +47,7 @@ Implemented today:
 - Inspect planner sessions with `show:planner`, `tui:planner`, and the interactive TUI
 - Resume planner sessions, inspect individual steps, and open child coder sessions from the TUI
 - Use planner execution waves, lock artifacts, fallback edges, bounded local replan, rolling append windows, and execution feedback artifacts
+- Distinguish fully successful planner execution from degraded completion through structured execution-state and planner-event metadata while keeping successful runs on the `DONE` outcome path
 
 ## Current Limits
 

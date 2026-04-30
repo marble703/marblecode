@@ -396,6 +396,21 @@
 - 否则切回 P2 degraded / conflict / concurrency semantics
 - 仅在确有收益时继续处理 `planner-execution.ts` 中剩余少量重复 fixture
 
+### P2.1：本轮已完成 degraded completion metadata 第一轮
+
+在 P1.14 的 dependency-direction maintenance closeout 之后，本轮回到 planner execution 语义本身，先收敛 degraded completion 的结构化表达，而不改 `outcome: DONE` 的成功语义：
+
+1. `src/planner/types.ts` 中的 `PlannerState` 新增 `degradedCompletion` 可选字段，用于明确标记“完成但带降级步骤”的结果。
+2. `src/planner/execute.ts` 现在会在 degraded completion 时把 `degradedCompletion: true` 写入 `plan.state.json`，并在 `planner_execution_finished` event 中同时写入 `degradedCompletion` 和 `degradedStepIds`。
+3. `src/planner/view-model.ts` 与 `src/tui/planner-view.ts` 现在会把 degraded completion 当作明确的 read-model 字段与展示信息，而不再只能从 `DONE + degradedStepIds` 间接推断。
+4. deterministic suite 扩展了 degraded execution / view-model 覆盖，验证 state、finished event 和 planner view projection 的 degraded completion metadata。
+
+这一轮的定位是 degraded outcome clarity foundation，而不是 dependency-level optional acceptance 完成。下一轮如果继续推进 P2，应优先考虑：
+
+- dependency-level optional / degraded acceptance 的最小语义
+- conflict domain / wave blocking 原因的更强解释性
+- 仅在这些语义边界更稳定后，再评估 P3 read-model DTO 固化
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。
