@@ -1,5 +1,5 @@
 import type { PlannerViewModel } from '../planner/view-model.js';
-import type { SessionListItem } from '../session/index.js';
+import type { SessionListItem } from './recent-sessions.js';
 
 export type TuiMode = 'run' | 'plan' | 'execute';
 

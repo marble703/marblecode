@@ -4,9 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
+import { listRecentSessionEntries } from '../../src/session/index.js';
 import { executeTuiAction, inspectPlannerStep, resolvePlannerChildSession } from '../../src/tui/session-actions.js';
+import { listRecentSessions } from '../../src/tui/recent-sessions.js';
 import { refreshTuiState } from '../../src/tui/state.js';
-import { listRecentSessions, resolvePlannerSessionDir } from '../../src/session/index.js';
+import { resolvePlannerSessionDir } from '../../src/session/index.js';
 import {
   createExecutionState,
   createPlannerPlan,
@@ -31,6 +33,7 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner view normalizes timeline events', run: testPlannerViewNormalizesTimelineEvents },
     { name: 'planner read-model api exposes raw and normalized events', run: testPlannerReadModelApiExposesRawAndNormalizedEvents },
     { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
+    { name: 'session entries stay storage scoped', run: testSessionEntriesStayStorageScoped },
   ];
 }
 
@@ -475,5 +478,32 @@ async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<voi
     assert.equal(summary.planRevision, 5);
     assert.equal(summary.planIsPartial, true);
     assert.equal(summary.currentStepId, 'step-3');
+  });
+}
+
+async function testSessionEntriesStayStorageScoped(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
+    const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-11-000Z');
+    const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-10-000Z');
+    await mkdir(childSessionDir, { recursive: true });
+    await writePlannerArtifacts(plannerSessionDir, {
+      plan: createPlannerPlan({ summary: 'Storage scoped planner entry', steps: [] }),
+      planState: createPlannerState({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1' }),
+    });
+    await writePlannerEvents(plannerSessionDir, [{ type: 'planner_started' }]);
+    await writeFile(path.join(childSessionDir, 'request.json'), JSON.stringify({ prompt: 'Child prompt' }), 'utf8');
+
+    const entries = await listRecentSessionEntries(config, 4);
+    assert.equal(entries[0]?.isPlanner, true);
+    assert.equal(entries[0]?.id, '2026-04-20T10-00-11-000Z');
+    assert.equal('summary' in (entries[0] ?? {}), false);
+    assert.equal(entries[1]?.isPlanner, false);
+    assert.equal(entries[1]?.id, '2026-04-20T10-00-10-000Z');
+    assert.equal('summary' in (entries[1] ?? {}), false);
+
+    const sessions = await listRecentSessions(config, 4);
+    assert.equal(sessions[0]?.summary, 'Storage scoped planner entry');
+    assert.equal(sessions[1]?.summary, 'Child prompt');
   });
 }

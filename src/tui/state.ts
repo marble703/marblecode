@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { loadConfig } from '../config/load.js';
-import { isPlannerSessionDir, listRecentSessions } from '../session/index.js';
+import { isPlannerSessionDir } from '../session/index.js';
 import { loadPlannerView } from '../planner/view-model.js';
+import { listRecentSessions } from './recent-sessions.js';
 import type { TuiState } from './types.js';
 
 export function createInitialTuiState(workspaceRoot = process.cwd()): TuiState {

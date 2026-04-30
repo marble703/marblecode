@@ -1,5 +1,5 @@
 import { stdout as output } from 'node:process';
-import type { SessionListItem } from '../session/index.js';
+import type { SessionListItem } from './recent-sessions.js';
 import { formatPlannerView } from './planner-view.js';
 import type { TuiState } from './types.js';
 
