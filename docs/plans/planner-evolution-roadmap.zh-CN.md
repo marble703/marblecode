@@ -411,6 +411,25 @@
 - conflict domain / wave blocking 原因的更强解释性
 - 仅在这些语义边界更稳定后，再评估 P3 read-model DTO 固化
 
+### P2.2：本轮已完成 dependency-level degraded acceptance 第一轮
+
+这一轮在不引入新的 `PlannerOutcome` 枚举、也不重写 `dependencies` 基本形状的前提下，先落地最小 dependency-level degraded acceptance 语义：
+
+1. `src/planner/types.ts` 中的 `PlannerStep` 新增 `dependencyTolerances?: Record<string, 'required' | 'degrade'>`。
+2. `src/planner/parse.ts` 现在会解析并校验 `dependencyTolerances`，只接受已声明 dependency 的 key，并把非法值归一为 `required`。
+3. `src/planner/graph.ts` 现在允许非 `verify` 下游步骤在显式声明 `dependencyTolerances[dep]='degrade'` 时，接受一个 `failureTolerance=degrade` 且已失败的 dependency；`verify` 仍保持保守阻塞，不会被 degraded dependency 自动放行。
+4. `src/planner/model.ts` 的 planner prompt 已加入 `dependencyTolerances` 指引，明确它只应用于显式声明的非 verify 下游场景。
+5. deterministic suite 已新增 execution coverage，验证：
+   - 非 verify 下游步骤可在显式 degraded acceptance 下继续执行
+   - verify 不会因 degraded dependency 被自动放行
+   - 未显式接受 degraded dependency 的下游步骤仍保持 blocked/failure 语义
+
+这一轮的定位是 minimal dependency acceptance semantics，而不是 blocked/conflict explainability 完成。下一轮如果继续推进 P2，应优先考虑：
+
+- `subtask_blocked` / `execution.state.json` / read-model 中更结构化的 blocked reason metadata
+- conflict domain / active wave blocking 原因的更强解释性
+- 仅在这些 execution 语义稳定后，再评估 P3 read-model DTO 固化
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

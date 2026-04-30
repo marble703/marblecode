@@ -333,6 +333,22 @@
 2. conflict domain / blocked wave 原因的更强解释性
 3. 在这些 execution 语义更稳定后，再进入 P3 read-model DTO 固化
 
+当前状态更新：dependency-level degraded acceptance 第一轮已完成。
+
+本轮已经实际落地：
+
+- `PlannerStep.dependencyTolerances?: Record<string, 'required' | 'degrade'>`
+- parse/consistency checks 对 dependency tolerance key 的校验
+- graph readiness 对显式 degraded dependency acceptance 的最小支持
+- `verify` 继续保持保守阻塞，不会因 degraded dependency 自动放行
+- deterministic execution 覆盖新增 required / degraded-accepted / verify-blocked 三类路径
+
+因此后续优先级应进一步收敛到：
+
+1. blocked reason / conflict reason 的更结构化 metadata
+2. active wave / conflict domain 限制原因的更强可解释性
+3. 在这些 execution 语义稳定后，再进入 P3 read-model DTO 固化
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑
