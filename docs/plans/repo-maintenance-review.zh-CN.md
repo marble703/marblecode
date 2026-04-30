@@ -221,6 +221,23 @@
 2. JSONL / planner events 的 structured assertion helpers
 3. `session -> planner/view-model` 依赖方向收敛
 
+当前状态更新：structured assertion helpers 已完成第一轮落地。
+
+本轮已经实际落地：
+
+- `readJsonl(...)`
+- `assertJsonlRecord(...)`
+- `readSessionJsonl(...)`
+- `assertToolLogEntry(...)`
+- `assertPlannerEvent(...)`
+- `core.ts` / `planner-execution.ts` 中代表性 JSONL 断言迁移
+
+因此后续仓库整理重点应进一步转向：
+
+1. `scripts/manual-suite/core.ts` 与 `scripts/manual-suite/planner-runtime.ts` 的结构减压
+2. planner artifact / session fixture builder
+3. `session -> planner/view-model` 依赖方向收敛
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

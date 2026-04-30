@@ -306,6 +306,21 @@
 - 为 JSONL/tool log/planner event 增加 structured assertion helpers
 - 再评估 `session -> planner/view-model` 依赖方向的修正边界
 
+### P1.9：本轮已完成 structured JSONL / event assertion helpers
+
+在 P1.8 的 low-risk maintenance foundation 之上，本轮继续优先收敛 manual-suite 中最脆弱的 JSONL/event 断言模式，而没有直接大拆测试文件：
+
+1. `scripts/manual-suite/helpers.ts` 新增 `readJsonl(...)`、`assertJsonlRecord(...)`、`readSessionJsonl(...)`、`assertToolLogEntry(...)`、`assertPlannerEvent(...)`。
+2. `scripts/manual-suite/core.ts` 中的代表性 `tools.jsonl` 断言已经从字符串 regex 改为 structured assertions。
+3. `scripts/manual-suite/planner-execution.ts` 中的代表性 `plan.events.jsonl` 断言已经改为 structured planner event assertions。
+4. deterministic suite 增加 JSONL helper 的基础覆盖，同时保持现有 session artifact 形状不变。
+
+这一轮的定位是 test assertion foundation，而不是 manual-suite 结构减压完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 收敛 `scripts/manual-suite/core.ts` 与 `scripts/manual-suite/planner-runtime.ts` 的结构压力
+- 为 planner artifact/session fixture 增加共享 builder，减少大块手写 JSON
+- 再评估 `session -> planner/view-model` 依赖方向的修正边界
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

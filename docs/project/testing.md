@@ -80,6 +80,8 @@ Representative cases:
 - `tool log helper includes capability source fields`
 - `local artifact helper returns missing`
 - `local artifact helper rejects workspace escape`
+- `jsonl helper reads records`
+- `jsonl helper asserts matching record`
 - `local diagnostics provider reads artifact`
 - `local diagnostics provider filters path and severity`
 - `local diagnostics provider returns empty when missing`
@@ -166,7 +168,7 @@ Representative cases:
 - `planner model retry`
 - `planner model retry exhaustion`
 
-At the moment, `npm run test:examples` covers 117 deterministic cases.
+At the moment, `npm run test:examples` covers 119 deterministic cases.
 
 ### Planner Execution
 
