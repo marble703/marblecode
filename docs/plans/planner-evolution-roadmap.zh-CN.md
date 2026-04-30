@@ -321,6 +321,21 @@
 - 为 planner artifact/session fixture 增加共享 builder，减少大块手写 JSON
 - 再评估 `session -> planner/view-model` 依赖方向的修正边界
 
+### P1.10：本轮已完成 manual-suite 结构减压第一步
+
+在 P1.9 的 test assertion foundation 之上，本轮继续优先降低 manual-suite 上帝文件压力，但保持 case 名称、顺序与 suite 行为不变：
+
+1. `scripts/manual-suite/core.ts` 现在只保留 case 聚合，具体实现拆到 `core-tools.ts`、`core-providers.ts`、`core-local-providers.ts`。
+2. `scripts/manual-suite/planner-runtime.ts` 现在只保留 case 聚合，具体实现拆到 `planner-runtime-core.ts` 与 `planner-runtime-resume.ts`。
+3. `scripts/test-examples.ts` 与外部 case 名称保持不变，因此 deterministic suite 的执行顺序和可见输出没有变化。
+4. 这一轮没有改 session artifact shape、planner runtime 语义或 provider 行为，属于纯测试结构减压。
+
+这一轮的定位是 suite structure foundation，而不是 planner fixture builder 完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 为 planner artifact/session fixture 增加共享 builder，减少大块手写 JSON
+- 继续替换剩余 regex-style JSONL / event assertions
+- 再评估 `session -> planner/view-model` 依赖方向的修正边界
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

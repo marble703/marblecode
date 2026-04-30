@@ -238,6 +238,20 @@
 2. planner artifact / session fixture builder
 3. `session -> planner/view-model` 依赖方向收敛
 
+当前状态更新：manual-suite 结构减压第一步已完成。
+
+本轮已经实际落地：
+
+- `core.ts -> core-tools.ts / core-providers.ts / core-local-providers.ts`
+- `planner-runtime.ts -> planner-runtime-core.ts / planner-runtime-resume.ts`
+- case 名称、顺序与 deterministic suite 总数保持不变
+
+因此后续仓库整理重点应进一步转向：
+
+1. planner artifact / session fixture builder
+2. 剩余 regex-style JSONL / event assertions 的 structured migration
+3. `session -> planner/view-model` 依赖方向收敛
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

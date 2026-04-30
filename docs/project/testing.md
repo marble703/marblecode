@@ -52,6 +52,9 @@ These are not required for every edit, but they are useful for release validatio
 Files:
 
 - `scripts/manual-suite/core.ts`
+- `scripts/manual-suite/core-tools.ts`
+- `scripts/manual-suite/core-providers.ts`
+- `scripts/manual-suite/core-local-providers.ts`
 
 Purpose:
 
@@ -134,6 +137,8 @@ Representative cases:
 Files:
 
 - `scripts/manual-suite/planner-runtime.ts`
+- `scripts/manual-suite/planner-runtime-core.ts`
+- `scripts/manual-suite/planner-runtime-resume.ts`
 
 Purpose:
 
