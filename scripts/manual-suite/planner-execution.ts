@@ -24,7 +24,9 @@ export function createPlannerExecutionCases(): ManualSuiteCase[] {
     { name: 'planner execute conflict domain fail', run: testPlannerExecuteConflictDomainFail },
     { name: 'planner execute conflict domain serial', run: testPlannerExecuteConflictDomainSerial },
     { name: 'planner execute degraded optional docs', run: testPlannerExecuteDegradedOptionalDocs },
+    { name: 'planner execute degraded dependency can unblock non verify step', run: testPlannerExecuteDegradedDependencyCanUnblockNonVerifyStep },
     { name: 'planner execute degraded does not unblock verify', run: testPlannerExecuteDegradedDoesNotUnblockVerify },
+    { name: 'planner execute required dependency still blocks downstream step', run: testPlannerExecuteRequiredDependencyStillBlocksDownstreamStep },
     { name: 'planner execute feedback writes undeclared changes', run: testPlannerExecuteFeedbackWritesUndeclaredChanges },
     { name: 'planner execute feedback records changed files', run: testPlannerExecuteFeedbackRecordsChangedFiles },
   ];
@@ -485,6 +487,99 @@ async function testPlannerExecuteDegradedDoesNotUnblockVerify(): Promise<void> {
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'PENDING');
+  });
+}
+
+async function testPlannerExecuteDegradedDependencyCanUnblockNonVerifyStep(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'A non-verify step may continue after a degraded dependency when explicitly allowed.',
+              steps: [
+                { id: 'step-1', title: 'Generate optional docs artifact', status: 'PENDING', kind: 'docs', details: 'This docs step degrades intentionally.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', failureTolerance: 'degrade', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Apply core code fix after degraded docs', status: 'PENDING', kind: 'code', details: 'Core code fix can continue even if optional docs degraded.', relatedFiles: ['src/math.js'], fileScope: ['src/math.js'], accessMode: 'write', dependencies: ['step-1'], dependencyTolerances: { 'step-1': 'degrade' }, children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'A non-verify step may continue after a degraded dependency when explicitly allowed.' });
+      }
+
+      if (request.metadata?.mode === 'mvp-json-loop') {
+        const content = request.messages[0]?.content ?? '';
+        if (content.includes('Generate optional docs artifact')) {
+          throw new Error('Optional docs generation failed intentionally');
+        }
+        return buildMathFixStep(workspaceRoot);
+      }
+
+      throw new Error(`Unexpected request mode: ${String(request.metadata?.mode ?? '')}`);
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '允许显式声明的非 verify 下游步骤接受 degraded dependency',
+      explicitFiles: ['src/notes.txt', 'src/math.js'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'completed');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { degradedStepIds?: string[]; blockedStepIds?: string[]; outcome: string };
+    assert.equal(state.outcome, 'DONE');
+    assert.deepEqual(state.degradedStepIds, ['step-1']);
+    assert.deepEqual(state.blockedStepIds ?? [], []);
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'DONE');
+    assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
+  });
+}
+
+async function testPlannerExecuteRequiredDependencyStillBlocksDownstreamStep(): Promise<void> {
+  await withWorkspace(async ({ config }) => {
+    const provider = new BranchingProvider(async (request) => {
+      if (request.metadata?.mode === 'planner-json-loop') {
+        const currentPlan = request.messages[0]?.content ?? '';
+        if (!currentPlan.includes('"id": "step-1"') && !currentPlan.includes('"id":"step-1"')) {
+          return JSON.stringify({
+            type: 'plan',
+            plan: {
+              version: '1',
+              summary: 'A required degraded dependency still blocks downstream work.',
+              steps: [
+                { id: 'step-1', title: 'Generate optional docs artifact', status: 'PENDING', kind: 'docs', details: 'This docs step degrades intentionally.', relatedFiles: ['src/notes.txt'], fileScope: ['src/notes.txt'], accessMode: 'write', failureTolerance: 'degrade', dependencies: [], children: [] },
+                { id: 'step-2', title: 'Publish docs follow-up', status: 'PENDING', kind: 'docs', details: 'This step still requires the docs artifact to exist.', dependencies: ['step-1'], children: [] },
+              ],
+            },
+          });
+        }
+        return JSON.stringify({ type: 'final', outcome: 'DONE', message: 'Plan complete', summary: 'A required degraded dependency still blocks downstream work.' });
+      }
+
+      throw new Error('Optional docs generation failed intentionally');
+    });
+
+    const plannerRegistry = createPlannerRegistry(config, new PolicyEngine(config));
+    const result = await runPlanner(config, new Map([['stub', provider]]), plannerRegistry, {
+      prompt: '未显式接受 degraded dependency 时仍应阻塞下游步骤',
+      explicitFiles: ['src/notes.txt'],
+      pastedSnippets: [],
+      executeSubtasks: true,
+    });
+
+    assert.equal(result.status, 'failed');
+    const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string; details?: string; lastError?: string }> };
+    assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
+    assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'FAILED');
+    assert.match(plan.steps.find((step) => step.id === 'step-2')?.details ?? '', /blocked by unmet dependencies: step-1/i);
+    assert.match(plan.steps.find((step) => step.id === 'step-2')?.lastError ?? '', /blocked by unmet dependencies: step-1/i);
   });
 }
 

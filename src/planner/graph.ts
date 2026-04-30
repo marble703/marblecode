@@ -148,8 +148,7 @@ export function getReadyStepIds(plan: PlannerPlan, state: PlannerState, graph: P
 export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: PlannerExecutionGraph): string[] {
   const reasons: string[] = [];
   for (const dependency of step.dependencies) {
-    const dependencyStatus = plan.steps.find((candidate) => candidate.id === dependency)?.status;
-    if (dependencyStatus !== 'DONE' && !fallbackReplacementSatisfied(plan, graph, dependency)) {
+    if (!dependencySatisfied(step, dependency, plan, graph)) {
       reasons.push(`dependency:${dependency}`);
     }
   }
@@ -183,6 +182,25 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
   }
 
   return reasons;
+}
+
+function dependencySatisfied(step: PlannerStep, dependencyId: string, plan: PlannerPlan, graph: PlannerExecutionGraph): boolean {
+  const dependency = plan.steps.find((candidate) => candidate.id === dependencyId);
+  if (!dependency) {
+    return false;
+  }
+  if (dependency.status === 'DONE') {
+    return true;
+  }
+  if (fallbackReplacementSatisfied(plan, graph, dependencyId)) {
+    return true;
+  }
+  if (step.kind === 'verify') {
+    return false;
+  }
+
+  const tolerance = step.dependencyTolerances?.[dependencyId] ?? 'required';
+  return tolerance === 'degrade' && dependency.status === 'FAILED' && dependency.failureTolerance === 'degrade';
 }
 
 export function derivePlannerAccessMode(step: PlannerStep): PlannerAccessMode {

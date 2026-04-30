@@ -2,6 +2,7 @@ import { extractJsonObject } from '../shared/json-response.js';
 import { buildExecutionGraph as buildPlannerExecutionGraph, hasDependencyCycle } from './graph.js';
 import type {
   PlannerContextPacket,
+  PlannerDependencyTolerance,
   PlannerFailureKind,
   PlannerFailureTolerance,
   PlannerPlan,
@@ -184,6 +185,11 @@ export function runPlanConsistencyChecks(plan: PlannerPlan): string[] {
         errors.push(`Unknown dependency ${dependency} referenced by ${step.id}`);
       }
     }
+    for (const dependency of Object.keys(step.dependencyTolerances ?? {})) {
+      if (!step.dependencies.includes(dependency)) {
+        errors.push(`Dependency tolerance ${dependency} referenced by ${step.id} is not declared in dependencies`);
+      }
+    }
     for (const fallback of step.fallbackStepIds ?? []) {
       if (!ids.has(fallback)) {
         errors.push(`Unknown fallback step ${fallback} referenced by ${step.id}`);
@@ -229,6 +235,11 @@ export function runPlanConsistencyChecks(plan: PlannerPlan): string[] {
 
 function normalizePlannerStep(step: unknown, index: number, workspaceRoot: string): PlannerStep {
   const record = (step && typeof step === 'object' ? step : {}) as Record<string, unknown>;
+  const dependencies = Array.isArray(record.dependencies)
+    ? record.dependencies.filter((item): item is string => typeof item === 'string')
+    : [];
+  const dependencyTolerances = normalizeDependencyTolerances(record.dependencyTolerances, dependencies);
+
   return {
     id: String(record.id ?? `step-${index + 1}`),
     title: String(record.title ?? `Step ${index + 1}`),
@@ -239,9 +250,8 @@ function normalizePlannerStep(step: unknown, index: number, workspaceRoot: strin
     ...(Array.isArray(record.relatedFiles)
       ? { relatedFiles: record.relatedFiles.filter((item): item is string => typeof item === 'string').map((item) => normalizePlannerFilePath(workspaceRoot, item)) }
       : {}),
-    dependencies: Array.isArray(record.dependencies)
-      ? record.dependencies.filter((item): item is string => typeof item === 'string')
-      : [],
+    dependencies,
+    ...(dependencyTolerances ? { dependencyTolerances } : {}),
     children: Array.isArray(record.children)
       ? record.children.filter((item): item is string => typeof item === 'string')
       : [],
@@ -314,6 +324,30 @@ function normalizeFailureKind(value: string): PlannerFailureKind {
 
 function normalizeFailureTolerance(value: string): PlannerFailureTolerance {
   return value === 'degrade' ? 'degrade' : 'none';
+}
+
+function normalizeDependencyTolerances(
+  value: unknown,
+  dependencies: string[],
+): Record<string, PlannerDependencyTolerance> | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const dependencySet = new Set(dependencies);
+  const entries = Object.entries(value as Record<string, unknown>)
+    .flatMap(([dependency, tolerance]) => dependencySet.has(dependency) && typeof tolerance === 'string'
+      ? [[dependency, normalizeDependencyTolerance(tolerance)] as const]
+      : []);
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function normalizeDependencyTolerance(value: string): PlannerDependencyTolerance {
+  return value === 'degrade' ? 'degrade' : 'required';
 }
 
 function withOptionalThought<T extends PlannerResponse>(step: T, thought: unknown): T {

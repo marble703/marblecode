@@ -49,6 +49,8 @@ export type PlannerAccessMode = 'read' | 'write' | 'verify';
 
 export type PlannerFailureTolerance = 'none' | 'degrade';
 
+export type PlannerDependencyTolerance = 'required' | 'degrade';
+
 export interface PlannerContextPacket {
   version: '1';
   objective: string;
@@ -79,6 +81,7 @@ export interface PlannerStep {
   details?: string;
   relatedFiles?: string[];
   dependencies: string[];
+  dependencyTolerances?: Record<string, PlannerDependencyTolerance>;
   children: string[];
   maxAttempts?: number;
   assignee?: string;
