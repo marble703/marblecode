@@ -1,5 +1,6 @@
 import {
   assert,
+  assertPlannerEvent,
   BranchingProvider,
   buildMathFixStep,
   buildNotesOnlyStep,
@@ -67,18 +68,20 @@ async function testPlannerExecuteChain(): Promise<void> {
     assert.equal(result.status, 'completed');
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /return a \+ b;/);
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; message: string };
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const executionGraph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { waves: Array<{ stepIds: string[] }> };
     const executionLocks = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ path: string; mode: string }> };
     const verifyArtifact = JSON.parse(await readFile(path.join(result.sessionDir, 'subtask.step-3.verify.json'), 'utf8')) as { success: boolean };
     assert.equal(state.outcome, 'DONE');
     assert.match(state.message, /verifier passed|executed all subtasks/i);
     assert.equal(verifyArtifact.success, true);
-    assert.match(events, /planner_execution_started/);
-    assert.match(events, /"executor":"coder"/);
-    assert.match(events, /"modelAlias":"code"/);
-    assert.match(events, /subtask_completed/);
-    assert.match(events, /planner_execution_finished/);
+    await assertPlannerEvent(result.sessionDir, 'planner_execution_started');
+    await assertPlannerEvent(
+      result.sessionDir,
+      'subtask_completed',
+      (record) => record.executor === 'coder' && record.modelAlias === 'code',
+      'Expected coder completion event with code model',
+    );
+    await assertPlannerEvent(result.sessionDir, 'planner_execution_finished');
     assert.equal(executionGraph.waves.length >= 1, true);
     assert.equal(executionLocks.entries.some((entry) => entry.path === 'src/math.js' && entry.mode === 'guarded_read'), true);
   });
@@ -206,10 +209,9 @@ async function testPlannerExecuteRollingWindowAppend(): Promise<void> {
     assert.deepEqual(delta.addedStepIds, ['step-3']);
     assert.equal(delta.planningWindowWaves, 1);
     assert.equal(delta.combinedIsPartial, false);
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
-    assert.match(events, /planner_partial_execution_completed/);
-    assert.match(events, /planner_execution_window_completed/);
-    assert.match(events, /plan_appended/);
+    await assertPlannerEvent(result.sessionDir, 'planner_partial_execution_completed');
+    await assertPlannerEvent(result.sessionDir, 'planner_execution_window_completed');
+    await assertPlannerEvent(result.sessionDir, 'plan_appended');
   });
 }
 
@@ -293,8 +295,7 @@ async function testPlannerExecuteConflictPolicyFail(): Promise<void> {
 
     assert.equal(result.status, 'failed');
     assert.match(result.message, /conflict detected/i);
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
-    assert.match(events, /subtask_conflict_detected/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_conflict_detected');
   });
 }
 

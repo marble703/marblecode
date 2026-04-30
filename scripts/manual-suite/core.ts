@@ -15,7 +15,7 @@ import { ToolRegistry } from '../../src/tools/registry.js';
 import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import { createBuiltinToolProvider, createBuiltinTools, createPlannerToolProvider } from '../../src/tools/builtins.js';
 import type { ModelProvider } from '../../src/provider/types.js';
-import { enableExternalProvider, withWorkspace, writeMarbleArtifact } from './helpers.js';
+import { assertJsonlRecord, assertToolLogEntry, enableExternalProvider, readJsonl, withWorkspace, writeMarbleArtifact } from './helpers.js';
 import { InspectingProvider, SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
@@ -37,6 +37,8 @@ export function createCoreCases(): ManualSuiteCase[] {
     { name: 'tool log helper includes capability source fields', run: testToolLogHelperIncludesCapabilitySourceFields },
     { name: 'local artifact helper returns missing', run: testLocalArtifactHelperReturnsMissing },
     { name: 'local artifact helper rejects workspace escape', run: testLocalArtifactHelperRejectsWorkspaceEscape },
+    { name: 'jsonl helper reads records', run: testJsonlHelperReadsRecords },
+    { name: 'jsonl helper asserts matching record', run: testJsonlHelperAssertsMatchingRecord },
     { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
     { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
@@ -400,13 +402,16 @@ async function testToolLogIncludesProviderMetadata(): Promise<void> {
         confirm: async () => true,
       });
       assert.equal(result.status, 'completed');
-      const logPath = path.join(result.sessionDir, 'tools.jsonl');
-      const logContent = await readFile(logPath, 'utf8');
-      assert.match(logContent, /"providerId":"diagnostics-external-fixture"/);
-      assert.match(logContent, /"providerKind":"external"/);
-      assert.match(logContent, /"providerAccess":"read_only"/);
-      assert.match(logContent, /"providerCapabilities":\["diagnostics"\]/);
-      assert.match(logContent, /"diagnosticsSource":"\[external-diagnostics\]"/);
+      const logEntry = await assertToolLogEntry(
+        result.sessionDir,
+        'diagnostics_list',
+        (record) => record.providerId === 'diagnostics-external-fixture',
+        'Expected diagnostics tool log entry',
+      );
+      assert.equal(logEntry.providerKind, 'external');
+      assert.equal(logEntry.providerAccess, 'read_only');
+      assert.deepEqual(logEntry.providerCapabilities, ['diagnostics']);
+      assert.equal(logEntry.diagnosticsSource, '[external-diagnostics]');
     } finally {
       await registry.disposeAll();
     }
@@ -494,6 +499,36 @@ async function testLocalArtifactHelperRejectsWorkspaceEscape(): Promise<void> {
     const result = normalizeWorkspacePath(config, policy, '../outside.txt', 'Local artifact path escapes workspace');
     assert.equal(result.status, 'error');
     assert.match(result.error ?? '', /Local artifact path escapes workspace/);
+  });
+}
+
+async function testJsonlHelperReadsRecords(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const jsonlPath = path.join(workspaceRoot, 'records.jsonl');
+    await writeFile(
+      jsonlPath,
+      `${JSON.stringify({ type: 'one', value: 1 })}\n${JSON.stringify({ type: 'two', value: 2 })}\n`,
+      'utf8',
+    );
+    const records = await readJsonl<{ type: string; value: number }>(jsonlPath);
+    assert.deepEqual(records, [
+      { type: 'one', value: 1 },
+      { type: 'two', value: 2 },
+    ]);
+  });
+}
+
+async function testJsonlHelperAssertsMatchingRecord(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const jsonlPath = path.join(workspaceRoot, 'records.jsonl');
+    await writeFile(
+      jsonlPath,
+      `${JSON.stringify({ type: 'one', value: 1 })}\n${JSON.stringify({ type: 'two', value: 2 })}\n`,
+      'utf8',
+    );
+    const records = await readJsonl<{ type: string; value: number }>(jsonlPath);
+    const record = assertJsonlRecord(records, (entry) => entry.type === 'two', 'Expected type two');
+    assert.deepEqual(record, { type: 'two', value: 2 });
   });
 }
 
@@ -789,13 +824,16 @@ async function testToolLogSanitizesLocalSymbolsSource(): Promise<void> {
         confirm: async () => true,
       });
       assert.equal(result.status, 'completed');
-      const logPath = path.join(result.sessionDir, 'tools.jsonl');
-      const logContent = await readFile(logPath, 'utf8');
-      assert.match(logContent, /"providerId":"local-symbols"/);
-      assert.match(logContent, /"providerKind":"external"/);
-      assert.match(logContent, /"providerAccess":"read_only"/);
-      assert.match(logContent, /"providerCapabilities":\["symbols"\]/);
-      assert.match(logContent, /"symbolsSource":"\[local-symbols\]"/);
+      const logEntry = await assertToolLogEntry(
+        result.sessionDir,
+        'symbols_list',
+        (record) => record.providerId === 'local-symbols',
+        'Expected symbols tool log entry',
+      );
+      assert.equal(logEntry.providerKind, 'external');
+      assert.equal(logEntry.providerAccess, 'read_only');
+      assert.deepEqual(logEntry.providerCapabilities, ['symbols']);
+      assert.equal(logEntry.symbolsSource, '[local-symbols]');
     } finally {
       await registry.disposeAll();
     }
@@ -1025,13 +1063,16 @@ async function testToolLogSanitizesLocalReferencesSource(): Promise<void> {
         confirm: async () => true,
       });
       assert.equal(result.status, 'completed');
-      const logPath = path.join(result.sessionDir, 'tools.jsonl');
-      const logContent = await readFile(logPath, 'utf8');
-      assert.match(logContent, /"providerId":"local-references"/);
-      assert.match(logContent, /"providerKind":"external"/);
-      assert.match(logContent, /"providerAccess":"read_only"/);
-      assert.match(logContent, /"providerCapabilities":\["references"\]/);
-      assert.match(logContent, /"referencesSource":"\[local-references\]"/);
+      const logEntry = await assertToolLogEntry(
+        result.sessionDir,
+        'references_list',
+        (record) => record.providerId === 'local-references',
+        'Expected references tool log entry',
+      );
+      assert.equal(logEntry.providerKind, 'external');
+      assert.equal(logEntry.providerAccess, 'read_only');
+      assert.deepEqual(logEntry.providerCapabilities, ['references']);
+      assert.equal(logEntry.referencesSource, '[local-references]');
     } finally {
       await registry.disposeAll();
     }
