@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../../src/config/load.js';
 import type { AppConfig } from '../../src/config/schema.js';
@@ -197,6 +197,213 @@ export async function assertPlannerEvent(
     (record) => record.type === eventType && predicate(record),
     message,
   );
+}
+
+type PlannerJsonRecord = Record<string, unknown>;
+
+export function createPlannerPlan<TStep extends PlannerJsonRecord = PlannerJsonRecord>(
+  overrides: Partial<{
+    version: '1';
+    revision: number;
+    summary: string;
+    isPartial: boolean;
+    planningHorizon: { waveCount?: number };
+    steps: TStep[];
+  }> = {},
+): {
+  version: '1';
+  revision: number;
+  summary: string;
+  steps: TStep[];
+  isPartial?: boolean;
+  planningHorizon?: { waveCount?: number };
+} {
+  return {
+    version: '1',
+    revision: 1,
+    summary: 'Planner test fixture.',
+    steps: [],
+    ...(overrides.summary ? { summary: overrides.summary } : {}),
+    ...(typeof overrides.revision === 'number' ? { revision: overrides.revision } : {}),
+    ...(Array.isArray(overrides.steps) ? { steps: overrides.steps } : {}),
+    ...(overrides.isPartial === true ? { isPartial: true } : {}),
+    ...(overrides.planningHorizon ? { planningHorizon: overrides.planningHorizon } : {}),
+  };
+}
+
+export function createPlannerState(
+  overrides: Partial<{
+    version: '1';
+    revision: number;
+    phase: string;
+    outcome: string;
+    currentStepId: string | null;
+    activeStepIds: string[];
+    readyStepIds: string[];
+    completedStepIds: string[];
+    failedStepIds: string[];
+    blockedStepIds: string[];
+    invalidResponseAttempts: number;
+    message: string;
+    consistencyErrors: string[];
+  }> = {},
+): PlannerJsonRecord {
+  return {
+    version: '1',
+    revision: 1,
+    phase: 'PENDING',
+    outcome: 'RUNNING',
+    currentStepId: null,
+    activeStepIds: [],
+    readyStepIds: [],
+    completedStepIds: [],
+    failedStepIds: [],
+    blockedStepIds: [],
+    invalidResponseAttempts: 0,
+    message: 'Planner test fixture.',
+    consistencyErrors: [],
+    ...overrides,
+  };
+}
+
+export function createExecutionState(
+  overrides: Partial<{
+    version: '1';
+    revision: number;
+    executionPhase: string;
+    plannerPhase: string;
+    outcome: string;
+    activeStepIds: string[];
+    readyStepIds: string[];
+    completedStepIds: string[];
+    failedStepIds: string[];
+    blockedStepIds: string[];
+    degradedStepIds: string[];
+    currentWaveStepIds: string[];
+    lastCompletedWaveStepIds: string[];
+    selectedWaveStepIds: string[];
+    interruptedStepIds: string[];
+    resumeStrategy: string;
+    lastEventType: string;
+    lastEventReason: string;
+    strategy: string;
+    epoch: number;
+    currentStepId: string | null;
+    message: string;
+    planningWindowState: string;
+    recoverySourceStepId: string | null;
+    recoveryStepId: string | null;
+    recoverySubgraphStepIds: string[];
+    lockResumeMode: string;
+    recoveryReason: string;
+    reusedLockOwnerStepIds: string[];
+    preservedLockOwnerStepIds: string[];
+    downgradedLockOwnerStepIds: string[];
+    droppedLockOwnerStepIds: string[];
+  }> = {},
+): PlannerJsonRecord {
+  return {
+    version: '1',
+    revision: 1,
+    executionPhase: 'idle',
+    plannerPhase: 'PENDING',
+    outcome: 'RUNNING',
+    activeStepIds: [],
+    readyStepIds: [],
+    completedStepIds: [],
+    failedStepIds: [],
+    blockedStepIds: [],
+    degradedStepIds: [],
+    currentWaveStepIds: [],
+    lastCompletedWaveStepIds: [],
+    selectedWaveStepIds: [],
+    interruptedStepIds: [],
+    resumeStrategy: 'rebuild_from_plan',
+    lastEventType: '',
+    lastEventReason: '',
+    strategy: 'serial',
+    epoch: 0,
+    currentStepId: null,
+    message: 'Planner execution test fixture.',
+    planningWindowState: '',
+    recoverySourceStepId: null,
+    recoveryStepId: null,
+    recoverySubgraphStepIds: [],
+    lockResumeMode: '',
+    recoveryReason: '',
+    reusedLockOwnerStepIds: [],
+    preservedLockOwnerStepIds: [],
+    downgradedLockOwnerStepIds: [],
+    droppedLockOwnerStepIds: [],
+    ...overrides,
+  };
+}
+
+export function createExecutionLocks(
+  entries: Array<{ path: string; mode: string; ownerStepId: string; revision?: number }>,
+  overrides: Partial<{ version: '1'; revision: number }> = {},
+): {
+  version: '1';
+  revision: number;
+  entries: Array<{ path: string; mode: string; ownerStepId: string; revision: number }>;
+} {
+  return {
+    version: '1',
+    revision: 1,
+    ...(typeof overrides.revision === 'number' ? { revision: overrides.revision } : {}),
+    entries: entries.map((entry) => ({
+      ...entry,
+      revision: typeof entry.revision === 'number' ? entry.revision : 1,
+    })),
+  };
+}
+
+export async function writePlannerArtifacts(
+  sessionDir: string,
+  artifacts: Partial<{
+    plannerRequest: unknown;
+    plannerContext: unknown;
+    plannerContextPacket: unknown;
+    plan: unknown;
+    planState: unknown;
+    executionGraph: unknown;
+    executionLocks: unknown;
+    executionState: unknown;
+  }>,
+): Promise<void> {
+  await mkdir(path.dirname(sessionDir), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  if (artifacts.plannerRequest !== undefined) {
+    await writeFile(path.join(sessionDir, 'planner.request.json'), JSON.stringify(artifacts.plannerRequest, null, 2), 'utf8');
+  }
+  if (artifacts.plannerContext !== undefined) {
+    await writeFile(path.join(sessionDir, 'planner.context.json'), JSON.stringify(artifacts.plannerContext, null, 2), 'utf8');
+  }
+  if (artifacts.plannerContextPacket !== undefined) {
+    await writeFile(path.join(sessionDir, 'planner.context.packet.json'), JSON.stringify(artifacts.plannerContextPacket, null, 2), 'utf8');
+  }
+  if (artifacts.plan !== undefined) {
+    await writeFile(path.join(sessionDir, 'plan.json'), JSON.stringify(artifacts.plan, null, 2), 'utf8');
+  }
+  if (artifacts.planState !== undefined) {
+    await writeFile(path.join(sessionDir, 'plan.state.json'), JSON.stringify(artifacts.planState, null, 2), 'utf8');
+  }
+  if (artifacts.executionGraph !== undefined) {
+    await writeFile(path.join(sessionDir, 'execution.graph.json'), JSON.stringify(artifacts.executionGraph, null, 2), 'utf8');
+  }
+  if (artifacts.executionLocks !== undefined) {
+    await writeFile(path.join(sessionDir, 'execution.locks.json'), JSON.stringify(artifacts.executionLocks, null, 2), 'utf8');
+  }
+  if (artifacts.executionState !== undefined) {
+    await writeFile(path.join(sessionDir, 'execution.state.json'), JSON.stringify(artifacts.executionState, null, 2), 'utf8');
+  }
+}
+
+export async function writePlannerEvents(sessionDir: string, events: unknown[]): Promise<void> {
+  await mkdir(path.dirname(sessionDir), { recursive: true });
+  await mkdir(sessionDir, { recursive: true });
+  const content = events.map((event) => JSON.stringify(event)).join('\n');
+  await writeFile(path.join(sessionDir, 'plan.events.jsonl'), content.length > 0 ? `${content}\n` : '', 'utf8');
 }
 
 export async function buildMathFixStep(workspaceRoot: string): Promise<string> {

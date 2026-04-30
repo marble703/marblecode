@@ -37,7 +37,19 @@ import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerStat
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import type { ModelProvider } from '../../src/provider/types.js';
-import { assertPlannerEvent, buildMathFixStep, buildNotesOnlyStep, createPlannerRegistry, withWorkspace } from './helpers.js';
+import {
+  assertPlannerEvent,
+  buildMathFixStep,
+  buildNotesOnlyStep,
+  createExecutionLocks,
+  createExecutionState,
+  createPlannerPlan,
+  createPlannerRegistry,
+  createPlannerState,
+  withWorkspace,
+  writePlannerArtifacts,
+  writePlannerEvents,
+} from './helpers.js';
 import { BranchingProvider, FlakyProvider, SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
@@ -50,11 +62,15 @@ export {
   BranchingProvider,
   buildExecutionGraph,
   buildExecutionDispatchSnapshot,
+  createExecutionLocks,
+  createExecutionState,
   buildInitialExecutionRuntimeContext,
   buildInitialExecutionStateExtras,
   clearInterruptedWave,
   copyPersistedRecoverySnapshot,
   createInitialExecutionRuntimeCursor,
+  createPlannerPlan,
+  createPlannerState,
   buildMathFixStep,
   buildNotesOnlyStep,
   buildPlannerAffectedSubgraph,
@@ -100,6 +116,8 @@ export {
   validateReplanProposal,
   withWorkspace,
   writeFile,
+  writePlannerArtifacts,
+  writePlannerEvents,
 };
 
 export type { ManualSuiteCase, ModelProvider };

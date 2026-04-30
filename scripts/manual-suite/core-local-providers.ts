@@ -9,7 +9,20 @@ import { createLocalReferencesProvider } from '../../src/tools/local-references-
 import { createLocalSymbolsProvider } from '../../src/tools/local-symbols-provider.js';
 import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import type { ModelProvider } from '../../src/provider/types.js';
-import { assertJsonlRecord, assertToolLogEntry, enableExternalProvider, readJsonl, withWorkspace, writeMarbleArtifact } from './helpers.js';
+import {
+  assertJsonlRecord,
+  assertToolLogEntry,
+  createExecutionLocks,
+  createExecutionState,
+  createPlannerPlan,
+  createPlannerState,
+  enableExternalProvider,
+  readJsonl,
+  withWorkspace,
+  writeMarbleArtifact,
+  writePlannerArtifacts,
+  writePlannerEvents,
+} from './helpers.js';
 import { SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
@@ -19,6 +32,7 @@ export function createCoreLocalProviderCases(): ManualSuiteCase[] {
     { name: 'local artifact helper rejects workspace escape', run: testLocalArtifactHelperRejectsWorkspaceEscape },
     { name: 'jsonl helper reads records', run: testJsonlHelperReadsRecords },
     { name: 'jsonl helper asserts matching record', run: testJsonlHelperAssertsMatchingRecord },
+    { name: 'planner artifact fixture helpers write expected files', run: testPlannerArtifactFixtureHelpersWriteExpectedFiles },
     { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
     { name: 'local diagnostics provider returns empty when missing', run: testLocalDiagnosticsProviderReturnsEmptyWhenMissing },
@@ -81,6 +95,39 @@ async function testJsonlHelperAssertsMatchingRecord(): Promise<void> {
     const records = await readJsonl<{ type: string; value: number }>(jsonlPath);
     const record = assertJsonlRecord(records, (entry) => entry.type === 'two', 'Expected type two');
     assert.deepEqual(record, { type: 'two', value: 2 });
+  });
+}
+
+async function testPlannerArtifactFixtureHelpersWriteExpectedFiles(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, 'fixture-session');
+    const plan = createPlannerPlan({
+      summary: 'Fixture helper plan.',
+      steps: [{ id: 'step-1', title: 'Inspect math', status: 'PENDING', kind: 'search', children: [] }],
+    });
+    await writePlannerArtifacts(sessionDir, {
+      plannerRequest: { promptHistory: ['inspect math'] },
+      plan,
+      planState: createPlannerState({ phase: 'PLANNING', currentStepId: 'step-1', message: 'Planning fixture.' }),
+      executionState: createExecutionState({ executionPhase: 'executing_wave', currentWaveStepIds: ['step-1'], currentStepId: 'step-1' }),
+      executionLocks: createExecutionLocks([{ path: 'src/math.js', mode: 'guarded_read', ownerStepId: 'step-1' }]),
+    });
+    await writePlannerEvents(sessionDir, [{ type: 'planner_started', revision: 1 }]);
+
+    const storedPlan = JSON.parse(await readFile(path.join(sessionDir, 'plan.json'), 'utf8')) as { summary: string; steps: Array<{ id: string }> };
+    const storedState = JSON.parse(await readFile(path.join(sessionDir, 'plan.state.json'), 'utf8')) as { phase: string; currentStepId: string | null };
+    const storedExecution = JSON.parse(await readFile(path.join(sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string; currentWaveStepIds: string[] };
+    const storedLocks = JSON.parse(await readFile(path.join(sessionDir, 'execution.locks.json'), 'utf8')) as { entries: Array<{ ownerStepId: string }> };
+    const storedEvents = await readJsonl<{ type: string }>(path.join(sessionDir, 'plan.events.jsonl'));
+
+    assert.equal(storedPlan.summary, 'Fixture helper plan.');
+    assert.equal(storedPlan.steps[0]?.id, 'step-1');
+    assert.equal(storedState.phase, 'PLANNING');
+    assert.equal(storedState.currentStepId, 'step-1');
+    assert.equal(storedExecution.executionPhase, 'executing_wave');
+    assert.deepEqual(storedExecution.currentWaveStepIds, ['step-1']);
+    assert.equal(storedLocks.entries[0]?.ownerStepId, 'step-1');
+    assert.deepEqual(storedEvents, [{ type: 'planner_started', revision: 1 }]);
   });
 }
 
