@@ -5,6 +5,7 @@ import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
 import { formatPlannerView, renderPlannerEvent } from '../../src/tui/planner-view.js';
+import { formatPlannerLiveView } from '../../src/tui/planner-live.js';
 import { listRecentSessionEntries } from '../../src/session/index.js';
 import { executeTuiAction, inspectPlannerStep, resolvePlannerChildSession } from '../../src/tui/session-actions.js';
 import { listRecentSessions } from '../../src/tui/recent-sessions.js';
@@ -34,6 +35,7 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner view normalizes timeline events', run: testPlannerViewNormalizesTimelineEvents },
     { name: 'planner read-model api exposes raw and normalized events', run: testPlannerReadModelApiExposesRawAndNormalizedEvents },
     { name: 'planner event renderer uses structured blocking metadata', run: testPlannerEventRendererUsesStructuredBlockingMetadata },
+    { name: 'planner live view renders read model status', run: testPlannerLiveViewRendersReadModelStatus },
     { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
     { name: 'session entries stay storage scoped', run: testSessionEntriesStayStorageScoped },
   ];
@@ -518,6 +520,62 @@ async function testPlannerEventRendererUsesStructuredBlockingMetadata(): Promise
     conflictDomain: 'api-contract',
   });
   assert.match(conflict, /conflict detected: step-1->step-2 conflict_domain\(api-contract\)/);
+}
+
+async function testPlannerLiveViewRendersReadModelStatus(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-06-500Z');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({
+        summary: 'Live planner status',
+        steps: [
+          {
+            id: 'step-2',
+            title: 'Apply router fix',
+            status: 'PATCHING',
+            kind: 'code',
+            relatedFiles: ['src/router.ts'],
+            children: [],
+          },
+        ],
+      }),
+      planState: createPlannerState({
+        phase: 'PATCHING',
+        outcome: 'DONE',
+        currentStepId: 'step-2',
+        blockedStepIds: ['step-2'],
+        degradedStepIds: ['step-3'],
+        degradedCompletion: true,
+      }),
+      executionState: createExecutionState({
+        executionPhase: 'executing_wave',
+        currentWaveStepIds: ['step-2'],
+        lastCompletedWaveStepIds: ['step-1'],
+        blockedReasons: [{
+          stepId: 'step-2',
+          kind: 'dependency',
+          blockedByStepId: 'step-1',
+          message: 'step-2 is blocked by dependency step-1',
+        }],
+        latestConflict: {
+          fromStepId: 'step-1',
+          toStepId: 'step-2',
+          reason: 'conflict_domain',
+          domain: 'api-contract',
+          message: 'Planner execution conflict detected between step-1 and step-2.',
+        },
+      }),
+    });
+    await writePlannerEvents(sessionDir, [{ type: 'subtask_started', stepId: 'step-2', executor: 'coder' }]);
+
+    const view = await loadPlannerView(sessionDir);
+    const rendered = formatPlannerLiveView(view, 750);
+    assert.match(rendered, /Schema: 1/);
+    assert.match(rendered, /Degraded: yes/);
+    assert.match(rendered, /Blocked: step-2:dependency:step-1/);
+    assert.match(rendered, /Latest conflict: step-1->step-2\(api-contract\)/);
+    assert.match(rendered, /Current wave: step-2\s+Last completed: step-1/);
+  });
 }
 
 async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<void> {

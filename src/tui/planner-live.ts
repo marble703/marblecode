@@ -59,37 +59,53 @@ export function renderPlannerLiveView(view: PlannerViewModel, pollMs: number): v
   readline.cursorTo(output, 0, 0);
   readline.clearScreenDown(output);
 
-  output.write(`Planner TUI  q=quit  refresh=${pollMs}ms\n\n`);
-  output.write(`Session: ${view.sessionDir}\n`);
-  output.write(`Outcome: ${view.outcome}    Phase: ${view.phase}    Current: ${view.currentStepId ?? '(none)'}\n`);
-  output.write(`Summary: ${view.summary}\n\n`);
+  output.write(formatPlannerLiveView(view, pollMs));
+}
 
-  output.write('Plan Steps\n');
+export function formatPlannerLiveView(view: PlannerViewModel, pollMs: number): string {
+  const lines: string[] = [];
+
+  lines.push(`Planner TUI  q=quit  refresh=${pollMs}ms`);
+  lines.push('');
+  lines.push(`Session: ${view.sessionDir}`);
+  lines.push(`Schema: ${view.schemaVersion}`);
+  lines.push(`Outcome: ${view.outcome}    Phase: ${view.phase}    Current: ${view.currentStepId ?? '(none)'}`);
+  lines.push(`Degraded: ${view.degradedCompletion ? 'yes' : 'no'}    Blocked: ${view.blockedReasons.length > 0 ? view.blockedReasons.map((reason) => `${reason.stepId}:${reason.kind}:${reason.blockedByStepId}${reason.conflictDomain ? `(${reason.conflictDomain})` : ''}`).join(', ') : '(none)'}`);
+  lines.push(`Latest conflict: ${view.latestConflict ? `${view.latestConflict.fromStepId}->${view.latestConflict.toStepId}(${view.latestConflict.domain ?? view.latestConflict.reason})` : '(none)'}`);
+  lines.push(`Current wave: ${view.currentWaveStepIds.join(', ') || '(none)'}    Last completed: ${view.lastCompletedWaveStepIds.join(', ') || '(none)'}`);
+  lines.push(`Summary: ${view.summary}`);
+  lines.push('');
+  lines.push('Plan Steps');
   for (const [index, step] of view.steps.entries()) {
-    output.write(`${index + 1}. [${step.status}] ${step.title} (${step.kind})\n`);
+    lines.push(`${index + 1}. [${step.status}] ${step.title} (${step.kind})`);
     if (step.relatedFiles.length > 0) {
-      output.write(`   files: ${step.relatedFiles.join(', ')}\n`);
+      lines.push(`   files: ${step.relatedFiles.join(', ')}`);
     }
   }
 
-  output.write('\nSubtasks\n');
+  lines.push('');
+  lines.push('Subtasks');
   if (view.subtaskEvents.length === 0) {
-    output.write('- none recorded yet\n');
+    lines.push('- none recorded yet');
   } else {
     for (const event of view.subtaskEvents.slice(-12)) {
-      output.write(`- ${renderPlannerEvent(event)}\n`);
+      lines.push(`- ${renderPlannerEvent(event)}`);
     }
   }
 
-  output.write('\nTimeline\n');
+  lines.push('');
+  lines.push('Timeline');
   for (const event of view.events.slice(-12)) {
-    output.write(`- ${renderPlannerEvent(event)}\n`);
+    lines.push(`- ${renderPlannerEvent(event)}`);
   }
 
-  output.write(`\nTerminal: ${view.terminalSummary}\n`);
+  lines.push('');
+  lines.push(`Terminal: ${view.terminalSummary}`);
   if (view.consistencyErrors.length > 0) {
-    output.write(`Consistency: ${view.consistencyErrors.join('; ')}\n`);
+    lines.push(`Consistency: ${view.consistencyErrors.join('; ')}`);
   }
+
+  return `${lines.join('\n')}\n`;
 }
 
 function renderPlannerLiveError(sessionDir: string, pollMs: number, error: unknown): void {

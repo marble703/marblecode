@@ -327,6 +327,8 @@ export function createExecutionState(
     preservedLockOwnerStepIds: string[];
     downgradedLockOwnerStepIds: string[];
     droppedLockOwnerStepIds: string[];
+    blockedReasons: Array<Record<string, unknown>>;
+    latestConflict: Record<string, unknown> | null;
   }> = {},
 ): PlannerJsonRecord {
   return {
@@ -362,6 +364,8 @@ export function createExecutionState(
     preservedLockOwnerStepIds: [],
     downgradedLockOwnerStepIds: [],
     droppedLockOwnerStepIds: [],
+    blockedReasons: [],
+    latestConflict: null,
     ...overrides,
   };
 }
