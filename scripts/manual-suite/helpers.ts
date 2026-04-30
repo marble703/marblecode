@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -144,6 +145,57 @@ export async function writeMarbleArtifact(
     path.join(workspaceRoot, '.marblecode', fileName),
     JSON.stringify(payload, null, 2),
     'utf8',
+  );
+}
+
+export async function readJsonl<T>(filePath: string): Promise<T[]> {
+  const content = await readFile(filePath, 'utf8');
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as T);
+}
+
+export function assertJsonlRecord<T>(
+  records: T[],
+  predicate: (record: T) => boolean,
+  message: string,
+): T {
+  const match = records.find(predicate);
+  assert.ok(match, message);
+  return match as T;
+}
+
+export async function readSessionJsonl<T>(sessionDir: string, fileName: string): Promise<T[]> {
+  return readJsonl<T>(path.join(sessionDir, fileName));
+}
+
+export async function assertToolLogEntry(
+  sessionDir: string,
+  toolName: string,
+  predicate: (record: Record<string, unknown>) => boolean,
+  message: string,
+): Promise<Record<string, unknown>> {
+  const records = await readSessionJsonl<Record<string, unknown>>(sessionDir, 'tools.jsonl');
+  return assertJsonlRecord(
+    records,
+    (record) => record.tool === toolName && predicate(record),
+    message,
+  );
+}
+
+export async function assertPlannerEvent(
+  sessionDir: string,
+  eventType: string,
+  predicate: (record: Record<string, unknown>) => boolean = () => true,
+  message = `Expected planner event ${eventType}`,
+): Promise<Record<string, unknown>> {
+  const records = await readSessionJsonl<Record<string, unknown>>(sessionDir, 'plan.events.jsonl');
+  return assertJsonlRecord(
+    records,
+    (record) => record.type === eventType && predicate(record),
+    message,
   );
 }
 

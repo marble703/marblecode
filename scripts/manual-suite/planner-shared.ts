@@ -37,7 +37,7 @@ import { buildPlannerRequestArtifact, classifyPlannerStep, initializePlannerStat
 import { createSession } from '../../src/session/index.js';
 import { PolicyEngine } from '../../src/policy/index.js';
 import type { ModelProvider } from '../../src/provider/types.js';
-import { buildMathFixStep, buildNotesOnlyStep, createPlannerRegistry, withWorkspace } from './helpers.js';
+import { assertPlannerEvent, buildMathFixStep, buildNotesOnlyStep, createPlannerRegistry, withWorkspace } from './helpers.js';
 import { BranchingProvider, FlakyProvider, SequenceProvider } from './providers.js';
 import type { ManualSuiteCase } from './types.js';
 
@@ -46,6 +46,7 @@ export {
   annotateBlockedDependents,
   assert,
   assertStepCanWrite,
+  assertPlannerEvent,
   BranchingProvider,
   buildExecutionGraph,
   buildExecutionDispatchSnapshot,
