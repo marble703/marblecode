@@ -254,7 +254,9 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 在 `.agent/sessions` 下存储本地产物，并按时间和数量清理旧会话。
 
-该模块还负责解析普通会话和规划器会话，支持最近会话视图，并为回滚和规划器检查提供持久化基础。
+该模块还负责解析普通会话和规划器会话，暴露 storage-scoped recent-session entry listing，并为回滚和规划器检查提供持久化基础。
+
+planner-rich recent-session projection 现在位于存储层之上的 `src/tui/recent-sessions.ts`，因此 `src/session` 不再依赖 planner read-model 组合逻辑。
 
 ### `src/provider`
 
@@ -279,6 +281,8 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `parse.ts`：规划器响应解析和计划归一化
 - `artifacts.ts`：规划器产物写入以及会话恢复/加载辅助函数
 - `view-model.ts`：面向 TUI/WebUI 的 planner artifact 聚合与只读 DTO 构造
+- `read-api.ts`：面向未来 inspector 和外部消费者的只读 planner session list/detail facade
+- `ownership.ts`：用于 lock recovery 和 owner reuse 的 ownership-transfer 兼容性辅助函数
 - `execute.ts`：顶层 planner 执行编排和 wave 分发
 - `execute-wave.ts`：wave 选择、冲突检查和 blocked 依赖标注
 - `execute-verify.ts`：verify 步骤执行和 verify-repair 衔接
@@ -287,6 +291,7 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 - `prompts.ts`：子任务、修复和重新规划的提示词构建器
 - `state.ts`：ready/active/blocked/done 状态推导
 - `recovery.ts`：本地重新规划流程
+- `replan-merge.ts`：bounded local recovery 的 proposal/replan merge 辅助函数
 - `graph.ts`：执行图、冲突边和波次
 - `locks.ts`：文件锁所有权及写入断言
 - `utils.ts`：规划器共享辅助函数
@@ -297,7 +302,20 @@ CLI 保持轻量，并将实际工作委托给运行时模块。
 
 提供交互式终端 UI 和规划器会话查看器。
 
-planner artifact 的读取、事件归一化以及 planner read-model API 现已收敛到 `src/planner/view-model.ts`，而 `src/tui/planner-view.ts` 主要负责终端格式化和归一化后的 timeline 渲染。
+planner artifact 的读取、事件归一化以及 planner read-model API 现已收敛到 `src/planner/view-model.ts`，而 `src/planner/read-api.ts` 为 inspector-style consumer 提供更窄的 planner session list/detail facade。
+
+当前的内部拆分：
+
+- `agent-repl.ts`：顶层终端循环
+- `commands.ts`：slash command 解析和校验
+- `paste.ts`：粘贴捕获和 patch 确认辅助逻辑
+- `state.ts`：TUI 状态刷新和 planner view hydration
+- `render.ts`：主界面渲染
+- `planner-view.ts`：planner 终端格式化和归一化 timeline 渲染
+- `planner-live.ts`：live planner dashboard 格式化和 watch loop 辅助逻辑
+- `recent-sessions.ts`：把 storage entries 与 planner summaries 组合成 recent-session projection
+- `session-actions.ts`：planner session 打开、恢复、详情查看等动作
+- `run-prompt.ts`：`run` / `plan` / `execute` prompt dispatch
 
 TUI 不是一个独立的运行时栈，而是基于相同 `run` / `plan` / `plan --execute` 流程的前端界面。
 

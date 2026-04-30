@@ -49,6 +49,13 @@
 - 可通过 `show:planner`、`tui:planner` 和交互式 TUI 检查 planner session
 - 可在 TUI 中恢复 planner session、检查单个 step，并打开子 coder session
 - planner execute 已支持 execution wave、文件锁 artifact、fallback edge、bounded local replan、rolling append window 和 execution feedback artifact
+- 通过结构化 execution-state 与 planner event metadata 区分完全成功和 degraded completion，同时保持成功路径仍使用 `DONE` outcome
+- 非 `verify` 的下游步骤可以通过 `dependencyTolerances` 显式接受已降级依赖，`verify` 依赖默认仍保持保守阻塞
+- planner event、execution-state artifact 和 planner session view 会暴露结构化 blocked/conflict explainability
+- planner read model 已提供稳定的 `schemaVersion: '1'` 边界，覆盖 session summary、完整 planner view 和归一化 event timeline
+- `show:planner`、交互式 TUI 和 planner live view 复用这些稳定 read model，避免终端 inspector 随 metadata 增长而分叉
+- 提供 planner read-only facade，用于 recent planner session summary 和 per-session detail 聚合，未来 inspector 不需要重复拼装 `session + view + events`
+- 支持通过 `npm run show:planner -- --last --json` 做 machine-readable planner inspection，输出与 read-only facade 相同的 `summary` / `view` / `events` detail shape
 
 ## 当前限制
 
@@ -119,6 +126,12 @@ node dist/index.js plan "保留现有导出结构" --session <session-id-or-path
 npm run show:planner -- --last
 ```
 
+输出 machine-readable JSON，便于外部 inspector 或脚本读取：
+
+```bash
+npm run show:planner -- --last --json
+```
+
 打开一个轻量的实时 planner TUI：
 
 ```bash
@@ -184,6 +197,7 @@ node dist/index.js rollback --last
 - `npm run check:planner`：使用真实配置好的 planning model 在 `examples/manual-test-suite/planner-task.md` 上运行 planner 检查
 - `npm run check:planner:execute`：在临时 manual suite workspace 上使用真实模型运行完整的 planner -> subagent -> verifier 链路
 - `npm run show:planner -- --last`：在终端渲染 planner session 的计划摘要、事件时间线和当前子任务结果
+- `npm run show:planner -- --last --json`：输出 planner session detail JSON，包含 `summary`、`view` 和 `events`
 - `npm run tui:planner -- --last`：打开一个轻量实时 planner 面板，轮询 session 文件并原地渲染步骤、subtask 和时间线
 - `npm run tui`：打开一个可交互终端 UI，可直接发起新的 `run` / `plan` / `plan --execute` 对话
 - `show:planner --last` 和 `tui:planner --last` 现在会自动选择最近一个 planner session，而不是误选到 coder/verifier 子 session
@@ -238,6 +252,7 @@ node dist/index.js rollback --last
 - `planner.context.packet.json` 是后续 planner/subagent 共享上下文的显式格式；当前先作为稳定 artifact 输出，便于调试和未来 TUI 使用
 - 可用 `npm run show:planner -- --session <session-id-or-path>` 或 `--last` 在终端查看当前计划、事件时间线和已记录的 subtask 执行结果
 - `show:planner` 现在会显示 step attempts、恢复状态、execution waves、文件锁、subtask 的 executor 身份、model alias、改动文件和子 agent session 路径，便于确认 planner -> coder 的真实调用链
+- 可加 `--json` 输出稳定的 `PlannerSessionDetailView` JSON，包含 `schemaVersion`、`summary`、`view` 与 `events`
 
 ## 交互式 TUI
 
@@ -283,18 +298,21 @@ node dist/index.js rollback --last
 - `src/agent`：主执行循环
 - `src/config`：配置 schema 和配置加载
 - `src/planner`：只读 planner 循环和基于 wave 的 planner 执行流程
-- `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`recovery.ts`、`utils.ts`、`execute.ts`、`execute-wave.ts`、`execute-verify.ts`、`execute-subtask.ts`、`execute-resume.ts`、`execution-types.ts`、`execution-state.ts`、`execution-strategies.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、恢复流程、顶层执行编排、执行波次逻辑、verify 步骤执行、subtask 执行、基于 artifact 的恢复、execution-state 快照以及基于策略的调度逻辑
+- `src/planner/model.ts`、`parse.ts`、`artifacts.ts`、`prompts.ts`、`state.ts`、`runtime.ts`、`recovery.ts`、`replan-merge.ts`、`ownership.ts`、`utils.ts`、`execute.ts`、`execute-wave.ts`、`execute-verify.ts`、`execute-subtask.ts`、`execute-resume.ts`、`execution-types.ts`、`execution-state.ts`、`execution-machine.ts`、`execution-strategies.ts`、`view-model.ts`、`read-api.ts`：已拆出的 planner 辅助模块，分别处理请求构造、解析、artifact、提示词、状态刷新、runtime helper、恢复、bounded replan merge、ownership 检查、执行编排、基于 artifact 的恢复、execution-state 快照、phase transition、内部 read model 和 read-only planner session facade
 - `src/planner/graph.ts`：执行图、冲突边和 execution wave 计算
 - `src/planner/locks.ts`：planner execute 使用的文件锁和所有权转移辅助逻辑
 - `src/provider`：模型抽象和 OpenAI-compatible Provider
 - `src/router`：规则路由
 - `src/context`：上下文选择
 - `src/tools`：工具注册和内置工具
+- `src/tools/provider.ts`、`registry.ts`、`types.ts`、`setup.ts`、`logging.ts`：provider-compatible registry 内部实现、共享 setup 和 tool-log DTO helper
+- `src/tools/local-artifacts.ts`、`local-diagnostics-provider.ts`、`local-symbols-provider.ts`、`local-references-provider.ts`、`diagnostics-provider.ts`：本地 readonly artifact-backed source 以及 deterministic fixture provider 覆盖
 - `src/patch`：Patch 协议与应用
 - `src/policy`：权限和 Shell 策略
 - `src/verifier`：补丁后的验证执行
-- `src/session`：本地会话记录
+- `src/session`：本地 session 持久化、rollback 解析和 storage-scoped recent-session entry listing
 - `src/tui`：交互式终端 UI 和 planner session 渲染
+- `src/tui/planner-view.ts`、`planner-live.ts`、`recent-sessions.ts`、`session-actions.ts`、`state.ts`、`run-prompt.ts`：planner viewer、live inspection、recent-session projection、TUI session action、状态刷新和 prompt dispatch
 - `src/shared`：跨模块复用的共享辅助函数
 - `src/shared/json-response.ts`：agent、planner、verifier 共用的 fenced/balanced JSON 提取逻辑
 - `src/shared/file-walk.ts`：context 和 tools 共用的递归文件遍历逻辑
@@ -311,7 +329,8 @@ node dist/index.js rollback --last
 
 - 共享 JSON 解析和共享文件遍历已经统一收口到 `src/shared`
 - planner、TUI、verifier、agent 的 runtime 热点已经拆成更聚焦的内部模块
-- 当前剩余工作以 `docs/plans/planner-evolution-roadmap.zh-CN.md` 为准，重点已经从模块拆分转向 planner recovery、执行状态收口和工具边界扩展
+- 内置工具已经通过 provider-compatible registry 边界注册，后续 LSP/MCP 集成可复用同一 host tool path
+- 当前剩余工作以 `docs/plans/planner-evolution-roadmap.zh-CN.md` 为准；P3 read-model / inspector foundation 已基本收口，后续应按真实需求选择继续 inspector、execution recovery 或外部 readonly provider 方向
 
 ## 下一步
 
