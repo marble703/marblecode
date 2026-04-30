@@ -62,23 +62,20 @@
 
 ### 4. 语义冲突与 degraded 语义仍可继续细化
 
-`conflictDomains` 和 `failureTolerance=degrade` 的基础能力已经落地，但更细的执行语义还未完成：
+`conflictDomains`、`failureTolerance=degrade`、`dependencyTolerances` 与 degraded completion metadata 的基础能力已经落地，但并发语义仍有一个明确的后续收敛点：
 
 - project-level conflict domain registry 或更强约束
-- dependency-level optional / degraded acceptance
-- 更清晰的 degraded outcome 表达，而不只是 `FAILED + degradedStepIds`
 
 这些不是当前主链路 blocker，但会影响后续并发质量和结果表达清晰度。
 
-### 5. WebUI 产品化接口仍未开始
+### 5. WebUI transport / inspector 仍未开始
 
-当前 `PlannerViewModel`、`loadPlannerView()`、`loadPlannerEvents()`、`loadPlannerSessionSummary()` 已经形成共享 read model。
+当前 `PlannerViewModel`、`loadPlannerView()`、`loadPlannerEvents()`、`loadPlannerSessionSummary()` 与 `src/planner/read-api.ts` 已经形成稳定的只读 read-model / facade 基础。
 
-但如果要支持 WebUI 或外部读取，还缺：
+但如果要支持真实 WebUI transport 或外部 inspector，仍缺：
 
-- 稳定的只读 API/DTO 边界
 - 更明确的 history/event 协议
-- 面向外部消费者的 session 查询接口
+- 面向外部工具的 machine-readable CLI / transport 入口
 
 这应放在执行内核进一步稳定之后，而不是当前优先级最高的事项。
 
@@ -461,15 +458,27 @@
 建议任务：
 
 1. 为 `conflictDomains` 增加更强约束或项目级 registry。
-2. 为 degraded 场景定义更清晰的 outcome/message 语义。
-3. 评估是否需要 dependency-level optional / degraded acceptance。
-4. 继续补 manual-suite 覆盖：same-domain conflict、optional docs failure、verify blocking 等。
+2. 在已落地的 degraded completion / dependency tolerance 语义之上，继续补 manual-suite 覆盖：same-domain conflict、optional docs failure、verify blocking 等。
 
 完成标准：
 
 - 同文件路径之外的语义冲突更容易表达
 - degraded 结果不会和真正失败混淆
 - 并发执行的限制原因能在 artifact / TUI 中更直接解释
+
+### P3.4：本轮已完成 facade consumer wiring 第一轮
+
+这一轮不新增 machine-readable CLI，也不引入 WebUI transport，而是先把已经存在的 planner read-only facade 接到真实运行时 consumer 上：
+
+1. `src/planner/read-api.ts` 现在直接 re-export `loadPlannerSessionSummary()`，作为 TUI/planner read consumer 的统一入口之一。
+2. `src/tui/recent-sessions.ts` 现在改为从 `read-api.ts` 引用 planner summary loader，而不再直接绕过 facade 依赖 `view-model.ts`。
+3. 这一轮不改变 recent-session 行为、排序或非 planner session 路径，只收敛 read-only 依赖边界，并继续保持 deterministic suite 覆盖。
+
+这一轮的定位是 facade wiring，而不是 machine-readable inspector 输出已经完成。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否为 `show:planner --json` 或类似 inspector CLI 输出真正复用 `loadPlannerSessionDetail()`
+- 是否继续把其他 planner-only read consumers 收敛到 `read-api.ts`
+- 仅在这些入口更清晰后，再评估更具体的 WebUI/transport 设计
 
 ### P3：产品化只读接口
 

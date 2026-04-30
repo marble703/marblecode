@@ -411,6 +411,20 @@
 2. 只读 WebUI / inspector 的 session list/detail/timeline API 进一步收敛
 3. `conflictDomains` registry 继续后置，除非出现明确约束需求
 
+当前状态更新：facade consumer wiring 第一轮已完成。
+
+本轮已经实际落地：
+
+- `src/planner/read-api.ts` re-export `loadPlannerSessionSummary()`
+- `src/tui/recent-sessions.ts` 改为通过 `read-api.ts` 读取 planner session summary
+- recent-session 路径不再直接依赖 `view-model.ts`
+
+因此后续优先级可继续收敛到：
+
+1. machine-readable inspector/CLI 输出（如确有必要）
+2. 继续把其他 planner-only read consumers 收敛到 `read-api.ts`
+3. `conflictDomains` registry 继续后置，除非出现明确约束需求
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑
