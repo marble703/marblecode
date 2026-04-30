@@ -287,6 +287,20 @@
 2. `session -> planner/view-model` 依赖方向收敛
 3. 只在有明确收益时继续清理剩余零散 regex-style 断言
 
+当前状态更新：TUI / read-model planner fixture 收敛第一轮已完成。
+
+本轮已经实际落地：
+
+- `tui.ts` 中多处正常 planner session fixture 改为复用 `writePlannerArtifacts(...)` / `writePlannerEvents(...)`
+- `createPlannerPlan(...)` / `createPlannerState(...)` / `createExecutionState(...)` 在 TUI/read-model case 中得到进一步复用
+- 依赖 malformed / partial artifact 的场景继续保留手写 setup
+
+因此后续仓库整理重点应进一步转向：
+
+1. `session -> planner/view-model` 依赖方向收敛
+2. 仅在确有收益时继续收敛 `planner-execution.ts` 等剩余重复 fixture
+3. 避免为了“统一风格”而抽象掉故意 malformed/partial 的测试输入
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

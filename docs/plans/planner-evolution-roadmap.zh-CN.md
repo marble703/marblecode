@@ -367,6 +367,20 @@
 - 评估 `session -> planner/view-model` 依赖方向的修正边界与最小落点
 - 仅在确有收益时继续替换剩余零散 regex-style 断言
 
+### P1.13：本轮已完成 TUI / read-model planner fixture 收敛第一轮
+
+在 P1.12 的 structured assertion maintenance foundation 之上，本轮继续优先收敛 TUI/read-model 测试中的重复 planner session fixture，同时保留故意 malformed/partial 的手写场景：
+
+1. `scripts/manual-suite/tui.ts` 中的正常 planner session setup 已开始复用 `createPlannerPlan(...)`、`createPlannerState(...)`、`createExecutionState(...)`、`writePlannerArtifacts(...)` 与 `writePlannerEvents(...)`。
+2. `planner session resolution`、`recent session summaries`、`tui state refresh hydrates planner view`、`tui planner session actions`、`planner view loads delta and feedback artifacts`、`planner view loads replan rejection artifacts`、`planner view normalizes timeline events`、`planner session summary includes execution metadata` 等 case，不再重复手写基础 `plan.json` / `plan.state.json` / `plan.events.jsonl`。
+3. `planner view tolerates partial artifacts` 和 `planner read-model api exposes raw and normalized events` 这类依赖 malformed/partial 或极小事件输入的场景，继续保留手写 fixture，避免 helper 掩盖测试意图。
+
+这一轮的定位是 TUI fixture maintenance foundation，而不是 session/read-model 依赖方向收敛完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 评估 `session -> planner/view-model` 依赖方向的修正边界与最小落点
+- 如有必要，在 `planner-execution.ts` 中继续推广 fixture helper
+- 只对仍然明显重复的 fixture 再做小范围收敛，不追求把所有手写 artifact 全部抽象掉
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

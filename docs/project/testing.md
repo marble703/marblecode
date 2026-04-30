@@ -240,6 +240,7 @@ Purpose:
 - planner view artifact tolerance
 - read-model APIs for planner sessions
 - recovery metadata projection for planner sessions
+- shared planner fixture helper usage for normal session artifacts, while preserving explicit malformed/partial fixtures where the test intent depends on them
 
 Representative cases:
 
@@ -249,6 +250,8 @@ Representative cases:
 - `planner view loads delta and feedback artifacts`
 - `planner read-model api exposes raw and normalized events`
 - `planner session summary includes execution metadata`
+
+For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
 
 ### Agent And Patch
 
