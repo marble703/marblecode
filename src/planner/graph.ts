@@ -1,5 +1,23 @@
 import type { PlannerAccessMode, PlannerPlan, PlannerState, PlannerStep } from './types.js';
 
+export interface PlannerBlockedReason {
+  kind: 'dependency' | 'must_run_after' | 'fallback_inactive' | 'conflict';
+  stepId: string;
+  blockedByStepId: string;
+  message: string;
+  edgeType: 'dependency' | 'must_run_after' | 'conflict' | 'fallback';
+  conflictReason?: NonNullable<PlannerExecutionEdge['reason']>;
+  conflictDomain?: string;
+}
+
+export interface PlannerConflictSummary {
+  fromStepId: string;
+  toStepId: string;
+  reason: NonNullable<PlannerExecutionEdge['reason']>;
+  domain?: string;
+  message: string;
+}
+
 export interface PlannerExecutionEdge {
   from: string;
   to: string;
@@ -146,10 +164,20 @@ export function getReadyStepIds(plan: PlannerPlan, state: PlannerState, graph: P
 }
 
 export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: PlannerExecutionGraph): string[] {
-  const reasons: string[] = [];
+  return getStructuredBlockedReasons(step, plan, graph).map((reason) => `${reason.kind}:${reason.blockedByStepId}`);
+}
+
+export function getStructuredBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: PlannerExecutionGraph): PlannerBlockedReason[] {
+  const reasons: PlannerBlockedReason[] = [];
   for (const dependency of step.dependencies) {
     if (!dependencySatisfied(step, dependency, plan, graph)) {
-      reasons.push(`dependency:${dependency}`);
+      reasons.push({
+        kind: 'dependency',
+        stepId: step.id,
+        blockedByStepId: dependency,
+        edgeType: 'dependency',
+        message: `${step.id} is blocked by dependency ${dependency}`,
+      });
     }
   }
 
@@ -158,7 +186,13 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
     for (const predecessor of node.mustRunAfter) {
       const predecessorStatus = plan.steps.find((candidate) => candidate.id === predecessor)?.status;
       if (predecessorStatus !== 'DONE' && !fallbackReplacementSatisfied(plan, graph, predecessor)) {
-        reasons.push(`must_run_after:${predecessor}`);
+        reasons.push({
+          kind: 'must_run_after',
+          stepId: step.id,
+          blockedByStepId: predecessor,
+          edgeType: 'must_run_after',
+          message: `${step.id} must run after ${predecessor}`,
+        });
       }
     }
   }
@@ -166,7 +200,13 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
   for (const edge of graph.edges) {
     if (edge.type === 'fallback' && edge.to === step.id) {
       if (plan.steps.find((candidate) => candidate.id === edge.from)?.status !== 'FAILED') {
-        reasons.push(`fallback_inactive:${edge.from}`);
+        reasons.push({
+          kind: 'fallback_inactive',
+          stepId: step.id,
+          blockedByStepId: edge.from,
+          edgeType: 'fallback',
+          message: `${step.id} is waiting for fallback source ${edge.from} to fail before activation`,
+        });
       }
       continue;
     }
@@ -177,11 +217,35 @@ export function getBlockedReasons(step: PlannerStep, plan: PlannerPlan, graph: P
     const fallbackFromFailedPredecessor = predecessorStatus === 'FAILED'
       && graph.edges.some((candidate) => candidate.type === 'fallback' && candidate.from === edge.from && candidate.to === step.id);
     if (predecessorStatus !== 'DONE' && !fallbackFromFailedPredecessor) {
-      reasons.push(`conflict:${edge.from}`);
+      reasons.push({
+        kind: 'conflict',
+        stepId: step.id,
+        blockedByStepId: edge.from,
+        edgeType: 'conflict',
+        message: `${step.id} is blocked by conflict with ${edge.from}${edge.reason === 'conflict_domain' && edge.domain ? ` (${edge.domain})` : ''}`,
+        ...(edge.reason ? { conflictReason: edge.reason } : {}),
+        ...(edge.domain ? { conflictDomain: edge.domain } : {}),
+      });
     }
   }
 
   return reasons;
+}
+
+export function findPendingConflictSummary(plan: PlannerPlan, graph: PlannerExecutionGraph): PlannerConflictSummary | null {
+  const pending = new Set(plan.steps.filter((step) => step.status !== 'DONE' && step.status !== 'FAILED').map((step) => step.id));
+  const edge = graph.edges.find((candidate) => candidate.type === 'conflict' && pending.has(candidate.from) && pending.has(candidate.to));
+  if (!edge) {
+    return null;
+  }
+
+  return {
+    fromStepId: edge.from,
+    toStepId: edge.to,
+    reason: edge.reason ?? 'file_scope',
+    ...(edge.domain ? { domain: edge.domain } : {}),
+    message: `Planner execution conflict detected between ${edge.from} and ${edge.to}.`,
+  };
 }
 
 function dependencySatisfied(step: PlannerStep, dependencyId: string, plan: PlannerPlan, graph: PlannerExecutionGraph): boolean {

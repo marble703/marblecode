@@ -2,11 +2,13 @@ import type { AppConfig } from '../config/schema.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import type { ModelProvider } from '../provider/types.js';
 import { appendPlannerEvent, appendPlannerStructuredLog, writePlannerExecutionFeedbackArtifact } from './artifacts.js';
-import { createInitialExecutionState, dispatchExecutionEvent, type PlannerExecutionEvent } from './execution-machine.js';
+import { createInitialExecutionState, dispatchExecutionEvent, type PlannerExecutionEvent, type PlannerExecutionSnapshotInput } from './execution-machine.js';
 import { getPlannerExecutionStrategy } from './execution-strategies.js';
 import {
   buildExecutionGraph as buildPlannerExecutionGraph,
+  findPendingConflictSummary,
   getReadyStepIds,
+  getStructuredBlockedReasons,
 } from './graph.js';
 import { createExecutionLockTable } from './locks.js';
 import { refreshPlannerStateFromPlan } from './state.js';
@@ -73,10 +75,7 @@ export async function executePlannerPlan(
 
   const dispatchExecution = async (
     event: PlannerExecutionEvent,
-    extras?: {
-      recoveryStepId?: string;
-      recoveryReason?: string;
-    },
+    extras?: Omit<PlannerExecutionSnapshotInput, 'state' | 'strategy' | 'currentWaveStepIds' | 'lastCompletedWaveStepIds' | 'epoch' | 'selectedWaveStepIds' | 'interruptedStepIds' | 'planningWindowState'>,
   ): Promise<void> => {
     const snapshot = buildExecutionDispatchSnapshot({
       state: nextState,
@@ -91,6 +90,8 @@ export async function executePlannerPlan(
       planningWindowState: runtimeCursor.planningWindowState,
       ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
       ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
+      ...(extras?.blockedReasons ? { blockedReasons: extras.blockedReasons } : {}),
+      ...(extras?.latestConflict ? { latestConflict: extras.latestConflict } : {}),
     });
     executionState = await dispatchExecutionEvent(
       session,
@@ -111,16 +112,28 @@ export async function executePlannerPlan(
     nextState = refreshPlannerStateFromPlan(nextPlan, nextState);
     const conflictError = strategy.checkConflicts(nextPlan, executionGraph);
     if (conflictError) {
+      const conflict = findPendingConflictSummary(nextPlan, executionGraph);
       nextState = {
         ...nextState,
         outcome: 'FAILED',
         phase: 'BLOCKED',
-        message: conflictError,
+        message: conflict?.message ?? conflictError,
       };
-      await appendPlannerEvent(session, { type: 'subtask_conflict_detected', reason: conflictError }, config.session.redactSecrets);
+      await appendPlannerEvent(session, {
+        type: 'subtask_conflict_detected',
+        reason: conflict?.message ?? conflictError,
+        ...(conflict ? {
+          fromStepId: conflict.fromStepId,
+          toStepId: conflict.toStepId,
+          conflictReason: conflict.reason,
+          ...(conflict.domain ? { conflictDomain: conflict.domain } : {}),
+        } : {}),
+      }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await dispatchExecution({ type: 'CONFLICT_DETECTED' });
+      await dispatchExecution({ type: 'CONFLICT_DETECTED' }, {
+        ...(conflict ? { latestConflict: conflict, lastEventReason: conflict.message } : { lastEventReason: conflictError }),
+      });
       return { plan: nextPlan, state: nextState };
     }
 
@@ -136,26 +149,40 @@ export async function executePlannerPlan(
       if (!blockedStep) {
         break;
       }
+      const blockedReasons = getStructuredBlockedReasons(blockedStep, nextPlan, executionGraph);
+      const blockedSummary = blockedReasons.length > 0
+        ? blockedReasons.map((reason) => reason.kind === 'conflict'
+          ? `${reason.kind}:${reason.blockedByStepId}${reason.conflictDomain ? `(${reason.conflictDomain})` : ''}`
+          : `${reason.kind}:${reason.blockedByStepId}`).join(', ')
+        : blockedStep.dependencies.join(', ');
       nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, {
         status: 'FAILED',
         executionState: 'failed',
         failureKind: 'dependency',
-        lastError: `Blocked by unmet dependencies: ${blockedStep.dependencies.join(', ')}`,
-        details: `Blocked by unmet dependencies: ${blockedStep.dependencies.join(', ')}`,
+        lastError: `Blocked by unmet prerequisites: ${blockedSummary}`,
+        details: `Blocked by unmet prerequisites: ${blockedSummary}`,
       });
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
         phase: 'BLOCKED',
         outcome: 'FAILED',
         currentStepId: blockedStep.id,
-        message: `Planner execution blocked by unmet dependencies for ${blockedStep.id}.`,
+        message: blockedReasons[0]?.message ?? `Planner execution blocked by unmet prerequisites for ${blockedStep.id}.`,
       });
-      await appendPlannerEvent(session, { type: 'subtask_blocked', stepId: blockedStep.id, reason: nextState.message }, config.session.redactSecrets);
+      await appendPlannerEvent(session, {
+        type: 'subtask_blocked',
+        stepId: blockedStep.id,
+        reason: nextState.message,
+        blockedByStepIds: blockedReasons.map((reason) => reason.blockedByStepId),
+        blockedReasons,
+      }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
       await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, {
         recoveryStepId: blockedStep.id,
         recoveryReason: nextState.message,
+        blockedReasons,
+        lastEventReason: nextState.message,
       });
       return { plan: nextPlan, state: nextState };
     }

@@ -1,4 +1,4 @@
-import type { PlannerExecutionGraph } from './graph.js';
+import type { PlannerBlockedReason, PlannerConflictSummary, PlannerExecutionGraph } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerPlan, PlannerState, PlannerStep } from './types.js';
 
@@ -18,6 +18,8 @@ export interface PlannerExecutionStateArtifact {
   failedStepIds: string[];
   blockedStepIds: string[];
   degradedStepIds: string[];
+  blockedReasons?: PlannerBlockedReason[];
+  latestConflict?: PlannerConflictSummary;
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
   strategy: PlannerExecutionStrategyMode;

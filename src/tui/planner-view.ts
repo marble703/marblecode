@@ -18,11 +18,13 @@ export function formatPlannerView(view: PlannerViewModel): string {
     `Ready steps: ${view.readyStepIds.join(', ') || '(none)'}`,
     `Failed steps: ${view.failedStepIds.join(', ') || '(none)'}`,
     `Blocked steps: ${view.blockedStepIds.join(', ') || '(none)'}`,
+    `Blocked reasons: ${view.blockedReasons.length > 0 ? view.blockedReasons.map((reason) => `${reason.stepId}:${reason.kind}:${reason.blockedByStepId}${reason.conflictDomain ? `(${reason.conflictDomain})` : ''}`).join(', ') : '(none)'}`,
     `Degraded steps: ${view.degradedStepIds.join(', ') || '(none)'}`,
     `Execution waves: ${view.executionWaves.length > 0 ? view.executionWaves.map((wave) => `${wave.index}:${wave.stepIds.join(',')}`).join(' | ') : '(none)'}`,
     `Current wave: ${view.currentWaveStepIds.join(', ') || '(none)'}`,
     `Last completed wave: ${view.lastCompletedWaveStepIds.join(', ') || '(none)'}`,
     `Conflicts: ${view.conflictEdges.length > 0 ? view.conflictEdges.map((edge) => `${edge.from}->${edge.to}(${edge.domain ?? edge.reason})`).join(', ') : '(none)'}`,
+    `Latest conflict: ${view.latestConflict ? `${view.latestConflict.fromStepId}->${view.latestConflict.toStepId}(${view.latestConflict.domain ?? view.latestConflict.reason})` : '(none)'}`,
     `Fallbacks: ${view.fallbackEdges.length > 0 ? view.fallbackEdges.map((edge) => `${edge.from}->${edge.to}`).join(', ') : '(none)'}`,
     `Locks: ${view.lockEntries.length > 0 ? view.lockEntries.map((entry) => `${entry.path}:${entry.mode}:${entry.ownerStepId}`).join(', ') : '(none)'}`,
     `Recovery: ${view.recoveryStepId ? `${view.recoveryStepId}${view.recoveryReason ? ` ${view.recoveryReason}` : ''}` : '(none)'}`,
@@ -173,7 +175,21 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
     return `${String(event.stepId ?? '')} replan failed: ${String(event.reason ?? '')}`;
   }
   if (type === 'subtask_blocked') {
-    return `${String(event.stepId ?? '')} blocked: ${String(event.reason ?? '')}`;
+    const blockedReasons = Array.isArray(event.blockedReasons)
+      ? event.blockedReasons.map((reason) => {
+          const record = reason as Record<string, unknown>;
+          const domain = typeof record.conflictDomain === 'string' ? `(${record.conflictDomain})` : '';
+          return `${String(record.kind ?? 'unknown')}:${String(record.blockedByStepId ?? '')}${domain}`;
+        }).join(', ')
+      : '';
+    return `${String(event.stepId ?? '')} blocked: ${blockedReasons || String(event.reason ?? '')}`;
+  }
+  if (type === 'subtask_conflict_detected') {
+    const from = typeof event.fromStepId === 'string' ? event.fromStepId : '';
+    const to = typeof event.toStepId === 'string' ? event.toStepId : '';
+    const reason = typeof event.conflictReason === 'string' ? event.conflictReason : '';
+    const domain = typeof event.conflictDomain === 'string' ? `(${event.conflictDomain})` : '';
+    return from && to ? `conflict detected: ${from}->${to}${reason ? ` ${reason}${domain}` : domain}` : `conflict detected: ${String(event.reason ?? '')}`;
   }
   if (type === 'planner_started' || type === 'planner_resumed' || type === 'planner_replanned') {
     return `${type}: ${String(event.prompt ?? '')}`;

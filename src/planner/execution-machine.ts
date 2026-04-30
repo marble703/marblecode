@@ -48,6 +48,8 @@ export interface PlannerExecutionSnapshotInput {
   planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
   recoveryStepId?: string;
   recoveryReason?: string;
+  blockedReasons?: PlannerExecutionStateArtifact['blockedReasons'];
+  latestConflict?: PlannerExecutionStateArtifact['latestConflict'];
 }
 
 const TRANSITIONS: Partial<Record<PlannerExecutionPhase, Partial<Record<PlannerExecutionEvent['type'], PlannerExecutionPhase>>>> = {
@@ -110,9 +112,53 @@ export function transitionExecutionPhase(
 export function createInitialExecutionState(
   state: PlannerState,
   strategy: PlannerExecutionStrategyMode,
-  extras?: Omit<PlannerExecutionSnapshotInput, 'state' | 'strategy'>,
+  extras?: {
+    currentWaveStepIds?: string[];
+    lastCompletedWaveStepIds?: string[];
+    epoch?: number;
+    selectedWaveStepIds?: string[];
+    resumeStrategy?: PlannerExecutionStateArtifact['resumeStrategy'];
+    interruptedStepIds?: string[];
+    lastEventType?: PlannerExecutionStateArtifact['lastEventType'];
+    lastEventReason?: string;
+    activeLockOwnerStepIds?: string[];
+    preservedLockOwnerStepIds?: string[];
+    reusedLockOwnerStepIds?: string[];
+    downgradedLockOwnerStepIds?: string[];
+    droppedLockOwnerStepIds?: string[];
+    recoverySourceStepId?: string;
+    recoverySubgraphStepIds?: string[];
+    lockResumeMode?: PlannerExecutionStateArtifact['lockResumeMode'];
+    planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
+    recoveryStepId?: string;
+    recoveryReason?: string;
+    blockedReasons?: PlannerExecutionStateArtifact['blockedReasons'];
+    latestConflict?: PlannerExecutionStateArtifact['latestConflict'];
+  },
 ): PlannerExecutionStateArtifact {
-  return createPlannerExecutionState(state, strategy, 'idle', extras);
+  return createPlannerExecutionState(state, strategy, 'idle', {
+    ...(extras?.currentWaveStepIds ? { currentWaveStepIds: extras.currentWaveStepIds } : {}),
+    ...(extras?.lastCompletedWaveStepIds ? { lastCompletedWaveStepIds: extras.lastCompletedWaveStepIds } : {}),
+    ...(typeof extras?.epoch === 'number' ? { epoch: extras.epoch } : {}),
+    ...(extras?.selectedWaveStepIds ? { selectedWaveStepIds: extras.selectedWaveStepIds } : {}),
+    ...(extras?.resumeStrategy ? { resumeStrategy: extras.resumeStrategy } : {}),
+    ...(extras?.interruptedStepIds ? { interruptedStepIds: extras.interruptedStepIds } : {}),
+    ...(extras?.lastEventType ? { lastEventType: extras.lastEventType } : {}),
+    ...(extras?.lastEventReason ? { lastEventReason: extras.lastEventReason } : {}),
+    ...(extras?.activeLockOwnerStepIds ? { activeLockOwnerStepIds: extras.activeLockOwnerStepIds } : {}),
+    ...(extras?.preservedLockOwnerStepIds ? { preservedLockOwnerStepIds: extras.preservedLockOwnerStepIds } : {}),
+    ...(extras?.reusedLockOwnerStepIds ? { reusedLockOwnerStepIds: extras.reusedLockOwnerStepIds } : {}),
+    ...(extras?.downgradedLockOwnerStepIds ? { downgradedLockOwnerStepIds: extras.downgradedLockOwnerStepIds } : {}),
+    ...(extras?.droppedLockOwnerStepIds ? { droppedLockOwnerStepIds: extras.droppedLockOwnerStepIds } : {}),
+    ...(extras?.recoverySourceStepId ? { recoverySourceStepId: extras.recoverySourceStepId } : {}),
+    ...(extras?.recoverySubgraphStepIds ? { recoverySubgraphStepIds: extras.recoverySubgraphStepIds } : {}),
+    ...(extras?.lockResumeMode ? { lockResumeMode: extras.lockResumeMode } : {}),
+    ...(extras?.planningWindowState ? { planningWindowState: extras.planningWindowState } : {}),
+    ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
+    ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
+    ...(extras?.blockedReasons ? { blockedReasons: extras.blockedReasons } : {}),
+    ...(extras?.latestConflict ? { latestConflict: extras.latestConflict } : {}),
+  });
 }
 
 export async function dispatchExecutionEvent(
@@ -144,6 +190,8 @@ export async function dispatchExecutionEvent(
     ...(input.planningWindowState ? { planningWindowState: input.planningWindowState } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
     ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
+    ...(input.blockedReasons && input.blockedReasons.length > 0 ? { blockedReasons: input.blockedReasons } : {}),
+    ...(input.latestConflict ? { latestConflict: input.latestConflict } : {}),
   });
   await writePlannerExecutionArtifacts(session, graph, lockTable, next);
   return next;

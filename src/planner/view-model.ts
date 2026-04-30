@@ -79,6 +79,7 @@ export interface PlannerViewModel {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
+  blockedReasons: Array<{ stepId: string; kind: string; blockedByStepId: string; message: string; conflictReason?: string; conflictDomain?: string }>;
   degradedStepIds: string[];
   executionWaves: Array<{ index: number; stepIds: string[] }>;
   currentWaveStepIds: string[];
@@ -87,6 +88,7 @@ export interface PlannerViewModel {
   interruptedStepIds: string[];
   fallbackEdges: Array<{ from: string; to: string }>;
   conflictEdges: Array<{ from: string; to: string; reason: string; domain?: string }>;
+  latestConflict: { fromStepId: string; toStepId: string; reason: string; domain?: string; message: string } | null;
   lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
   planDeltas: PlannerPlanDeltaSummary[];
   latestFeedback: PlannerFeedbackSummary | null;
@@ -193,6 +195,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds: [],
     failedStepIds: [],
     blockedStepIds: [],
+    blockedReasons: [],
     consistencyErrors: [],
   }) as {
     phase: string;
@@ -204,6 +207,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds?: string[];
     failedStepIds?: string[];
     blockedStepIds?: string[];
+    blockedReasons?: Array<{ stepId: string; kind: string; blockedByStepId: string; message: string; conflictReason?: string; conflictDomain?: string }>;
     degradedStepIds?: string[];
     degradedCompletion?: boolean;
     consistencyErrors: string[];
@@ -233,8 +237,10 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     lockResumeMode: '',
     planningWindowState: '',
     recoveryStepId: null,
-    recoveryReason: '',
-  }) as {
+     recoveryReason: '',
+      blockedReasons: [],
+      latestConflict: null,
+    }) as {
     executionPhase?: string;
     strategy?: string;
     epoch?: number;
@@ -254,9 +260,11 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     recoverySubgraphStepIds?: string[];
     lockResumeMode?: string;
     planningWindowState?: string;
-    recoveryStepId?: string | null;
-    recoveryReason?: string;
-  };
+     recoveryStepId?: string | null;
+     recoveryReason?: string;
+      blockedReasons?: Array<{ stepId: string; kind: string; blockedByStepId: string; message: string; conflictReason?: string; conflictDomain?: string }>;
+      latestConflict?: { fromStepId: string; toStepId: string; reason: string; domain?: string; message: string } | null;
+    };
   const subtaskEvents = events.filter((event) => {
     const type = String(event.type ?? '');
     return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
@@ -282,6 +290,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds: state.completedStepIds ?? [],
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
+    blockedReasons: executionState.blockedReasons ?? [],
     degradedStepIds: state.degradedStepIds ?? [],
     executionWaves: executionGraph.waves ?? [],
     currentWaveStepIds: executionState.currentWaveStepIds ?? [],
@@ -290,6 +299,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     interruptedStepIds: executionState.interruptedStepIds ?? [],
     fallbackEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'fallback').map((edge) => ({ from: edge.from, to: edge.to })),
     conflictEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'conflict').map((edge) => ({ from: edge.from, to: edge.to, reason: edge.reason ?? 'unknown', ...(edge.domain ? { domain: edge.domain } : {}) })),
+    latestConflict: executionState.latestConflict ?? null,
     lockEntries: executionLocks.entries ?? [],
     planDeltas,
     latestFeedback,

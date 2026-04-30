@@ -338,7 +338,16 @@ async function testPlannerExecuteConflictDomainFail(): Promise<void> {
     assert.equal(result.status, 'failed');
     assert.match(result.message, /conflict detected/i);
     const graph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { edges: Array<{ type: string; reason?: string; domain?: string }> };
+    const executionState = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.state.json'), 'utf8')) as { latestConflict?: { fromStepId: string; toStepId: string; reason: string; domain?: string } };
     assert.equal(graph.edges.some((edge) => edge.type === 'conflict' && edge.reason === 'conflict_domain' && edge.domain === 'api-contract'), true);
+    assert.equal(executionState.latestConflict?.reason, 'conflict_domain');
+    assert.equal(executionState.latestConflict?.domain, 'api-contract');
+    await assertPlannerEvent(
+      result.sessionDir,
+      'subtask_conflict_detected',
+      (record) => record.conflictReason === 'conflict_domain' && record.conflictDomain === 'api-contract',
+      'Expected structured conflict metadata in subtask_conflict_detected event',
+    );
   });
 }
 
@@ -576,10 +585,20 @@ async function testPlannerExecuteRequiredDependencyStillBlocksDownstreamStep(): 
 
     assert.equal(result.status, 'failed');
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string; details?: string; lastError?: string }> };
+    const executionState = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.state.json'), 'utf8')) as { blockedReasons?: Array<{ kind: string; stepId: string; blockedByStepId: string }> };
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'FAILED');
-    assert.match(plan.steps.find((step) => step.id === 'step-2')?.details ?? '', /blocked by unmet dependencies: step-1/i);
-    assert.match(plan.steps.find((step) => step.id === 'step-2')?.lastError ?? '', /blocked by unmet dependencies: step-1/i);
+    assert.match(plan.steps.find((step) => step.id === 'step-2')?.details ?? '', /blocked by unmet prerequisites: dependency:step-1/i);
+    assert.match(plan.steps.find((step) => step.id === 'step-2')?.lastError ?? '', /blocked by unmet prerequisites: dependency:step-1/i);
+    assert.ok(Array.isArray(executionState.blockedReasons));
+    assert.equal(executionState.blockedReasons?.some((reason) => reason.kind === 'dependency' && reason.stepId === 'step-2' && reason.blockedByStepId === 'step-1'), true);
+    await assertPlannerEvent(
+      result.sessionDir,
+      'subtask_blocked',
+      (record) => Array.isArray(record.blockedReasons)
+        && (record.blockedReasons as Array<Record<string, unknown>>).some((reason) => reason.kind === 'dependency' && reason.stepId === 'step-2' && reason.blockedByStepId === 'step-1'),
+      'Expected structured blocked reason metadata in subtask_blocked event',
+    );
   });
 }
 

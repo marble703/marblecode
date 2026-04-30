@@ -1,4 +1,5 @@
 import type { PlannerExecutionStateArtifact, PlannerExecutionStrategyMode } from './execution-types.js';
+import type { PlannerBlockedReason, PlannerConflictSummary } from './graph.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerState } from './types.js';
 import type { PlannerExecutionSnapshotInput } from './execution-machine.js';
@@ -71,6 +72,8 @@ export function createPlannerExecutionState(
     planningWindowState?: PlannerExecutionStateArtifact['planningWindowState'];
     recoveryStepId?: string;
     recoveryReason?: string;
+    blockedReasons?: PlannerBlockedReason[];
+    latestConflict?: PlannerConflictSummary;
   },
 ): PlannerExecutionStateArtifact {
   return {
@@ -107,6 +110,8 @@ export function createPlannerExecutionState(
     ...(extras?.planningWindowState ? { planningWindowState: extras.planningWindowState } : {}),
     ...(extras?.recoveryStepId ? { recoveryStepId: extras.recoveryStepId } : {}),
     ...(extras?.recoveryReason ? { recoveryReason: extras.recoveryReason } : {}),
+    ...(extras?.blockedReasons && extras.blockedReasons.length > 0 ? { blockedReasons: extras.blockedReasons } : {}),
+    ...(extras?.latestConflict ? { latestConflict: extras.latestConflict } : {}),
   };
 }
 
@@ -221,6 +226,8 @@ export function buildExecutionDispatchSnapshot(input: {
   planningWindowState: PlannerExecutionStateArtifact['planningWindowState'] | '';
   recoveryStepId?: string;
   recoveryReason?: string;
+  blockedReasons?: PlannerExecutionStateArtifact['blockedReasons'];
+  latestConflict?: PlannerExecutionStateArtifact['latestConflict'];
 }): PlannerExecutionSnapshotInput {
   const persistedRecovery = copyPersistedRecoverySnapshot(input.executionState);
   return {
@@ -237,6 +244,8 @@ export function buildExecutionDispatchSnapshot(input: {
     ...(input.recoveryReason ? { lastEventReason: input.recoveryReason } : {}),
     ...(input.recoveryStepId ? { recoveryStepId: input.recoveryStepId } : {}),
     ...(input.recoveryReason ? { recoveryReason: input.recoveryReason } : {}),
+    ...(input.blockedReasons && input.blockedReasons.length > 0 ? { blockedReasons: input.blockedReasons } : {}),
+    ...(input.latestConflict ? { latestConflict: input.latestConflict } : {}),
   };
 }
 

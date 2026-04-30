@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
+import { formatPlannerView, renderPlannerEvent } from '../../src/tui/planner-view.js';
 import { listRecentSessionEntries } from '../../src/session/index.js';
 import { executeTuiAction, inspectPlannerStep, resolvePlannerChildSession } from '../../src/tui/session-actions.js';
 import { listRecentSessions } from '../../src/tui/recent-sessions.js';
@@ -32,6 +33,7 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner view loads replan rejection artifacts', run: testPlannerViewLoadsReplanRejectionArtifacts },
     { name: 'planner view normalizes timeline events', run: testPlannerViewNormalizesTimelineEvents },
     { name: 'planner read-model api exposes raw and normalized events', run: testPlannerReadModelApiExposesRawAndNormalizedEvents },
+    { name: 'planner event renderer uses structured blocking metadata', run: testPlannerEventRendererUsesStructuredBlockingMetadata },
     { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
     { name: 'session entries stay storage scoped', run: testSessionEntriesStayStorageScoped },
   ];
@@ -328,6 +330,22 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
         recoverySubgraphStepIds: ['step-1', 'step-1-fallback', 'step-2'],
         lockResumeMode: 'drop_unrelated_writes',
         recoveryReason: 'Activated fallback for step-1.',
+        blockedReasons: [
+          {
+            kind: 'dependency',
+            stepId: 'step-2',
+            blockedByStepId: 'step-1',
+            edgeType: 'dependency',
+            message: 'step-2 is blocked by dependency step-1',
+          },
+        ],
+        latestConflict: {
+          fromStepId: 'step-1',
+          toStepId: 'step-2',
+          reason: 'conflict_domain',
+          domain: 'api-contract',
+          message: 'Planner execution conflict detected between step-1 and step-2.',
+        },
       }),
       'utf8',
     );
@@ -367,6 +385,11 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.recoveryStepId, 'step-1-fallback');
     assert.match(view.recoveryReason, /Activated fallback/);
     assert.deepEqual(view.degradedStepIds, ['step-2']);
+    assert.equal(view.blockedReasons.length, 1);
+    assert.equal(view.blockedReasons[0]?.kind, 'dependency');
+    assert.equal(view.blockedReasons[0]?.blockedByStepId, 'step-1');
+    assert.equal(view.latestConflict?.reason, 'conflict_domain');
+    assert.equal(view.latestConflict?.domain, 'api-contract');
     assert.equal(view.conflictEdges.length, 1);
     assert.equal(view.conflictEdges[0]?.reason, 'conflict_domain');
     assert.equal(view.conflictEdges[0]?.domain, 'api-contract');
@@ -376,6 +399,9 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.equal(view.latestFeedback, null);
     assert.deepEqual(view.replanRejections, []);
     assert.match(view.terminalSummary, /unavailable/);
+    const formatted = formatPlannerView(view);
+    assert.match(formatted, /Blocked reasons: step-2:dependency:step-1/);
+    assert.match(formatted, /Latest conflict: step-1->step-2\(api-contract\)/);
   });
 }
 
@@ -466,6 +492,26 @@ async function testPlannerReadModelApiExposesRawAndNormalizedEvents(): Promise<v
     assert.equal(events.timeline.length, 2);
     assert.match(events.timeline[1]?.label ?? '', /verify failed/);
   });
+}
+
+async function testPlannerEventRendererUsesStructuredBlockingMetadata(): Promise<void> {
+  const blocked = renderPlannerEvent({
+    type: 'subtask_blocked',
+    stepId: 'step-2',
+    reason: 'fallback string',
+    blockedReasons: [{ kind: 'dependency', blockedByStepId: 'step-1' }],
+  });
+  assert.match(blocked, /step-2 blocked: dependency:step-1/);
+
+  const conflict = renderPlannerEvent({
+    type: 'subtask_conflict_detected',
+    reason: 'fallback conflict',
+    fromStepId: 'step-1',
+    toStepId: 'step-2',
+    conflictReason: 'conflict_domain',
+    conflictDomain: 'api-contract',
+  });
+  assert.match(conflict, /conflict detected: step-1->step-2 conflict_domain\(api-contract\)/);
 }
 
 async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<void> {
