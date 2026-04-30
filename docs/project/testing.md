@@ -267,6 +267,7 @@ Representative cases:
 - `planner live view renders read model status`
 - `planner read api lists planner summaries`
 - `planner read api loads session detail`
+- `show planner json outputs session detail`
 - `planner session summary includes execution metadata`
 
 For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
@@ -278,6 +279,8 @@ Session-layer tests should treat recent-session directory enumeration and planne
 For terminal consumer changes such as `show:planner` or planner live view updates, prefer extracting or reusing a pure formatter function and asserting on its output in deterministic tests. Avoid tests that depend on raw terminal cursor control or stdout timing when a stable string formatter can cover the intended behavior more directly.
 
 For new read-only planner facades, verify both aggregation direction and scope: session-list APIs should return planner-only entries without pulling child sessions into the public shape, while session-detail APIs should expose `summary`, `view`, and `events` with a shared `schemaVersion` boundary.
+
+For machine-readable inspector output such as `show:planner --json`, prefer executing the real CLI script in deterministic coverage and parsing stdout as JSON. Assert the top-level `schemaVersion` plus the nested `summary` / `view` / `events` schema boundaries so the test fails if human-readable text leaks into the JSON path or the facade payload shape drifts.
 
 ### Agent And Patch
 

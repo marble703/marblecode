@@ -548,6 +548,20 @@
 - 是否为外部只读 inspector 场景进一步收敛 session list/detail/timeline 的 API 入口
 - 仅在这些只读 API 更稳定后，再考虑更具体的 WebUI/transport 设计
 
+### P3.5：本轮已完成 machine-readable inspector output 第一轮
+
+这一轮不引入 WebUI server，也不增加 transport 层，而是先让已经存在的 planner session detail facade 成为真实 CLI inspector 入口：
+
+1. `scripts/show-planner.ts` 新增 `--json`，在 machine-readable 路径上直接复用 `loadPlannerSessionDetail()`。
+2. `show:planner --json` 现在输出稳定的 `PlannerSessionDetailView` JSON，包含 `schemaVersion`、`summary`、`view` 与 `events`。
+3. deterministic suite 已新增真实 CLI 覆盖，执行 `show-planner.ts --json` 并解析 stdout JSON，验证 facade detail shape 不会被 terminal summary 文本污染。
+
+这一轮的定位是 CLI inspector output，而不是更正式的 WebUI/transport 已经开始。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否需要为只读 inspector 场景补 session list 的 machine-readable CLI 入口
+- 是否继续把更多 external-style read consumers 收敛到 `read-api.ts`
+- 仅在这些只读 inspector 入口更稳定后，再考虑更具体的 WebUI/transport 设计
+
 ## 暂不建议优先做的事
 
 - 不建议重新展开已完成的 runtime/TUI/agent/verifier 拆分工作。

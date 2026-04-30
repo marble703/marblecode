@@ -425,6 +425,20 @@
 2. 继续把其他 planner-only read consumers 收敛到 `read-api.ts`
 3. `conflictDomains` registry 继续后置，除非出现明确约束需求
 
+当前状态更新：machine-readable inspector output 第一轮已完成。
+
+本轮已经实际落地：
+
+- `scripts/show-planner.ts --json`
+- `loadPlannerSessionDetail()` 作为真实 CLI inspector detail 入口
+- deterministic CLI JSON 输出覆盖新增
+
+因此后续优先级可继续收敛到：
+
+1. 如确有收益，再补 planner session list 的 machine-readable CLI 入口
+2. 继续把其他 external-style planner read consumers 收敛到 `read-api.ts`
+3. `conflictDomains` registry 继续后置，除非出现明确约束需求
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

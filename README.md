@@ -53,6 +53,7 @@ Implemented today:
 - Expose planner read models with stable `schemaVersion: '1'` boundaries for session summaries, full planner views, and normalized planner event timelines
 - Reuse those stable planner read models across `show:planner`, the interactive TUI, and planner live views so terminal inspectors stay aligned as planner metadata grows
 - Expose a planner read-only facade for recent planner session summaries and per-session detail aggregation, so future inspectors do not need to recreate `session + view + events` composition logic
+- Expose machine-readable planner inspection through `npm run show:planner -- --last --json`, returning the same `summary` / `view` / `events` detail shape as the planner read-only facade
 
 ## Current Limits
 
