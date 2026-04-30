@@ -521,6 +521,24 @@
 - 是否为只读 inspector / WebUI 场景增加 session list + session detail 的更直接入口
 - 仅在这些 API 边界更清晰后，再评估是否需要更正式的 transport/server 层
 
+### P3.3：本轮已完成 external read API facade 第一轮
+
+这一轮仍不引入 WebUI server，也不增加 transport 层，而是先把 planner session 的只读 list/detail 聚合入口从 TUI 组合层中抽出来：
+
+1. 新增 `src/planner/read-api.ts`，提供 `listPlannerSessionSummaries()` 与 `loadPlannerSessionDetail()`。
+2. facade 返回稳定的 `schemaVersion: '1'`，并以 planner session 为中心暴露：
+   - recent planner session summaries
+   - session detail summary
+   - full planner view
+   - normalized planner events/timeline
+3. deterministic suite 已扩展 facade 覆盖，验证 planner-only recent list、session detail 聚合以及 `summary/view/events` 的统一 schemaVersion 边界。
+
+这一轮的定位是 external-read preparation，而不是 WebUI/inspector transport 已经开始。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否需要为 `show:planner --json` 或类似脚本提供基于 facade 的 machine-readable 输出
+- 是否为外部只读 inspector 场景进一步收敛 session list/detail/timeline 的 API 入口
+- 仅在这些只读 API 更稳定后，再考虑更具体的 WebUI/transport 设计
+
 ## 暂不建议优先做的事
 
 - 不建议重新展开已完成的 runtime/TUI/agent/verifier 拆分工作。

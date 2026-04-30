@@ -52,6 +52,7 @@ Implemented today:
 - Expose structured blocked/conflict explainability through planner events, execution-state artifacts, and planner session views
 - Expose planner read models with stable `schemaVersion: '1'` boundaries for session summaries, full planner views, and normalized planner event timelines
 - Reuse those stable planner read models across `show:planner`, the interactive TUI, and planner live views so terminal inspectors stay aligned as planner metadata grows
+- Expose a planner read-only facade for recent planner session summaries and per-session detail aggregation, so future inspectors do not need to recreate `session + view + events` composition logic
 
 ## Current Limits
 

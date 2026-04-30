@@ -279,6 +279,7 @@ Current internal split:
 - `parse.ts`: planner response parsing and plan normalization
 - `artifacts.ts`: planner artifact writing and session resume/load helpers
 - `view-model.ts`: planner artifact aggregation for TUI/WebUI-facing read models
+- `read-api.ts`: read-only planner session list/detail facade for future inspectors and external consumers
 - `execute.ts`: top-level planner execution orchestration and wave handoff
 - `execute-wave.ts`: wave selection, conflict checks, and blocked-dependent annotations
 - `execute-verify.ts`: verify-step execution and verify-repair handoff

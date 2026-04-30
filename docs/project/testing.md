@@ -179,7 +179,7 @@ The runtime/resume group now also uses shared planner fixture helpers from `scri
 
 When asserting planner/runtime artifacts, prefer `assertPlannerEvent(...)`, `assertPlannerLogEntry(...)`, and `assertToolLogEntry(...)` over raw string regex checks on JSONL content. The suite still has a few intentionally narrow string assertions, but new coverage should default to parsed record checks.
 
-At the moment, `npm run test:examples` covers 126 deterministic cases.
+At the moment, `npm run test:examples` covers 128 deterministic cases.
 
 ### Planner Execution
 
@@ -265,6 +265,8 @@ Representative cases:
 - `planner read-model api exposes raw and normalized events`
 - `planner event renderer uses structured blocking metadata`
 - `planner live view renders read model status`
+- `planner read api lists planner summaries`
+- `planner read api loads session detail`
 - `planner session summary includes execution metadata`
 
 For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
@@ -274,6 +276,8 @@ When stabilizing read-model DTOs, verify both the named TypeScript return shapes
 Session-layer tests should treat recent-session directory enumeration and planner-summary projection as separate concerns. Storage-scoped entry listing belongs in `src/session`, while planner/child summary projection belongs in the higher-level TUI/read-model layer.
 
 For terminal consumer changes such as `show:planner` or planner live view updates, prefer extracting or reusing a pure formatter function and asserting on its output in deterministic tests. Avoid tests that depend on raw terminal cursor control or stdout timing when a stable string formatter can cover the intended behavior more directly.
+
+For new read-only planner facades, verify both aggregation direction and scope: session-list APIs should return planner-only entries without pulling child sessions into the public shape, while session-detail APIs should expose `summary`, `view`, and `events` with a shared `schemaVersion` boundary.
 
 ### Agent And Patch
 
