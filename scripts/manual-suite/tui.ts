@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
+import { listPlannerSessionSummaries, loadPlannerSessionDetail } from '../../src/planner/read-api.js';
 import { formatPlannerView, renderPlannerEvent } from '../../src/tui/planner-view.js';
 import { formatPlannerLiveView } from '../../src/tui/planner-live.js';
 import { listRecentSessionEntries } from '../../src/session/index.js';
@@ -36,6 +37,8 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner read-model api exposes raw and normalized events', run: testPlannerReadModelApiExposesRawAndNormalizedEvents },
     { name: 'planner event renderer uses structured blocking metadata', run: testPlannerEventRendererUsesStructuredBlockingMetadata },
     { name: 'planner live view renders read model status', run: testPlannerLiveViewRendersReadModelStatus },
+    { name: 'planner read api lists planner summaries', run: testPlannerReadApiListsPlannerSummaries },
+    { name: 'planner read api loads session detail', run: testPlannerReadApiLoadsSessionDetail },
     { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
     { name: 'session entries stay storage scoped', run: testSessionEntriesStayStorageScoped },
   ];
@@ -575,6 +578,56 @@ async function testPlannerLiveViewRendersReadModelStatus(): Promise<void> {
     assert.match(rendered, /Blocked: step-2:dependency:step-1/);
     assert.match(rendered, /Latest conflict: step-1->step-2\(api-contract\)/);
     assert.match(rendered, /Current wave: step-2\s+Last completed: step-1/);
+  });
+}
+
+async function testPlannerReadApiListsPlannerSummaries(): Promise<void> {
+  await withWorkspace(async ({ config, workspaceRoot }) => {
+    const sessionsDir = path.join(workspaceRoot, '.agent', 'sessions');
+    const plannerSessionDir = path.join(sessionsDir, '2026-04-20T10-00-12-000Z');
+    const childSessionDir = path.join(sessionsDir, '2026-04-20T10-00-13-000Z');
+    await mkdir(childSessionDir, { recursive: true });
+    await writePlannerArtifacts(plannerSessionDir, {
+      plan: createPlannerPlan({ summary: 'Planner facade summary', steps: [] }),
+      planState: createPlannerState({ outcome: 'DONE', phase: 'PATCHING', currentStepId: 'step-2', blockedStepIds: ['step-9'], degradedStepIds: ['step-4'], degradedCompletion: true }),
+    });
+    await writePlannerEvents(plannerSessionDir, [{ type: 'planner_started', prompt: 'summary facade' }]);
+    await writeFile(path.join(childSessionDir, 'request.json'), JSON.stringify({ prompt: 'child only' }), 'utf8');
+
+    const listView = await listPlannerSessionSummaries(config, 4);
+    assert.equal(listView.schemaVersion, '1');
+    assert.equal(listView.sessions.every((session) => session.schemaVersion === '1'), true);
+    const target = listView.sessions.find((session) => session.id === '2026-04-20T10-00-12-000Z');
+    assert.equal(target?.summary, 'Planner facade summary');
+    assert.equal(target?.degradedCompletion, true);
+    assert.deepEqual(target?.blockedStepIds, ['step-9']);
+    assert.deepEqual(target?.degradedStepIds, ['step-4']);
+  });
+}
+
+async function testPlannerReadApiLoadsSessionDetail(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-14-000Z');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ summary: 'Planner facade detail', steps: [] }),
+      planState: createPlannerState({ outcome: 'RUNNING', phase: 'PLANNING', currentStepId: 'step-1' }),
+      executionState: createExecutionState({ executionPhase: 'planning', currentWaveStepIds: ['step-1'] }),
+    });
+    await writePlannerEvents(sessionDir, [
+      { type: 'planner_started', prompt: 'detail facade' },
+      { type: 'subtask_started', stepId: 'step-1', executor: 'coder' },
+    ]);
+
+    const detail = await loadPlannerSessionDetail(sessionDir);
+    assert.equal(detail.schemaVersion, '1');
+    assert.equal(detail.summary.schemaVersion, '1');
+    assert.equal(detail.view.schemaVersion, '1');
+    assert.equal(detail.events.schemaVersion, '1');
+    assert.equal(detail.summary.id, '2026-04-20T10-00-14-000Z');
+    assert.equal(detail.summary.summary, 'Planner facade detail');
+    assert.equal(detail.view.summary, 'Planner facade detail');
+    assert.equal(detail.events.events.length, 2);
+    assert.match(detail.events.timeline[0]?.label ?? '', /planner_started/);
   });
 }
 
