@@ -351,6 +351,22 @@
 - 在 `planner-execution.ts`、`tui.ts` 等仍有较多手写 artifact 的场景继续推广 fixture helper
 - 再评估 `session -> planner/view-model` 依赖方向的修正边界
 
+### P1.12：本轮已完成 structured event / log assertion sweep 第一轮
+
+在 P1.11 的 planner test fixture foundation 之上，本轮继续优先收敛 manual-suite 中剩余最脆弱的事件和日志字符串断言，同时保持 runtime 行为不变：
+
+1. `scripts/manual-suite/helpers.ts` 新增 `assertSessionJsonlRecord(...)` 与 `assertPlannerLogEntry(...)`，补齐 planner log 的结构化断言入口。
+2. `scripts/manual-suite/planner-recovery.ts` 中 retry / fallback / local replan 相关 `plan.events.jsonl` 断言，已改为 `assertPlannerEvent(...)`。
+3. `scripts/manual-suite/planner-runtime-core.ts` 中 read-only planner flow 的 `plan.events.jsonl`、`planner.log.jsonl`、`tools.jsonl` 代表性断言，已改为 `assertPlannerEvent(...)`、`assertPlannerLogEntry(...)` 与 `assertToolLogEntry(...)`。
+4. `scripts/manual-suite/planner-runtime-resume.ts` 与 `scripts/manual-suite/planner-execution.ts` 中代表性的 model retry / failure、degraded 事件断言，也继续迁移为结构化 helper。
+5. deterministic suite 新增 planner log helper 直接覆盖 case，确保新的 log assertion helper 本身也受回归保护。
+
+这一轮的定位是 structured assertion maintenance foundation，而不是 TUI/session fixture 全面收敛完成。下一轮如果继续推进“仓库整理”，应优先考虑：
+
+- 在 `planner-execution.ts`、`tui.ts` 中继续推广 shared planner fixture helper
+- 评估 `session -> planner/view-model` 依赖方向的修正边界与最小落点
+- 仅在确有收益时继续替换剩余零散 regex-style 断言
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

@@ -152,6 +152,7 @@ Purpose:
 - recovery boundary and planning-window resume behavior
 - planner model retry behavior
 - planner artifact / session fixture helpers for resume and partial-window tests
+- structured planner event / planner log / tool log assertions for representative runtime and recovery cases
 
 Representative cases:
 
@@ -176,7 +177,9 @@ Representative cases:
 
 The runtime/resume group now also uses shared planner fixture helpers from `scripts/manual-suite/helpers.ts` for representative `plan.json`, `plan.state.json`, `execution.state.json`, `execution.locks.json`, and `plan.events.jsonl` setup. Prefer extending those helpers instead of adding new large inline artifact blobs when new planner resume or partial-window cases are added.
 
-At the moment, `npm run test:examples` covers 120 deterministic cases.
+When asserting planner/runtime artifacts, prefer `assertPlannerEvent(...)`, `assertPlannerLogEntry(...)`, and `assertToolLogEntry(...)` over raw string regex checks on JSONL content. The suite still has a few intentionally narrow string assertions, but new coverage should default to parsed record checks.
+
+At the moment, `npm run test:examples` covers 121 deterministic cases.
 
 ### Planner Execution
 
