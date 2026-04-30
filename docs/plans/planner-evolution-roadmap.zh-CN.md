@@ -381,6 +381,21 @@
 - 如有必要，在 `planner-execution.ts` 中继续推广 fixture helper
 - 只对仍然明显重复的 fixture 再做小范围收敛，不追求把所有手写 artifact 全部抽象掉
 
+### P1.14：本轮已完成 session / planner read-model 依赖方向收敛
+
+在 P1.13 的 TUI fixture maintenance foundation 之上，本轮继续优先修正 `session -> planner/view-model` 的依赖方向，同时保持 TUI 行为不变：
+
+1. `src/session/index.ts` 不再依赖 `src/planner/view-model.ts`，现在只负责 session 存储、recent session entry 列举和 planner session 识别。
+2. 新增 `src/tui/recent-sessions.ts`，把 planner summary / child session summary 的 recent-session projection 上移到 TUI 层组合。
+3. `src/tui/state.ts`、`src/tui/types.ts`、`src/tui/render.ts` 现在改为消费 TUI 层的 `SessionListItem`，而不是从 session 基础层拿 planner-rich 类型。
+4. deterministic suite 新增 `session entries stay storage scoped`，明确锁定 session 基础 API 只返回 storage-scoped entry，而不混入 planner summary 字段。
+
+这一轮的定位是 dependency-direction maintenance closeout，而不是 P2 planner execution 语义演进开始。下一轮如果继续推进，应优先考虑：
+
+- 评估是否还需要单独做一轮 P1 收尾文档整理
+- 否则切回 P2 degraded / conflict / concurrency semantics
+- 仅在确有收益时继续处理 `planner-execution.ts` 中剩余少量重复 fixture
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。

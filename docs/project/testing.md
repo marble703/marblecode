@@ -179,7 +179,7 @@ The runtime/resume group now also uses shared planner fixture helpers from `scri
 
 When asserting planner/runtime artifacts, prefer `assertPlannerEvent(...)`, `assertPlannerLogEntry(...)`, and `assertToolLogEntry(...)` over raw string regex checks on JSONL content. The suite still has a few intentionally narrow string assertions, but new coverage should default to parsed record checks.
 
-At the moment, `npm run test:examples` covers 121 deterministic cases.
+At the moment, `npm run test:examples` covers 122 deterministic cases.
 
 ### Planner Execution
 
@@ -241,6 +241,7 @@ Purpose:
 - read-model APIs for planner sessions
 - recovery metadata projection for planner sessions
 - shared planner fixture helper usage for normal session artifacts, while preserving explicit malformed/partial fixtures where the test intent depends on them
+- session storage boundary coverage for recent-session entry enumeration
 
 Representative cases:
 
@@ -252,6 +253,8 @@ Representative cases:
 - `planner session summary includes execution metadata`
 
 For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
+
+Session-layer tests should treat recent-session directory enumeration and planner-summary projection as separate concerns. Storage-scoped entry listing belongs in `src/session`, while planner/child summary projection belongs in the higher-level TUI/read-model layer.
 
 ### Agent And Patch
 

@@ -301,6 +301,22 @@
 2. 仅在确有收益时继续收敛 `planner-execution.ts` 等剩余重复 fixture
 3. 避免为了“统一风格”而抽象掉故意 malformed/partial 的测试输入
 
+当前状态更新：`session -> planner/view-model` 依赖方向收敛已完成。
+
+本轮已经实际落地：
+
+- `src/session/index.ts` 不再 import `loadPlannerSessionSummary(...)`
+- session 基础层现在只暴露 storage-scoped `listRecentSessionEntries(...)`
+- recent session summary projection 上移到 `src/tui/recent-sessions.ts`
+- TUI 侧 `SessionListItem` 类型和 recent session 组合逻辑不再挂在 session 基础层
+- 新增 deterministic case：`session entries stay storage scoped`
+
+因此后续仓库整理重点应进一步转向：
+
+1. 若无新的结构性热点，可视为当前 P1 维护整理主线基本收口
+2. 如有明确收益，再小范围处理 `planner-execution.ts` 等剩余少量 fixture 重复
+3. 后续优先级应转回 P2 planner execution 语义演进或 P3 read-model DTO 稳定化，而不是继续做无目标整理
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑
