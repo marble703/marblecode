@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { createInitialTuiState } from '../../src/tui/agent-repl.js';
 import { applyTuiCommand } from '../../src/tui/commands.js';
 import { loadPlannerEvents, loadPlannerSessionSummary, loadPlannerView } from '../../src/planner/view-model.js';
@@ -22,6 +25,10 @@ import {
 } from './helpers.js';
 import type { ManualSuiteCase } from './types.js';
 
+const execFileAsync = promisify(execFile);
+const SHOW_PLANNER_SCRIPT = fileURLToPath(new URL('../show-planner.ts', import.meta.url));
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+
 export function createTuiCases(): ManualSuiteCase[] {
   return [
     { name: 'planner session resolution', run: testPlannerSessionResolution },
@@ -39,6 +46,7 @@ export function createTuiCases(): ManualSuiteCase[] {
     { name: 'planner live view renders read model status', run: testPlannerLiveViewRendersReadModelStatus },
     { name: 'planner read api lists planner summaries', run: testPlannerReadApiListsPlannerSummaries },
     { name: 'planner read api loads session detail', run: testPlannerReadApiLoadsSessionDetail },
+    { name: 'show planner json outputs session detail', run: testShowPlannerJsonOutputsSessionDetail },
     { name: 'planner session summary includes execution metadata', run: testPlannerSessionSummaryIncludesExecutionMetadata },
     { name: 'session entries stay storage scoped', run: testSessionEntriesStayStorageScoped },
   ];
@@ -628,6 +636,54 @@ async function testPlannerReadApiLoadsSessionDetail(): Promise<void> {
     assert.equal(detail.view.summary, 'Planner facade detail');
     assert.equal(detail.events.events.length, 2);
     assert.match(detail.events.timeline[0]?.label ?? '', /planner_started/);
+  });
+}
+
+async function testShowPlannerJsonOutputsSessionDetail(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-15-000Z');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ summary: 'Planner json inspector detail', steps: [] }),
+      planState: createPlannerState({ outcome: 'DONE', phase: 'PATCHING', currentStepId: 'step-2', degradedCompletion: true, degradedStepIds: ['step-4'] }),
+      executionState: createExecutionState({ executionPhase: 'executing_wave', currentWaveStepIds: ['step-2'], lastCompletedWaveStepIds: ['step-1'] }),
+    });
+    await writePlannerEvents(sessionDir, [
+      { type: 'planner_started', prompt: 'json inspector detail' },
+      { type: 'planner_execution_finished', degradedCompletion: true, degradedStepIds: ['step-4'] },
+    ]);
+
+    const { stdout, stderr } = await execFileAsync('node', [
+      '--import',
+      'tsx',
+      SHOW_PLANNER_SCRIPT,
+      '--session',
+      sessionDir,
+      '--workspace',
+      workspaceRoot,
+      '--json',
+    ], {
+      cwd: REPO_ROOT,
+      env: process.env,
+    });
+
+    assert.equal(stderr, '');
+    const detail = JSON.parse(stdout) as {
+      schemaVersion: string;
+      summary: { schemaVersion: string; dir: string; isPlanner: boolean; degradedCompletion?: boolean; degradedStepIds?: string[] };
+      view: { schemaVersion: string; summary: string };
+      events: { schemaVersion: string; events: Array<Record<string, unknown>> };
+    };
+    assert.equal(detail.schemaVersion, '1');
+    assert.equal(detail.summary.schemaVersion, '1');
+    assert.equal(detail.view.schemaVersion, '1');
+    assert.equal(detail.events.schemaVersion, '1');
+    assert.equal(detail.summary.dir, sessionDir);
+    assert.equal(detail.summary.isPlanner, true);
+    assert.equal(detail.summary.degradedCompletion, true);
+    assert.deepEqual(detail.summary.degradedStepIds, ['step-4']);
+    assert.equal(detail.view.summary, 'Planner json inspector detail');
+    assert.equal(detail.events.events.length, 2);
+    assert.equal(detail.events.events[1]?.type, 'planner_execution_finished');
   });
 }
 

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { loadConfig } from '../src/config/load.js';
+import { loadPlannerSessionDetail } from '../src/planner/read-api.js';
 import { resolvePlannerSessionDir } from '../src/session/index.js';
 import { formatPlannerView, loadPlannerView } from '../src/tui/planner-view.js';
 
@@ -20,6 +21,10 @@ async function main(): Promise<void> {
       workspace: {
         type: 'string',
       },
+      json: {
+        type: 'boolean',
+        default: false,
+      },
     },
   });
 
@@ -36,6 +41,12 @@ async function main(): Promise<void> {
   };
 
   const sessionDir = await resolvePlannerSessionDir(config, parsed.values.session, parsed.values.last);
+  if (parsed.values.json) {
+    const detail = await loadPlannerSessionDetail(sessionDir);
+    process.stdout.write(`${JSON.stringify(detail, null, 2)}\n`);
+    return;
+  }
+
   const view = await loadPlannerView(sessionDir);
   process.stdout.write(`${formatPlannerView(view)}\n`);
 }
