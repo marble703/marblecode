@@ -6,6 +6,10 @@ export interface PlannerEventRecord {
   [key: string]: unknown;
 }
 
+export const PLANNER_READ_MODEL_SCHEMA_VERSION = '1';
+
+export type PlannerReadModelSchemaVersion = typeof PLANNER_READ_MODEL_SCHEMA_VERSION;
+
 export interface PlannerPlanDeltaSummary {
   baseRevision: number;
   nextRevision: number;
@@ -49,7 +53,66 @@ export interface PlannerTimelineEvent {
   epoch?: number;
 }
 
+export interface PlannerBlockedReasonView {
+  stepId: string;
+  kind: string;
+  blockedByStepId: string;
+  message: string;
+  conflictReason?: string;
+  conflictDomain?: string;
+}
+
+export interface PlannerConflictEdgeView {
+  from: string;
+  to: string;
+  reason: string;
+  domain?: string;
+}
+
+export interface PlannerLatestConflictView {
+  fromStepId: string;
+  toStepId: string;
+  reason: string;
+  domain?: string;
+  message: string;
+}
+
+export interface PlannerExecutionWaveView {
+  index: number;
+  stepIds: string[];
+}
+
+export interface PlannerLockEntryView {
+  path: string;
+  mode: string;
+  ownerStepId: string;
+}
+
+export interface PlannerStepView {
+  id: string;
+  title: string;
+  status: string;
+  kind: string;
+  attempts: number;
+  details?: string;
+  relatedFiles: string[];
+  children: string[];
+  assignee?: string;
+  executionState?: string;
+  lastError?: string;
+  failureKind?: string;
+}
+
+export interface PlannerEventsView {
+  schemaVersion: PlannerReadModelSchemaVersion;
+  events: PlannerEventRecord[];
+  subtaskEvents: PlannerEventRecord[];
+  timeline: PlannerTimelineEvent[];
+  subtaskTimeline: PlannerTimelineEvent[];
+}
+
 export interface PlannerSessionSummary {
+  schemaVersion: PlannerReadModelSchemaVersion;
   id: string;
   dir: string;
   isPlanner: true;
@@ -60,9 +123,13 @@ export interface PlannerSessionSummary {
   executionPhase: string;
   planRevision: number;
   planIsPartial: boolean;
+  degradedCompletion: boolean;
+  blockedStepIds: string[];
+  degradedStepIds: string[];
 }
 
 export interface PlannerViewModel {
+  schemaVersion: PlannerReadModelSchemaVersion;
   sessionDir: string;
   outcome: string;
   phase: string;
@@ -79,17 +146,17 @@ export interface PlannerViewModel {
   completedStepIds: string[];
   failedStepIds: string[];
   blockedStepIds: string[];
-  blockedReasons: Array<{ stepId: string; kind: string; blockedByStepId: string; message: string; conflictReason?: string; conflictDomain?: string }>;
+  blockedReasons: PlannerBlockedReasonView[];
   degradedStepIds: string[];
-  executionWaves: Array<{ index: number; stepIds: string[] }>;
+  executionWaves: PlannerExecutionWaveView[];
   currentWaveStepIds: string[];
   lastCompletedWaveStepIds: string[];
   selectedWaveStepIds: string[];
   interruptedStepIds: string[];
   fallbackEdges: Array<{ from: string; to: string }>;
-  conflictEdges: Array<{ from: string; to: string; reason: string; domain?: string }>;
-  latestConflict: { fromStepId: string; toStepId: string; reason: string; domain?: string; message: string } | null;
-  lockEntries: Array<{ path: string; mode: string; ownerStepId: string }>;
+  conflictEdges: PlannerConflictEdgeView[];
+  latestConflict: PlannerLatestConflictView | null;
+  lockEntries: PlannerLockEntryView[];
   planDeltas: PlannerPlanDeltaSummary[];
   latestFeedback: PlannerFeedbackSummary | null;
   feedbackHistory: PlannerFeedbackSummary[];
@@ -98,20 +165,7 @@ export interface PlannerViewModel {
   replanRejections: PlannerReplanRejectionSummary[];
   replanHistory: Array<PlannerReplanProposalSummary | PlannerReplanRejectionSummary>;
   summary: string;
-  steps: Array<{
-    id: string;
-    title: string;
-    status: string;
-    kind: string;
-    attempts: number;
-    details?: string;
-    relatedFiles: string[];
-    children: string[];
-    assignee?: string;
-    executionState?: string;
-    lastError?: string;
-    failureKind?: string;
-  }>;
+  steps: PlannerStepView[];
   events: PlannerEventRecord[];
   subtaskEvents: PlannerEventRecord[];
   timeline: PlannerTimelineEvent[];
@@ -274,6 +328,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   const terminal = findLastMatching(plannerLog, (entry) => entry.type === 'planner_terminal');
 
   return {
+    schemaVersion: PLANNER_READ_MODEL_SCHEMA_VERSION,
     sessionDir,
     outcome: state.outcome,
     phase: state.phase,
@@ -290,17 +345,17 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     completedStepIds: state.completedStepIds ?? [],
     failedStepIds: state.failedStepIds ?? [],
     blockedStepIds: state.blockedStepIds ?? [],
-    blockedReasons: executionState.blockedReasons ?? [],
+    blockedReasons: normalizeBlockedReasons(executionState.blockedReasons),
     degradedStepIds: state.degradedStepIds ?? [],
-    executionWaves: executionGraph.waves ?? [],
+    executionWaves: normalizeExecutionWaves(executionGraph.waves),
     currentWaveStepIds: executionState.currentWaveStepIds ?? [],
     lastCompletedWaveStepIds: executionState.lastCompletedWaveStepIds ?? [],
     selectedWaveStepIds: executionState.selectedWaveStepIds ?? [],
     interruptedStepIds: executionState.interruptedStepIds ?? [],
     fallbackEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'fallback').map((edge) => ({ from: edge.from, to: edge.to })),
-    conflictEdges: (executionGraph.edges ?? []).filter((edge) => edge.type === 'conflict').map((edge) => ({ from: edge.from, to: edge.to, reason: edge.reason ?? 'unknown', ...(edge.domain ? { domain: edge.domain } : {}) })),
-    latestConflict: executionState.latestConflict ?? null,
-    lockEntries: executionLocks.entries ?? [],
+    conflictEdges: normalizeConflictEdges(executionGraph.edges),
+    latestConflict: normalizeLatestConflict(executionState.latestConflict),
+    lockEntries: normalizeLockEntries(executionLocks.entries),
     planDeltas,
     latestFeedback,
     feedbackHistory: latestFeedback ? [latestFeedback] : [],
@@ -309,7 +364,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     replanRejections,
     replanHistory: [...replanProposals, ...replanRejections],
     summary: plan.summary || state.message,
-    steps: plan.steps.map((step) => ({
+    steps: plan.steps.map((step): PlannerStepView => ({
       id: step.id,
       title: step.title,
       status: step.status,
@@ -346,12 +401,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
   };
 }
 
-export async function loadPlannerEvents(sessionDir: string): Promise<{
-  events: PlannerEventRecord[];
-  subtaskEvents: PlannerEventRecord[];
-  timeline: PlannerTimelineEvent[];
-  subtaskTimeline: PlannerTimelineEvent[];
-}> {
+export async function loadPlannerEvents(sessionDir: string): Promise<PlannerEventsView> {
   const eventsRaw = await readTextIfExists(path.join(sessionDir, 'plan.events.jsonl'));
   const events = parseJsonLines(eventsRaw);
   const subtaskEvents = events.filter((event) => {
@@ -359,6 +409,7 @@ export async function loadPlannerEvents(sessionDir: string): Promise<{
     return type.startsWith('subtask') || type === 'planner_execution_started' || type === 'planner_execution_finished';
   });
   return {
+    schemaVersion: PLANNER_READ_MODEL_SCHEMA_VERSION,
     events,
     subtaskEvents,
     timeline: normalizePlannerEvents(events),
@@ -369,6 +420,7 @@ export async function loadPlannerEvents(sessionDir: string): Promise<{
 export async function loadPlannerSessionSummary(id: string, sessionDir: string): Promise<PlannerSessionSummary> {
   const view = await loadPlannerView(sessionDir);
   return {
+    schemaVersion: PLANNER_READ_MODEL_SCHEMA_VERSION,
     id,
     dir: sessionDir,
     isPlanner: true,
@@ -379,6 +431,9 @@ export async function loadPlannerSessionSummary(id: string, sessionDir: string):
     executionPhase: view.executionPhase,
     planRevision: view.planRevision,
     planIsPartial: view.planIsPartial,
+    degradedCompletion: view.degradedCompletion,
+    blockedStepIds: view.blockedStepIds,
+    degradedStepIds: view.degradedStepIds,
   };
 }
 
@@ -462,6 +517,106 @@ function findLastMatching<T>(items: T[], predicate: (item: T) => boolean): T | u
     }
   }
   return undefined;
+}
+
+function normalizeBlockedReasons(value: unknown): PlannerBlockedReasonView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.stepId !== 'string' || typeof record.kind !== 'string' || typeof record.blockedByStepId !== 'string' || typeof record.message !== 'string') {
+      return [];
+    }
+    return [{
+      stepId: record.stepId,
+      kind: record.kind,
+      blockedByStepId: record.blockedByStepId,
+      message: record.message,
+      ...(typeof record.conflictReason === 'string' ? { conflictReason: record.conflictReason } : {}),
+      ...(typeof record.conflictDomain === 'string' ? { conflictDomain: record.conflictDomain } : {}),
+    }];
+  });
+}
+
+function normalizeLatestConflict(value: unknown): PlannerLatestConflictView | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.fromStepId !== 'string' || typeof record.toStepId !== 'string' || typeof record.reason !== 'string' || typeof record.message !== 'string') {
+    return null;
+  }
+  return {
+    fromStepId: record.fromStepId,
+    toStepId: record.toStepId,
+    reason: record.reason,
+    message: record.message,
+    ...(typeof record.domain === 'string' ? { domain: record.domain } : {}),
+  };
+}
+
+function normalizeConflictEdges(edges: unknown): PlannerConflictEdgeView[] {
+  if (!Array.isArray(edges)) {
+    return [];
+  }
+
+  return edges.flatMap((edge) => {
+    if (!edge || typeof edge !== 'object') {
+      return [];
+    }
+    const record = edge as Record<string, unknown>;
+    if (record.type !== 'conflict' || typeof record.from !== 'string' || typeof record.to !== 'string') {
+      return [];
+    }
+    return [{
+      from: record.from,
+      to: record.to,
+      reason: typeof record.reason === 'string' ? record.reason : 'unknown',
+      ...(typeof record.domain === 'string' ? { domain: record.domain } : {}),
+    }];
+  });
+}
+
+function normalizeExecutionWaves(value: unknown): PlannerExecutionWaveView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((wave) => {
+    if (!wave || typeof wave !== 'object') {
+      return [];
+    }
+    const record = wave as Record<string, unknown>;
+    if (typeof record.index !== 'number' || !Array.isArray(record.stepIds)) {
+      return [];
+    }
+    return [{
+      index: record.index,
+      stepIds: record.stepIds.filter((stepId): stepId is string => typeof stepId === 'string'),
+    }];
+  });
+}
+
+function normalizeLockEntries(value: unknown): PlannerLockEntryView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    if (typeof record.path !== 'string' || typeof record.mode !== 'string' || typeof record.ownerStepId !== 'string') {
+      return [];
+    }
+    return [{ path: record.path, mode: record.mode, ownerStepId: record.ownerStepId }];
+  });
 }
 
 async function loadPlanDeltaSummaries(sessionDir: string): Promise<PlannerPlanDeltaSummary[]> {

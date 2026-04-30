@@ -186,10 +186,14 @@ async function testRecentSessionSummaries(): Promise<void> {
 
     const sessions = await listRecentSessions(config, 4);
     assert.equal(sessions[0]?.isPlanner, true);
+    assert.equal(sessions[0]?.schemaVersion, '1');
     assert.equal(sessions[0]?.summary, 'Refactor router safely');
     assert.equal(sessions[0]?.outcome, 'RUNNING');
     assert.equal(sessions[0]?.phase, 'PLANNING');
     assert.equal(sessions[0]?.currentStepId, 'step-2');
+    assert.equal(sessions[0]?.degradedCompletion, false);
+    assert.deepEqual(sessions[0]?.blockedStepIds, []);
+    assert.deepEqual(sessions[0]?.degradedStepIds, []);
     assert.equal(sessions[1]?.isPlanner, false);
     assert.equal(sessions[1]?.summary, 'Fix the add function');
   });
@@ -361,6 +365,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     );
 
     const view = await loadPlannerView(sessionDir);
+    assert.equal(view.schemaVersion, '1');
     assert.equal(view.summary, 'Investigate router flow');
     assert.equal(view.phase, 'PLANNING');
     assert.equal(view.outcome, 'RUNNING');
@@ -487,6 +492,7 @@ async function testPlannerReadModelApiExposesRawAndNormalizedEvents(): Promise<v
     );
 
     const events = await loadPlannerEvents(sessionDir);
+    assert.equal(events.schemaVersion, '1');
     assert.equal(events.events.length, 2);
     assert.equal(events.subtaskEvents.length, 1);
     assert.equal(events.timeline.length, 2);
@@ -519,16 +525,20 @@ async function testPlannerSessionSummaryIncludesExecutionMetadata(): Promise<voi
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-07-000Z');
     await writePlannerArtifacts(sessionDir, {
       plan: createPlannerPlan({ revision: 5, summary: 'Session summary metadata', isPartial: true, steps: [] }),
-      planState: createPlannerState({ phase: 'PATCHING', outcome: 'RUNNING', currentStepId: 'step-3' }),
+      planState: createPlannerState({ phase: 'PATCHING', outcome: 'DONE', currentStepId: 'step-3', blockedStepIds: ['step-4'], degradedStepIds: ['step-2'], degradedCompletion: true }),
       executionState: createExecutionState({ executionPhase: 'executing_wave', epoch: 2, currentWaveStepIds: ['step-3'], lastCompletedWaveStepIds: [] }),
     });
     await writePlannerEvents(sessionDir, [{ type: 'planner_started', prompt: 'metadata' }]);
 
     const summary = await loadPlannerSessionSummary('2026-04-20T10-00-07-000Z', sessionDir);
+    assert.equal(summary.schemaVersion, '1');
     assert.equal(summary.executionPhase, 'executing_wave');
     assert.equal(summary.planRevision, 5);
     assert.equal(summary.planIsPartial, true);
     assert.equal(summary.currentStepId, 'step-3');
+    assert.equal(summary.degradedCompletion, true);
+    assert.deepEqual(summary.blockedStepIds, ['step-4']);
+    assert.deepEqual(summary.degradedStepIds, ['step-2']);
   });
 }
 

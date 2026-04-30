@@ -9,9 +9,13 @@ export interface SessionListItem {
   dir: string;
   isPlanner: boolean;
   summary: string;
+  schemaVersion?: string;
   outcome?: string;
   phase?: string;
   currentStepId?: string | null;
+  degradedCompletion?: boolean;
+  blockedStepIds?: string[];
+  degradedStepIds?: string[];
 }
 
 export async function listRecentSessions(config: AppConfig, limit = 8): Promise<SessionListItem[]> {

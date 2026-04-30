@@ -33,6 +33,12 @@ function formatSessionBadge(session: SessionListItem): string {
   }
 
   const fragments = [session.outcome ?? 'planner', session.phase ?? 'unknown'];
+  if (session.degradedCompletion) {
+    fragments.push('degraded');
+  }
+  if ((session.blockedStepIds?.length ?? 0) > 0) {
+    fragments.push(`blocked=${session.blockedStepIds?.join(',')}`);
+  }
   if ('currentStepId' in session && session.currentStepId) {
     fragments.push(`step=${session.currentStepId}`);
   }

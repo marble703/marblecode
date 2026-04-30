@@ -267,6 +267,8 @@ export function createPlannerState(
     completedStepIds: string[];
     failedStepIds: string[];
     blockedStepIds: string[];
+    degradedStepIds: string[];
+    degradedCompletion: boolean;
     invalidResponseAttempts: number;
     message: string;
     consistencyErrors: string[];
@@ -283,6 +285,7 @@ export function createPlannerState(
     completedStepIds: [],
     failedStepIds: [],
     blockedStepIds: [],
+    degradedStepIds: [],
     invalidResponseAttempts: 0,
     message: 'Planner test fixture.',
     consistencyErrors: [],
