@@ -1,5 +1,6 @@
 import {
   assert,
+  assertPlannerEvent,
   BranchingProvider,
   buildMathFixStep,
   buildNotesOnlyStep,
@@ -70,10 +71,9 @@ async function testPlannerExecuteRetryRecovery(): Promise<void> {
     });
 
     assert.equal(result.status, 'completed');
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; attempts: number; status: string }> };
-    assert.match(events, /subtask_retry_scheduled/);
-    assert.match(events, /subtask_retry_started/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_retry_scheduled');
+    await assertPlannerEvent(result.sessionDir, 'subtask_retry_started');
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.attempts, 2);
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'DONE');
   });
@@ -122,9 +122,7 @@ async function testPlannerExecuteFallbackModel(): Promise<void> {
     });
 
     assert.equal(result.status, 'completed');
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
-    assert.match(events, /subtask_fallback_started/);
-    assert.match(events, /"modelAlias":"cheap"/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_fallback_started', (record) => record.toModelAlias === 'cheap');
   });
 }
 
@@ -182,13 +180,12 @@ async function testPlannerExecuteGraphFallback(): Promise<void> {
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
     const graph = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.graph.json'), 'utf8')) as { edges: Array<{ from: string; to: string; type: string }> };
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'execution.state.json'), 'utf8')) as { executionPhase: string };
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     assert.equal(plan.steps.find((step) => step.id === 'step-1')?.status, 'FAILED');
     assert.equal(plan.steps.find((step) => step.id === 'step-1-fallback')?.status, 'DONE');
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'DONE');
     assert.equal(graph.edges.some((edge) => edge.type === 'fallback' && edge.from === 'step-1' && edge.to === 'step-1-fallback'), true);
     assert.equal(state.executionPhase, 'done');
-    assert.match(events, /subtask_fallback_activated/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_fallback_activated');
   });
 }
 
@@ -253,15 +250,14 @@ async function testPlannerExecuteLocalReplan(): Promise<void> {
     });
 
     assert.equal(result.status, 'completed');
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { lastReplanReason?: string };
     const proposal = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.proposal.step-1.json'), 'utf8')) as { failedStepId: string; previousRevision: number; proposedRevision: number };
     assert.equal(proposal.failedStepId, 'step-1');
     assert.equal(proposal.previousRevision, 1);
     assert.equal(proposal.proposedRevision, 2);
-    assert.match(events, /subtask_replan_proposed/);
-    assert.match(events, /subtask_replan_merged/);
-    assert.match(events, /subtask_replanned/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_proposed');
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_merged');
+    await assertPlannerEvent(result.sessionDir, 'subtask_replanned');
     assert.match(state.lastReplanReason ?? '', /step-1/);
   });
 }
@@ -324,15 +320,14 @@ async function testPlannerExecuteRejectsInvalidLocalReplan(): Promise<void> {
     });
 
     assert.equal(result.status, 'failed');
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const proposal = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.proposal.step-1.json'), 'utf8')) as { failedStepId: string };
     const rejection = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.rejected.step-1.json'), 'utf8')) as { failedStepId: string; errors: string[] };
     assert.equal(proposal.failedStepId, 'step-1');
     assert.equal(rejection.failedStepId, 'step-1');
     assert.equal(rejection.errors.some((error) => /protected step step-3 title outside replan scope/.test(error)), true);
-    assert.match(events, /subtask_replan_proposed/);
-    assert.match(events, /subtask_replan_rejected/);
-    assert.match(events, /subtask_replan_failed/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_proposed');
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_rejected');
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_failed');
   });
 }
 
@@ -397,11 +392,10 @@ async function testPlannerExecuteRejectsLockIncompatibleLocalReplan(): Promise<v
     });
 
     assert.equal(result.status, 'failed');
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const rejection = JSON.parse(await readFile(path.join(result.sessionDir, 'replan.rejected.step-1.json'), 'utf8')) as { errors: string[] };
     assert.equal(rejection.errors.length > 0, true);
-    assert.match(events, /subtask_replan_rejected/);
-    assert.match(events, /subtask_replan_failed/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_rejected');
+    await assertPlannerEvent(result.sessionDir, 'subtask_replan_failed');
   });
 }
 

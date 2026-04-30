@@ -1,6 +1,7 @@
 import {
   assert,
   assertPlannerEvent,
+  assertPlannerLogEntry,
   BranchingProvider,
   buildExecutionGraph,
   buildMathFixStep,
@@ -900,9 +901,8 @@ async function testPlannerModelRetry(): Promise<void> {
     });
 
     assert.equal(result.status, 'completed');
-    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
     await assertPlannerEvent(result.sessionDir, 'planner_model_retry');
-    assert.match(plannerLog, /"type":"model_retry"/);
+    await assertPlannerLogEntry(result.sessionDir, 'model_retry');
   });
 }
 
@@ -922,9 +922,8 @@ async function testPlannerModelRetryExhaustion(): Promise<void> {
     assert.equal(result.status, 'failed');
     assert.match(result.message, /failed after 2 retries/i);
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; message: string };
-    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
     assert.equal(state.outcome, 'FAILED');
     assert.match(state.message, /429|failed after 2 retries/i);
-    assert.match(plannerLog, /"type":"model_failure"/);
+    await assertPlannerLogEntry(result.sessionDir, 'model_failure');
   });
 }

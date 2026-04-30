@@ -1,5 +1,8 @@
 import {
   assert,
+  assertPlannerEvent,
+  assertPlannerLogEntry,
+  assertToolLogEntry,
   buildExecutionGraph,
   buildExecutionDispatchSnapshot,
   buildInitialExecutionRuntimeContext,
@@ -683,10 +686,6 @@ async function testPlannerReadOnlyFlow(): Promise<void> {
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { revision: number; summary: string; steps: Array<{ id: string; status: string; relatedFiles?: string[] }> };
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { outcome: string; phase: string; message: string };
     const contextPacket = JSON.parse(await readFile(path.join(result.sessionDir, 'planner.context.packet.json'), 'utf8')) as { constraints: { readOnly: boolean; allowedTools: string[] }; queryTerms: string[] };
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
-    const plannerLog = await readFile(path.join(result.sessionDir, 'planner.log.jsonl'), 'utf8');
-    const toolsLog = await readFile(path.join(result.sessionDir, 'tools.jsonl'), 'utf8');
-
     assert.equal(plan.revision, 1);
     assert.match(plan.summary, /1\. 查找 router/);
     assert.equal(plan.steps[0]?.status, 'DONE');
@@ -695,11 +694,11 @@ async function testPlannerReadOnlyFlow(): Promise<void> {
     assert.equal(contextPacket.constraints.readOnly, true);
     assert.deepEqual(contextPacket.constraints.allowedTools, ['read_file', 'list_files', 'search_text', 'git_status', 'git_log', 'git_show', 'git_diff', 'git_diff_base']);
     assert.ok(contextPacket.queryTerms.includes('router'));
-    assert.match(events, /planner_started/);
-    assert.match(events, /plan_step_updated/);
-    assert.match(plannerLog, /"type":"plan_snapshot"/);
-    assert.match(plannerLog, /"type":"planner_terminal"/);
-    assert.match(toolsLog, /search_text/);
+    await assertPlannerEvent(result.sessionDir, 'planner_started');
+    await assertPlannerEvent(result.sessionDir, 'plan_step_updated', (record) => record.stepId === 'step-1');
+    await assertPlannerLogEntry(result.sessionDir, 'plan_snapshot');
+    await assertPlannerLogEntry(result.sessionDir, 'planner_terminal');
+    await assertToolLogEntry(result.sessionDir, 'search_text', () => true, 'Expected search_text tool log entry during read-only planner flow');
     assert.match(await readFile(path.join(workspaceRoot, 'src/math.js'), 'utf8'), /BUG_MARKER/);
   });
 }

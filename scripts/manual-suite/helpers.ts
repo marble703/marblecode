@@ -199,6 +199,30 @@ export async function assertPlannerEvent(
   );
 }
 
+export async function assertSessionJsonlRecord(
+  sessionDir: string,
+  fileName: string,
+  predicate: (record: Record<string, unknown>) => boolean,
+  message: string,
+): Promise<Record<string, unknown>> {
+  const records = await readSessionJsonl<Record<string, unknown>>(sessionDir, fileName);
+  return assertJsonlRecord(records, predicate, message);
+}
+
+export async function assertPlannerLogEntry(
+  sessionDir: string,
+  logType: string,
+  predicate: (record: Record<string, unknown>) => boolean = () => true,
+  message = `Expected planner log entry ${logType}`,
+): Promise<Record<string, unknown>> {
+  return assertSessionJsonlRecord(
+    sessionDir,
+    'planner.log.jsonl',
+    (record) => record.type === logType && predicate(record),
+    message,
+  );
+}
+
 type PlannerJsonRecord = Record<string, unknown>;
 
 export function createPlannerPlan<TStep extends PlannerJsonRecord = PlannerJsonRecord>(

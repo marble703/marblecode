@@ -39,6 +39,8 @@ import { PolicyEngine } from '../../src/policy/index.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import {
   assertPlannerEvent,
+  assertPlannerLogEntry,
+  assertToolLogEntry,
   buildMathFixStep,
   buildNotesOnlyStep,
   createExecutionLocks,
@@ -59,6 +61,8 @@ export {
   assert,
   assertStepCanWrite,
   assertPlannerEvent,
+  assertPlannerLogEntry,
+  assertToolLogEntry,
   BranchingProvider,
   buildExecutionGraph,
   buildExecutionDispatchSnapshot,

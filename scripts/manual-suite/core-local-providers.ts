@@ -11,6 +11,7 @@ import { createAgentToolRegistry } from '../../src/tools/setup.js';
 import type { ModelProvider } from '../../src/provider/types.js';
 import {
   assertJsonlRecord,
+  assertPlannerLogEntry,
   assertToolLogEntry,
   createExecutionLocks,
   createExecutionState,
@@ -32,6 +33,7 @@ export function createCoreLocalProviderCases(): ManualSuiteCase[] {
     { name: 'local artifact helper rejects workspace escape', run: testLocalArtifactHelperRejectsWorkspaceEscape },
     { name: 'jsonl helper reads records', run: testJsonlHelperReadsRecords },
     { name: 'jsonl helper asserts matching record', run: testJsonlHelperAssertsMatchingRecord },
+    { name: 'planner log helper asserts matching record', run: testPlannerLogHelperAssertsMatchingRecord },
     { name: 'planner artifact fixture helpers write expected files', run: testPlannerArtifactFixtureHelpersWriteExpectedFiles },
     { name: 'local diagnostics provider reads artifact', run: testLocalDiagnosticsProviderReadsArtifact },
     { name: 'local diagnostics provider filters path and severity', run: testLocalDiagnosticsProviderFiltersPathAndSeverity },
@@ -95,6 +97,32 @@ async function testJsonlHelperAssertsMatchingRecord(): Promise<void> {
     const records = await readJsonl<{ type: string; value: number }>(jsonlPath);
     const record = assertJsonlRecord(records, (entry) => entry.type === 'two', 'Expected type two');
     assert.deepEqual(record, { type: 'two', value: 2 });
+  });
+}
+
+async function testPlannerLogHelperAssertsMatchingRecord(): Promise<void> {
+  await withWorkspace(async ({ workspaceRoot }) => {
+    const sessionDir = path.join(workspaceRoot, 'log-session');
+    await writePlannerArtifacts(sessionDir, {
+      plan: createPlannerPlan({ summary: 'log helper fixture' }),
+      planState: createPlannerState(),
+    });
+    await writeFile(
+      path.join(sessionDir, 'planner.log.jsonl'),
+      `${JSON.stringify({ type: 'model_retry', attempt: 2, reason: '429 rate limit' })}
+${JSON.stringify({ type: 'planner_terminal', outcome: 'DONE' })}
+`,
+      'utf8',
+    );
+
+    const record = await assertPlannerLogEntry(
+      sessionDir,
+      'model_retry',
+      (entry) => entry.attempt === 2,
+      'Expected planner model retry log record',
+    );
+
+    assert.equal(record.reason, '429 rate limit');
   });
 }
 

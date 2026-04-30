@@ -433,13 +433,12 @@ async function testPlannerExecuteDegradedOptionalDocs(): Promise<void> {
 
     assert.equal(result.status, 'completed');
     const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { degradedStepIds?: string[]; message: string; outcome: string };
-    const events = await readFile(path.join(result.sessionDir, 'plan.events.jsonl'), 'utf8');
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
     assert.equal(state.outcome, 'DONE');
     assert.deepEqual(state.degradedStepIds, ['step-2']);
     assert.match(state.message, /degraded steps: step-2/i);
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'FAILED');
-    assert.match(events, /subtask_degraded/);
+    await assertPlannerEvent(result.sessionDir, 'subtask_degraded', (record) => record.stepId === 'step-2');
   });
 }
 
