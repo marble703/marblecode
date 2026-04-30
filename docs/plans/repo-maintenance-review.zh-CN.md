@@ -349,6 +349,22 @@
 2. active wave / conflict domain 限制原因的更强可解释性
 3. 在这些 execution 语义稳定后，再进入 P3 read-model DTO 固化
 
+当前状态更新：blocked/conflict explainability 第一轮已完成。
+
+本轮已经实际落地：
+
+- `PlannerBlockedReason` / `PlannerConflictSummary` 结构
+- `execution.state.json` 中的 `blockedReasons` / `latestConflict`
+- `subtask_blocked` / `subtask_conflict_detected` event 的结构化 explainability metadata
+- `PlannerViewModel` / TUI planner view 对 blocked/conflict explainability 的直接投影
+- deterministic execution + TUI/read-model 覆盖扩展
+
+因此后续优先级可以进一步转向：
+
+1. planner read-model DTO 的稳定字段边界
+2. `conflictDomains` 的更强约束或 registry（若确有必要）
+3. 在这些字段稳定后，再进入只读 WebUI / external inspector 接口
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

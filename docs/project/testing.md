@@ -179,7 +179,7 @@ The runtime/resume group now also uses shared planner fixture helpers from `scri
 
 When asserting planner/runtime artifacts, prefer `assertPlannerEvent(...)`, `assertPlannerLogEntry(...)`, and `assertToolLogEntry(...)` over raw string regex checks on JSONL content. The suite still has a few intentionally narrow string assertions, but new coverage should default to parsed record checks.
 
-At the moment, `npm run test:examples` covers 124 deterministic cases.
+At the moment, `npm run test:examples` covers 125 deterministic cases.
 
 ### Planner Execution
 
@@ -197,6 +197,7 @@ Purpose:
 - execution feedback artifacts
 - degraded completion metadata
 - dependency-level degraded acceptance
+- structured blocked/conflict explainability
 
 Representative cases:
 
@@ -208,12 +209,15 @@ Representative cases:
 - `planner execute degraded optional docs`
 - `planner execute degraded dependency can unblock non verify step`
 - `planner execute required dependency still blocks downstream step`
+- `planner execute conflict domain fail`
 - `planner execute feedback writes undeclared changes`
 - `planner execute feedback records changed files`
 
 For degraded execution coverage, keep testing three layers together when behavior changes: the final `plan.state.json` fields, the corresponding `planner_execution_finished` event metadata, and the planner/read-model projection consumed by the TUI. Degraded completion is not considered fully covered if only the human-readable message changes.
 
 For dependency-level degraded acceptance coverage, keep the matrix explicit: one case where a non-`verify` downstream step declares degraded acceptance and continues, one case where a `verify` dependency still blocks, and one case where a downstream step keeps the default required dependency semantics. Do not rely on a single mixed case to cover all three behaviors.
+
+For blocked/conflict explainability coverage, do not stop at checking the terminal message string. Verify the structured metadata in the corresponding planner event and in `execution.state.json`, then verify the read-model or renderer projection when the user-facing planner view is expected to show the same blocker/conflict information.
 
 ### Planner Recovery
 

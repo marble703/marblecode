@@ -430,6 +430,25 @@
 - conflict domain / active wave blocking 原因的更强解释性
 - 仅在这些 execution 语义稳定后，再评估 P3 read-model DTO 固化
 
+### P2.3：本轮已完成 blocked/conflict explainability 第一轮
+
+这一轮不改调度策略、不改 state machine，也不引入新的 outcome 枚举，而是先把 execution explainability 的结构化 metadata 落到 artifact、event、read-model 与 TUI：
+
+1. `src/planner/graph.ts` 新增 `PlannerBlockedReason` 与 `PlannerConflictSummary`，并提供 `getStructuredBlockedReasons()` / `findPendingConflictSummary()`。
+2. `src/planner/execute.ts` 现在会：
+   - 在 `subtask_blocked` event 中写入 `blockedReasons` 与 `blockedByStepIds`
+   - 在 `subtask_conflict_detected` event 中写入 `fromStepId` / `toStepId` / `conflictReason` / `conflictDomain`
+   - 在 `execution.state.json` 中写入 `blockedReasons` 与 `latestConflict`
+   - 在 blocked terminal path 中使用真实 blocker summary，而不再只拼接全部 dependency id
+3. `src/planner/view-model.ts` 与 `src/tui/planner-view.ts` 现在会直接投影并显示 `blockedReasons` / `latestConflict`。
+4. deterministic suite 已扩展 execution 与 TUI/read-model 覆盖，验证结构化 blocked/conflict metadata 的写入、读取与 render。
+
+这一轮的定位是 explainability foundation，而不是 P3 read-model DTO 固化完成。下一轮如果继续推进，应优先考虑：
+
+- 是否把 `blockedReasons` / `latestConflict` 固化为 planner read-model DTO 的稳定字段
+- 是否为 `conflictDomains` 增加更强约束或 registry，而不只是 explainability
+- 仅在这些字段边界更稳定后，再进入更明确的 WebUI / external inspector read API
+
 ### P2：细化并发语义
 
 这部分应在 P0/P1 后继续推进，而不是抢在前面。
