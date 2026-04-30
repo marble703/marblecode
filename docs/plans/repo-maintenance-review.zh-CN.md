@@ -381,6 +381,21 @@
 2. recent-session / planner-live 的轻量 UI polish（如确有收益）
 3. `conflictDomains` registry 仅在出现明确约束需求时再做
 
+当前状态更新：read-model consumer convergence 第一轮已完成。
+
+本轮已经实际落地：
+
+- `show:planner` 对 `formatPlannerView()` 的复用
+- `planner-live` 的纯 formatter 抽取与稳定 DTO 消费
+- planner-live 对 degraded/blocked/conflict/current-wave 状态的更直接展示
+- deterministic TUI 覆盖新增 live formatter case
+
+因此后续优先级可以进一步转向：
+
+1. external inspector / WebUI 前置只读 API facade
+2. session list / session detail 的更直接 read API 入口
+3. `conflictDomains` registry 继续后置，除非出现明确约束需求
+
 ## 暂不建议优先做的事
 
 - 不建议为了“文件看起来更小”而重拆 planner 核心逻辑

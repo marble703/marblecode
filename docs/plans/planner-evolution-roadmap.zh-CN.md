@@ -507,6 +507,20 @@
 - 是否为 TUI recent-session / planner live 视图补充最小的 degraded/blocked badge polish
 - 仅在这些只读边界更稳定后，再考虑更具体的 inspector/WebUI 适配
 
+### P3.2：本轮已完成 read-model consumer convergence 第一轮
+
+这一轮不新增 external API module，也不引入 WebUI server，而是先让现有 terminal/TUI consumers 更一致地消费 P3.1 稳定下来的 read-model DTO：
+
+1. `scripts/show-planner.ts` 现在直接复用 `formatPlannerView()`，不再维护一份与 TUI planner panel 分叉的手写 terminal summary。
+2. `src/tui/planner-live.ts` 现在抽出纯函数 `formatPlannerLiveView()`，并在 live view 中展示 `schemaVersion`、degraded status、blocked reasons、latest conflict、current wave / last completed wave 等稳定 DTO 字段。
+3. deterministic suite 已新增 planner-live formatter 覆盖，验证 live consumer 对稳定 read-model 字段的投影，而不通过 stdout/raw terminal 副作用间接测试。
+
+这一轮的定位是 consumer convergence，而不是 external inspector/WebUI read API 已经开始。下一轮如果继续推进 P3，应优先考虑：
+
+- 是否把 `loadPlannerView()` / `loadPlannerEvents()` / `loadPlannerSessionSummary()` 整理成更明确的 external read API facade
+- 是否为只读 inspector / WebUI 场景增加 session list + session detail 的更直接入口
+- 仅在这些 API 边界更清晰后，再评估是否需要更正式的 transport/server 层
+
 ## 暂不建议优先做的事
 
 - 不建议重新展开已完成的 runtime/TUI/agent/verifier 拆分工作。

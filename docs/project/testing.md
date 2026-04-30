@@ -179,7 +179,7 @@ The runtime/resume group now also uses shared planner fixture helpers from `scri
 
 When asserting planner/runtime artifacts, prefer `assertPlannerEvent(...)`, `assertPlannerLogEntry(...)`, and `assertToolLogEntry(...)` over raw string regex checks on JSONL content. The suite still has a few intentionally narrow string assertions, but new coverage should default to parsed record checks.
 
-At the moment, `npm run test:examples` covers 125 deterministic cases.
+At the moment, `npm run test:examples` covers 126 deterministic cases.
 
 ### Planner Execution
 
@@ -264,6 +264,7 @@ Representative cases:
 - `planner view loads delta and feedback artifacts`
 - `planner read-model api exposes raw and normalized events`
 - `planner event renderer uses structured blocking metadata`
+- `planner live view renders read model status`
 - `planner session summary includes execution metadata`
 
 For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerEvents(...)` for normal planner session setup. Keep direct hand-written artifacts only when the case intentionally depends on malformed JSONL, partial artifacts, or a very small one-off payload that is clearer inline than through a helper.
@@ -271,6 +272,8 @@ For TUI/read-model tests, prefer `writePlannerArtifacts(...)` and `writePlannerE
 When stabilizing read-model DTOs, verify both the named TypeScript return shapes and the runtime `schemaVersion` fields exposed by `loadPlannerView()`, `loadPlannerEvents()`, and `loadPlannerSessionSummary()`. A DTO boundary is not considered stable if only the type definition changes while the runtime payload shape is left implicit.
 
 Session-layer tests should treat recent-session directory enumeration and planner-summary projection as separate concerns. Storage-scoped entry listing belongs in `src/session`, while planner/child summary projection belongs in the higher-level TUI/read-model layer.
+
+For terminal consumer changes such as `show:planner` or planner live view updates, prefer extracting or reusing a pure formatter function and asserting on its output in deterministic tests. Avoid tests that depend on raw terminal cursor control or stdout timing when a stable string formatter can cover the intended behavior more directly.
 
 ### Agent And Patch
 
