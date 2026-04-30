@@ -186,6 +186,7 @@ export interface PlannerState {
   failedStepIds: string[];
   blockedStepIds: string[];
   degradedStepIds?: string[];
+  degradedCompletion?: boolean;
   invalidResponseAttempts: number;
   message: string;
   consistencyErrors: string[];

@@ -410,9 +410,16 @@ export async function executePlannerPlan(
       ? `Planner executed core subtasks and verifier passed with degraded steps: ${nextState.degradedStepIds.join(', ')}.`
       : 'Planner executed all subtasks and verifier passed.',
     consistencyErrors: runPlanConsistencyChecks(nextPlan),
+    ...(nextState.degradedStepIds && nextState.degradedStepIds.length > 0 ? { degradedCompletion: true } : {}),
   });
 
-  await appendPlannerEvent(session, { type: 'planner_execution_finished', outcome: nextState.outcome }, config.session.redactSecrets);
+  await appendPlannerEvent(session, {
+    type: 'planner_execution_finished',
+    outcome: nextState.outcome,
+    ...(nextState.degradedStepIds && nextState.degradedStepIds.length > 0
+      ? { degradedCompletion: true, degradedStepIds: nextState.degradedStepIds }
+      : {}),
+  }, config.session.redactSecrets);
   await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
   await dispatchExecution({ type: 'EXECUTION_COMPLETED' });

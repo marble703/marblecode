@@ -298,7 +298,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     );
     await writeFile(
       path.join(sessionDir, 'plan.state.json'),
-      JSON.stringify({ phase: 'PLANNING', outcome: 'RUNNING', message: 'Searching', currentStepId: 'step-1', degradedStepIds: ['step-2'], consistencyErrors: [] }),
+      JSON.stringify({ phase: 'PLANNING', outcome: 'RUNNING', message: 'Searching', currentStepId: 'step-1', degradedStepIds: ['step-2'], degradedCompletion: false, consistencyErrors: [] }),
       'utf8',
     );
     await writeFile(
@@ -355,6 +355,7 @@ async function testPlannerViewToleratesPartialArtifacts(): Promise<void> {
     assert.deepEqual(view.interruptedStepIds, ['step-1']);
     assert.equal(view.resumeStrategy, 'resume_fallback_path');
     assert.equal(view.lastEventType, 'FALLBACK_ACTIVATED');
+    assert.equal(view.degradedCompletion, false);
     assert.match(view.lastEventReason, /Activated fallback/);
     assert.deepEqual(view.activeLockOwnerStepIds, ['step-1']);
     assert.deepEqual((view as { preservedLockOwnerStepIds?: string[] }).preservedLockOwnerStepIds, ['step-0']);
@@ -383,9 +384,12 @@ async function testPlannerViewLoadsDeltaAndFeedbackArtifacts(): Promise<void> {
     const sessionDir = path.join(workspaceRoot, '.agent', 'sessions', '2026-04-20T10-00-03-000Z');
     await writePlannerArtifacts(sessionDir, {
       plan: createPlannerPlan({ revision: 3, summary: 'Rolling plan', isPartial: false, planningHorizon: { waveCount: 1 }, steps: [] }),
-      planState: createPlannerState({ phase: 'PENDING', outcome: 'DONE', message: 'done', currentStepId: null }),
+      planState: createPlannerState({ phase: 'PENDING', outcome: 'DONE', currentStepId: null, message: 'done', degradedStepIds: ['step-2'], degradedCompletion: true }),
     });
-    await writePlannerEvents(sessionDir, [{ type: 'plan_appended', revision: 3, stepCount: 1 }]);
+    await writePlannerEvents(sessionDir, [
+      { type: 'plan_appended', revision: 3, stepCount: 1 },
+      { type: 'planner_execution_finished', outcome: 'DONE', degradedCompletion: true, degradedStepIds: ['step-2'] },
+    ]);
     await writeFile(path.join(sessionDir, 'planner.log.jsonl'), `${JSON.stringify({ type: 'planner_terminal', outcome: 'DONE', message: 'done' })}\n`, 'utf8');
     await writeFile(path.join(sessionDir, 'plan.delta.2.json'), JSON.stringify({ baseRevision: 1, nextRevision: 2, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-2'], combinedIsPartial: true }), 'utf8');
     await writeFile(path.join(sessionDir, 'plan.delta.3.json'), JSON.stringify({ baseRevision: 2, nextRevision: 3, reason: 'planner_append', planningWindowWaves: 1, addedStepIds: ['step-3'], combinedIsPartial: false }), 'utf8');
@@ -394,12 +398,13 @@ async function testPlannerViewLoadsDeltaAndFeedbackArtifacts(): Promise<void> {
     const view = await loadPlannerView(sessionDir);
     assert.equal(view.planRevision, 3);
     assert.equal(view.planIsPartial, false);
+    assert.equal(view.degradedCompletion, true);
     assert.equal(view.planningHorizonWaveCount, 1);
     assert.equal(view.planDeltas.length, 2);
     assert.deepEqual(view.planDeltas.map((delta) => delta.nextRevision), [2, 3]);
     assert.equal(view.latestFeedback?.executionEpoch, 2);
     assert.deepEqual(view.latestFeedback?.undeclaredChangedFiles, ['src/notes.txt']);
-    assert.equal(view.events.length, 1);
+    assert.equal(view.events.length, 2);
   });
 }
 

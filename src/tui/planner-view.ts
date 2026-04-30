@@ -6,6 +6,7 @@ export function formatPlannerView(view: PlannerViewModel): string {
   const lines: string[] = [
     `Session: ${view.sessionDir}`,
     `Outcome: ${view.outcome}`,
+    `Degraded completion: ${view.degradedCompletion ? 'yes' : 'no'}`,
     `Phase: ${view.phase}`,
     `Execution phase: ${view.executionPhase}`,
     `Strategy: ${view.strategy}    Epoch: ${view.epoch}`,
@@ -104,7 +105,10 @@ export function renderPlannerEvent(event: PlannerEventRecord): string {
     return 'subtask execution started';
   }
   if (type === 'planner_execution_finished') {
-    return `subtask execution finished: ${String(event.outcome ?? '')}`;
+    const degraded = event.degradedCompletion === true
+      ? ` degraded=${Array.isArray(event.degradedStepIds) ? event.degradedStepIds.join(',') || 'yes' : 'yes'}`
+      : '';
+    return `subtask execution finished: ${String(event.outcome ?? '')}${degraded}`;
   }
   if (type === 'plan_appended') {
     return `plan appended (revision ${String(event.revision ?? '')}, ${String(event.stepCount ?? '')} steps)`;

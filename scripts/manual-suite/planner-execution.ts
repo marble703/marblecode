@@ -432,13 +432,20 @@ async function testPlannerExecuteDegradedOptionalDocs(): Promise<void> {
     });
 
     assert.equal(result.status, 'completed');
-    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { degradedStepIds?: string[]; message: string; outcome: string };
+    const state = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.state.json'), 'utf8')) as { degradedStepIds?: string[]; degradedCompletion?: boolean; message: string; outcome: string };
     const plan = JSON.parse(await readFile(path.join(result.sessionDir, 'plan.json'), 'utf8')) as { steps: Array<{ id: string; status: string }> };
     assert.equal(state.outcome, 'DONE');
     assert.deepEqual(state.degradedStepIds, ['step-2']);
+    assert.equal(state.degradedCompletion, true);
     assert.match(state.message, /degraded steps: step-2/i);
     assert.equal(plan.steps.find((step) => step.id === 'step-2')?.status, 'FAILED');
     await assertPlannerEvent(result.sessionDir, 'subtask_degraded', (record) => record.stepId === 'step-2');
+    await assertPlannerEvent(
+      result.sessionDir,
+      'planner_execution_finished',
+      (record) => record.degradedCompletion === true && Array.isArray(record.degradedStepIds) && record.degradedStepIds.includes('step-2'),
+      'Expected planner execution finished event to record degraded completion metadata',
+    );
   });
 }
 

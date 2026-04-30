@@ -66,6 +66,7 @@ export interface PlannerViewModel {
   sessionDir: string;
   outcome: string;
   phase: string;
+  degradedCompletion: boolean;
   executionPhase: string;
   strategy: string;
   epoch: number;
@@ -204,6 +205,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     failedStepIds?: string[];
     blockedStepIds?: string[];
     degradedStepIds?: string[];
+    degradedCompletion?: boolean;
     consistencyErrors: string[];
   };
   const events = parseJsonLines(eventsRaw);
@@ -267,6 +269,7 @@ export async function loadPlannerView(sessionDir: string): Promise<PlannerViewMo
     sessionDir,
     outcome: state.outcome,
     phase: state.phase,
+    degradedCompletion: state.degradedCompletion === true || (state.outcome === 'DONE' && (state.degradedStepIds?.length ?? 0) > 0),
     executionPhase: executionState.executionPhase ?? 'idle',
     strategy: executionState.strategy ?? 'serial',
     epoch: executionState.epoch ?? 0,
