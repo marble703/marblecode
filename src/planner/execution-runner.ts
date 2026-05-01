@@ -4,7 +4,7 @@ import type { PlannerBlockedReason } from './graph.js';
 import type { PlannerRuntimeLock } from './execution-runtime-types.js';
 import type { PlannerExecutionStrategyMode } from './execution-types.js';
 import type { ExecutionLockTable } from './locks.js';
-import type { PlannerPlan, PlannerState, PlannerStep } from './types.js';
+import type { PlannerExecutionFeedbackArtifact, PlannerPlan, PlannerState, PlannerStep, PlannerStepExecutionFeedback, PlannerStepStatus } from './types.js';
 
 export interface PlannerExecutionSelection {
   pendingSteps: PlannerStep[];
@@ -56,6 +56,35 @@ export interface PlannerWindowCompletionOutcome {
     revision: number;
     executedWaveCount: number;
     planningWindowWaves: number;
+  };
+}
+
+export interface PlannerSkipOutcome {
+  stepUpdates: Array<{
+    stepId: string;
+    updates: Partial<PlannerStep>;
+  }>;
+  events: Array<{
+    stepId: string;
+    kind: PlannerStep['kind'];
+    reason: string;
+  }>;
+}
+
+export interface PlannerVerifyFeedbackOutcome {
+  feedback: PlannerExecutionFeedbackArtifact;
+  verifyFailedEvent?: {
+    stepId: string;
+    epoch: number;
+  };
+}
+
+export interface PlannerWaveFeedbackOutcome {
+  feedback: PlannerExecutionFeedbackArtifact;
+  replanEvent?: {
+    epoch: number;
+    undeclaredFiles: string[];
+    triggerReplan: true;
   };
 }
 
@@ -255,6 +284,114 @@ export function createExecutionCompletionOutcome(input: {
       outcome: 'DONE',
       ...(degradedCompletion ? { degradedCompletion: true, degradedStepIds: input.degradedStepIds } : {}),
     },
+  };
+}
+
+export function createSkipBatchOutcome(steps: PlannerStep[]): PlannerSkipOutcome {
+  return {
+    stepUpdates: steps.map((step) => ({
+      stepId: step.id,
+      updates: { status: 'DONE', executionState: 'done' },
+    })),
+    events: steps.map((step) => ({
+      stepId: step.id,
+      kind: step.kind,
+      reason: 'Planning-only step',
+    })),
+  };
+}
+
+export function createVerifyFeedbackOutcome(input: {
+  step: PlannerStep;
+  status: PlannerStepStatus;
+  changedFiles: string[];
+  message: string;
+  stop: boolean;
+  executionEpoch: number;
+}): PlannerVerifyFeedbackOutcome {
+  return {
+    feedback: {
+      version: '1',
+      planRevision: 0,
+      executionEpoch: input.executionEpoch,
+      changedFiles: input.changedFiles,
+      undeclaredChangedFiles: [],
+      verifyFailures: input.stop
+        ? [{ stepId: input.step.id, command: '', stderr: input.message }]
+        : [],
+      lockViolations: [],
+      stepSummaries: [{
+        stepId: input.step.id,
+        title: input.step.title,
+        status: input.status,
+        changedFiles: input.changedFiles,
+        undeclaredChangedFiles: [],
+        message: input.stop ? input.message : 'verify passed',
+      }],
+      triggerReplan: input.stop,
+      replanReason: input.stop ? `Verify step ${input.step.id} failed` : '',
+    },
+    ...(input.stop ? { verifyFailedEvent: { stepId: input.step.id, epoch: input.executionEpoch } } : {}),
+  };
+}
+
+export function createWaveFeedbackOutcome(input: {
+  selectedSteps: PlannerStep[];
+  currentPlan: PlannerPlan;
+  waveFeedback: PlannerStepExecutionFeedback[];
+  changedFiles: string[];
+  executionEpoch: number;
+  computeUndeclaredChangedFiles: (step: PlannerStep, declared: string[], actual: string[]) => string[];
+}): PlannerWaveFeedbackOutcome {
+  const stepSummaries: PlannerExecutionFeedbackArtifact['stepSummaries'] = [];
+  const allUndeclared: string[] = [];
+  for (const stepResult of input.waveFeedback) {
+    const step = input.selectedSteps.find((candidate) => candidate.id === stepResult.stepId);
+    const currentStep = input.currentPlan.steps.find((candidate) => candidate.id === stepResult.stepId);
+    if (!step) {
+      continue;
+    }
+    const declared = [...new Set([...(currentStep?.fileScope ?? []), ...(currentStep?.producesFiles ?? []), ...(currentStep?.relatedFiles ?? [])])];
+    const actual = stepResult.changedFiles;
+    const undeclared = input.computeUndeclaredChangedFiles(step, declared, actual);
+    if (undeclared.length > 0) {
+      allUndeclared.push(...undeclared);
+    }
+    stepResult.undeclaredChangedFiles = undeclared;
+    stepSummaries.push({
+      stepId: stepResult.stepId,
+      title: step.title,
+      status: currentStep?.status ?? stepResult.status,
+      changedFiles: actual,
+      undeclaredChangedFiles: undeclared,
+      message: stepResult.message,
+    });
+  }
+  const undeclaredChangedFiles = [...new Set(allUndeclared)];
+  return {
+    feedback: {
+      version: '1',
+      planRevision: input.currentPlan.revision,
+      executionEpoch: input.executionEpoch,
+      changedFiles: input.changedFiles,
+      undeclaredChangedFiles,
+      verifyFailures: [],
+      lockViolations: [],
+      stepSummaries,
+      triggerReplan: undeclaredChangedFiles.length > 0,
+      replanReason: undeclaredChangedFiles.length > 0
+        ? `Undeclared changed files detected in wave: ${undeclaredChangedFiles.join(', ')}`
+        : '',
+    },
+    ...(undeclaredChangedFiles.length > 0
+      ? {
+        replanEvent: {
+          epoch: input.executionEpoch,
+          undeclaredFiles: undeclaredChangedFiles,
+          triggerReplan: true as const,
+        },
+      }
+      : {}),
   };
 }
 

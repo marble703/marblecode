@@ -103,7 +103,7 @@ wave 适合作为静态计划展示或兼容 artifact，但不适合作为主要
 
 目标：在不立刻删除旧模块的前提下，用新的运行时结构接管 `execute.ts` 的主执行循环。
 
-当前状态：runtime primitives 已落地，`execute.ts` 的 turn-level 判定已收口到 runtime runner：ready/pending/batch 选择、complete、no-ready blocked、runtime-lock blocked 都已通过 runner decision 显式建模；同时 blocked/completion/planning-window completion 的 outcome 数据构造也已下沉到 runner helper。batch selection 默认走 ready queue，并在 fallback-ready 场景保留 legacy wave defer。batch execution、verify、feedback、fallback、replan 仍复用现有执行路径。下一步再继续把 execution 主循环中的更多 side-effect orchestration 从 `execute.ts` 下沉到 runtime runner。
+当前状态：runtime primitives 已落地，`execute.ts` 的 turn-level 判定已收口到 runtime runner：ready/pending/batch 选择、complete、no-ready blocked、runtime-lock blocked 都已通过 runner decision 显式建模；同时 blocked/completion/planning-window completion 以及 skip/verify feedback/wave feedback 的 outcome 数据构造也已下沉到 runner helper。batch selection 默认走 ready queue，并在 fallback-ready 场景保留 legacy wave defer。batch execution、verify 调用本身、fallback、replan 仍复用现有执行路径。下一步再继续把 execution 主循环中的更多 side-effect orchestration 从 `execute.ts` 下沉到 runtime runner。
 
 计划内容：
 

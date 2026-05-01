@@ -34,6 +34,9 @@ import {
   createExecutionCompletionOutcome,
   createPlanningWindowCompletionOutcome,
   createRuntimeLockBlockedOutcome,
+  createSkipBatchOutcome,
+  createVerifyFeedbackOutcome,
+  createWaveFeedbackOutcome,
   decidePlannerExecutionTurn,
 } from './execution-runner.js';
 import { runPlanConsistencyChecks } from './parse.js';
@@ -219,9 +222,12 @@ export async function executePlannerPlan(
     runtimeCursor = markWaveSelected(runtimeCursor, selectedExecutionBatch.map((step) => step.id));
     const skippable = selectedExecutionBatch.filter((step) => dependencies.classifyPlannerStep(step) === 'skip');
     if (skippable.length === selectedExecutionBatch.length) {
-      for (const step of skippable) {
-        nextPlan = dependencies.updatePlannerStep(nextPlan, step.id, { status: 'DONE', executionState: 'done' });
-        await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: step.id, kind: step.kind, reason: 'Planning-only step' }, config.session.redactSecrets);
+      const skipOutcome = createSkipBatchOutcome(skippable);
+      for (const update of skipOutcome.stepUpdates) {
+        nextPlan = dependencies.updatePlannerStep(nextPlan, update.stepId, update.updates);
+      }
+      for (const event of skipOutcome.events) {
+        await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: event.stepId, kind: event.kind, reason: event.reason }, config.session.redactSecrets);
       }
       nextState = refreshPlannerStateFromPlan(nextPlan, nextState);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
@@ -263,33 +269,24 @@ export async function executePlannerPlan(
       await dispatchExecution({ type: verifyResult.stop ? 'VERIFY_STEP_FAILED' : 'VERIFY_STEP_SUCCEEDED' });
       {
         const verifyStep = nextPlan.steps.find((candidate) => candidate.id === step.id) ?? step;
-        const feedback: PlannerExecutionFeedbackArtifact = {
-          version: '1',
-          planRevision: nextPlan.revision,
-          executionEpoch: runtimeCursor.epoch,
+        const verifyFeedbackOutcome = createVerifyFeedbackOutcome({
+          step,
+          status: verifyStep.status,
           changedFiles: verifyResult.changedFiles,
-          undeclaredChangedFiles: [],
-          verifyFailures: verifyResult.stop
-            ? [{ stepId: step.id, command: '', stderr: nextState.message }]
-            : [],
-          lockViolations: [],
-          stepSummaries: [{
-            stepId: step.id,
-            title: step.title,
-            status: verifyStep.status,
-            changedFiles: verifyResult.changedFiles,
-            undeclaredChangedFiles: [],
-            message: verifyResult.stop ? nextState.message : 'verify passed',
-          }],
-          triggerReplan: verifyResult.stop,
-          replanReason: verifyResult.stop ? `Verify step ${step.id} failed` : '',
+          message: nextState.message,
+          stop: verifyResult.stop,
+          executionEpoch: runtimeCursor.epoch,
+        });
+        const feedback: PlannerExecutionFeedbackArtifact = {
+          ...verifyFeedbackOutcome.feedback,
+          planRevision: nextPlan.revision,
         };
         await writePlannerExecutionFeedbackArtifact(session, feedback);
-        if (feedback.triggerReplan) {
+        if (verifyFeedbackOutcome.verifyFailedEvent) {
           await appendPlannerEvent(session, {
             type: 'execution_feedback_verify_failed',
-            stepId: step.id,
-            epoch: runtimeCursor.epoch,
+            stepId: verifyFeedbackOutcome.verifyFailedEvent.stepId,
+            epoch: verifyFeedbackOutcome.verifyFailedEvent.epoch,
           }, config.session.redactSecrets);
         }
       }
@@ -321,53 +318,24 @@ export async function executePlannerPlan(
     }
 
     {
-      const stepSummaries: PlannerExecutionFeedbackArtifact['stepSummaries'] = [];
-      const allUndeclared: string[] = [];
-      for (const stepResult of waveResult.stepFeedback) {
-        const step = selectedExecutionBatch.find((candidate) => candidate.id === stepResult.stepId);
-        const currentStep = nextPlan.steps.find((s) => s.id === stepResult.stepId);
-        if (!step) {
-          continue;
-        }
-        const declared = [...new Set([...(currentStep?.fileScope ?? []), ...(currentStep?.producesFiles ?? []), ...(currentStep?.relatedFiles ?? [])])];
-        const actual = stepResult.changedFiles;
-        const undeclared = computeUndeclaredChangedFiles(step, declared, actual);
-        if (undeclared.length > 0) {
-          allUndeclared.push(...undeclared);
-        }
-        stepResult.undeclaredChangedFiles = undeclared;
-        stepSummaries.push({
-          stepId: stepResult.stepId,
-          title: step.title,
-          status: currentStep?.status ?? stepResult.status,
-          changedFiles: actual,
-          undeclaredChangedFiles: undeclared,
-          message: stepResult.message,
-        });
-      }
-      const feedback: PlannerExecutionFeedbackArtifact = {
-        version: '1',
-        planRevision: nextPlan.revision,
-        executionEpoch: runtimeCursor.epoch,
+      const waveFeedbackOutcome = createWaveFeedbackOutcome({
+        selectedSteps: selectedExecutionBatch,
+        currentPlan: nextPlan,
+        waveFeedback: waveResult.stepFeedback,
         changedFiles: waveResult.changedFiles,
-        undeclaredChangedFiles: [...new Set(allUndeclared)],
-        verifyFailures: [],
-        lockViolations: [],
-        stepSummaries,
-        triggerReplan: allUndeclared.length > 0,
-        replanReason: allUndeclared.length > 0
-          ? `Undeclared changed files detected in wave: ${[...new Set(allUndeclared)].join(', ')}`
-          : '',
-      };
+        executionEpoch: runtimeCursor.epoch,
+        computeUndeclaredChangedFiles,
+      });
+      const feedback: PlannerExecutionFeedbackArtifact = waveFeedbackOutcome.feedback;
       await writePlannerExecutionFeedbackArtifact(session, feedback);
-      if (allUndeclared.length > 0) {
+      if (waveFeedbackOutcome.replanEvent) {
         await appendPlannerEvent(session, {
           type: 'execution_feedback_undeclared_files',
-          epoch: runtimeCursor.epoch,
-          undeclaredFiles: feedback.undeclaredChangedFiles,
-          triggerReplan: true,
+          epoch: waveFeedbackOutcome.replanEvent.epoch,
+          undeclaredFiles: waveFeedbackOutcome.replanEvent.undeclaredFiles,
+          triggerReplan: waveFeedbackOutcome.replanEvent.triggerReplan,
         }, config.session.redactSecrets);
-        const firstFailed = stepSummaries[0];
+        const firstFailed = feedback.stepSummaries[0];
         if (firstFailed && config.routing.subtaskReplanOnFailure) {
           const affected = buildPlannerAffectedSubgraph(nextPlan, firstFailed.stepId, feedback.undeclaredChangedFiles);
           await appendPlannerEvent(session, {

@@ -17,6 +17,9 @@ import {
   createPlanningWindowCompletionOutcome,
   createRuntimeLocksFromExecutionLockTable,
   createRuntimeLockBlockedOutcome,
+  createSkipBatchOutcome,
+  createVerifyFeedbackOutcome,
+  createWaveFeedbackOutcome,
   decidePlannerExecutionTurn,
   classifyPlannerStep,
   createExecutionLockTable,
@@ -486,6 +489,37 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   assert.equal(completionOutcome.statePatch.outcome, 'DONE');
   assert.equal(completionOutcome.finishEvent.degradedCompletion, true);
   assert.deepEqual(completionOutcome.finishEvent.degradedStepIds, ['step-7']);
+
+  const skipOutcome = createSkipBatchOutcome([plan.steps[0]!]);
+  assert.equal(skipOutcome.stepUpdates[0]?.stepId, 'step-1');
+  assert.equal(skipOutcome.events[0]?.reason, 'Planning-only step');
+
+  const verifyFeedbackOutcome = createVerifyFeedbackOutcome({
+    step: plan.steps[3]!,
+    status: 'FAILED',
+    changedFiles: ['src/math.js'],
+    message: 'verify failed',
+    stop: true,
+    executionEpoch: 4,
+  });
+  assert.equal(verifyFeedbackOutcome.feedback.triggerReplan, true);
+  assert.equal(verifyFeedbackOutcome.verifyFailedEvent?.epoch, 4);
+  assert.equal(verifyFeedbackOutcome.feedback.stepSummaries[0]?.message, 'verify failed');
+
+  const waveFeedbackOutcome = createWaveFeedbackOutcome({
+    selectedSteps: [plan.steps[1]!, plan.steps[2]!],
+    currentPlan: plan,
+    waveFeedback: [
+      { stepId: 'step-2', changedFiles: ['src/math.js'], undeclaredChangedFiles: [], message: 'ok', status: 'DONE' },
+      { stepId: 'step-3', changedFiles: ['src/extra.txt'], undeclaredChangedFiles: [], message: 'extra write', status: 'DONE' },
+    ],
+    changedFiles: ['src/math.js', 'src/extra.txt'],
+    executionEpoch: 5,
+    computeUndeclaredChangedFiles: (_step, declared, actual) => actual.filter((file) => !declared.includes(file)),
+  });
+  assert.equal(waveFeedbackOutcome.feedback.triggerReplan, true);
+  assert.deepEqual(waveFeedbackOutcome.feedback.undeclaredChangedFiles, ['src/extra.txt']);
+  assert.equal(waveFeedbackOutcome.replanEvent?.epoch, 5);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
