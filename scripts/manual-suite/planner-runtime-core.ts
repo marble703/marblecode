@@ -43,6 +43,7 @@ import {
   reducePlannerRuntimeState,
   releaseRuntimeLocks,
   runPlanner,
+  selectPlannerExecutionBatch,
   selectPlannerReadyQueueBatch,
   SequenceProvider,
   selectRunnableRuntimeBatch,
@@ -338,6 +339,26 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
     }).map((step) => step.id),
     ['step-3'],
   );
+
+  const fallbackPlan = {
+    ...plan,
+    steps: [
+      { ...plan.steps[1]!, status: 'FAILED' as const, executionState: 'failed' as const, fallbackStepIds: ['step-3'] },
+      { ...plan.steps[2]! },
+    ],
+  };
+  const fallbackSelection = selectPlannerExecutionBatch({
+    plan: fallbackPlan,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => [fallbackPlan.steps[1]!],
+    selectLegacyWave: (steps) => steps,
+  });
+  assert.equal(fallbackSelection.source, 'legacy_wave');
+  assert.deepEqual(fallbackSelection.readySteps.map((step) => step.id), ['step-3']);
+  assert.deepEqual(fallbackSelection.batch.map((step) => step.id), ['step-3']);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {

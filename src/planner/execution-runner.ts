@@ -5,6 +5,49 @@ import type { PlannerExecutionStrategyMode } from './execution-types.js';
 import type { ExecutionLockTable } from './locks.js';
 import type { PlannerPlan, PlannerStep } from './types.js';
 
+export interface PlannerExecutionSelection {
+  pendingSteps: PlannerStep[];
+  readySteps: PlannerStep[];
+  batch: PlannerStep[];
+  source: 'ready_queue' | 'legacy_wave';
+}
+
+export function selectPlannerExecutionBatch(input: {
+  plan: PlannerPlan;
+  lockTable: ExecutionLockTable;
+  strategyMode: PlannerExecutionStrategyMode;
+  maxConcurrentSubtasks: number;
+  classifyPlannerStep: (step: PlannerStep) => 'skip' | 'subagent' | 'verify';
+  getReadySteps: (plan: PlannerPlan) => PlannerStep[];
+  selectLegacyWave: (readySteps: PlannerStep[]) => PlannerStep[];
+}): PlannerExecutionSelection {
+  const pendingSteps = input.plan.steps.filter((step) => step.status !== 'DONE' && step.status !== 'FAILED');
+  const readySteps = input.getReadySteps(input.plan);
+  const readyQueueBatch = selectPlannerReadyQueueBatch({
+    plan: input.plan,
+    readySteps,
+    lockTable: input.lockTable,
+    strategyMode: input.strategyMode,
+    maxConcurrentSubtasks: input.maxConcurrentSubtasks,
+    classifyPlannerStep: input.classifyPlannerStep,
+  });
+  if (readyQueueBatch.length > 0) {
+    return {
+      pendingSteps,
+      readySteps,
+      batch: readyQueueBatch,
+      source: 'ready_queue',
+    };
+  }
+
+  return {
+    pendingSteps,
+    readySteps,
+    batch: input.selectLegacyWave(readySteps),
+    source: 'legacy_wave',
+  };
+}
+
 export function selectPlannerReadyQueueBatch(input: {
   plan: PlannerPlan;
   readySteps: PlannerStep[];

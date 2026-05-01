@@ -28,7 +28,7 @@ import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
-import { selectPlannerReadyQueueBatch } from './execution-runner.js';
+import { selectPlannerExecutionBatch } from './execution-runner.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import { buildPlannerAffectedSubgraph, computeUndeclaredChangedFiles } from './replan-merge.js';
 import { attemptPlannerNodeReplan } from './recovery.js';
@@ -138,10 +138,23 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    const readySteps = getReadyStepIds(nextPlan, nextState, executionGraph)
-      .map((stepId) => nextPlan.steps.find((step) => step.id === stepId))
-      .filter((step): step is PlannerStep => Boolean(step));
-    const pendingSteps = nextPlan.steps.filter((step) => step.status !== 'DONE' && step.status !== 'FAILED');
+    const selection = selectPlannerExecutionBatch({
+      plan: nextPlan,
+      lockTable,
+      strategyMode: strategy.mode,
+      maxConcurrentSubtasks: config.routing.maxConcurrentSubtasks,
+      classifyPlannerStep: dependencies.classifyPlannerStep,
+      getReadySteps: (candidatePlan) => getReadyStepIds(candidatePlan, nextState, executionGraph)
+        .map((stepId) => candidatePlan.steps.find((step) => step.id === stepId))
+        .filter((step): step is PlannerStep => Boolean(step)),
+      selectLegacyWave: (readySteps) => strategy.selectWave(
+        readySteps,
+        executionGraph,
+        config.routing.maxConcurrentSubtasks,
+        dependencies.classifyPlannerStep,
+      ),
+    });
+    const { pendingSteps, readySteps, batch: selectedExecutionBatch } = selection;
     if (pendingSteps.length === 0) {
       break;
     }
@@ -188,17 +201,6 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    const selectedWave = selectPlannerReadyQueueBatch({
-      plan: nextPlan,
-      readySteps,
-      lockTable,
-      strategyMode: strategy.mode,
-      maxConcurrentSubtasks: config.routing.maxConcurrentSubtasks,
-      classifyPlannerStep: dependencies.classifyPlannerStep,
-    });
-    const selectedExecutionBatch = selectedWave.length > 0
-      ? selectedWave
-      : strategy.selectWave(readySteps, executionGraph, config.routing.maxConcurrentSubtasks, dependencies.classifyPlannerStep);
     if (selectedExecutionBatch.length === 0) {
       break;
     }
