@@ -495,6 +495,7 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   assert.equal(skipOutcome.events[0]?.reason, 'Planning-only step');
 
   const verifyFeedbackOutcome = createVerifyFeedbackOutcome({
+    planRevision: 9,
     step: plan.steps[3]!,
     status: 'FAILED',
     changedFiles: ['src/math.js'],
@@ -503,16 +504,19 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
     executionEpoch: 4,
   });
   assert.equal(verifyFeedbackOutcome.feedback.triggerReplan, true);
+  assert.equal(verifyFeedbackOutcome.feedback.planRevision, 9);
   assert.equal(verifyFeedbackOutcome.verifyFailedEvent?.epoch, 4);
   assert.equal(verifyFeedbackOutcome.feedback.stepSummaries[0]?.message, 'verify failed');
+
+  const sourceWaveFeedback = [
+    { stepId: 'step-2', changedFiles: ['src/math.js'], undeclaredChangedFiles: [], message: 'ok', status: 'DONE' as const },
+    { stepId: 'step-3', changedFiles: ['src/extra.txt'], undeclaredChangedFiles: [], message: 'extra write', status: 'DONE' as const },
+  ];
 
   const waveFeedbackOutcome = createWaveFeedbackOutcome({
     selectedSteps: [plan.steps[1]!, plan.steps[2]!],
     currentPlan: plan,
-    waveFeedback: [
-      { stepId: 'step-2', changedFiles: ['src/math.js'], undeclaredChangedFiles: [], message: 'ok', status: 'DONE' },
-      { stepId: 'step-3', changedFiles: ['src/extra.txt'], undeclaredChangedFiles: [], message: 'extra write', status: 'DONE' },
-    ],
+    waveFeedback: sourceWaveFeedback,
     changedFiles: ['src/math.js', 'src/extra.txt'],
     executionEpoch: 5,
     computeUndeclaredChangedFiles: (_step, declared, actual) => actual.filter((file) => !declared.includes(file)),
@@ -520,6 +524,8 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   assert.equal(waveFeedbackOutcome.feedback.triggerReplan, true);
   assert.deepEqual(waveFeedbackOutcome.feedback.undeclaredChangedFiles, ['src/extra.txt']);
   assert.equal(waveFeedbackOutcome.replanEvent?.epoch, 5);
+  assert.deepEqual(sourceWaveFeedback[0]?.undeclaredChangedFiles, []);
+  assert.deepEqual(sourceWaveFeedback[1]?.undeclaredChangedFiles, []);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {

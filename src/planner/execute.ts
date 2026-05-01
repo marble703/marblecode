@@ -270,6 +270,7 @@ export async function executePlannerPlan(
       {
         const verifyStep = nextPlan.steps.find((candidate) => candidate.id === step.id) ?? step;
         const verifyFeedbackOutcome = createVerifyFeedbackOutcome({
+          planRevision: nextPlan.revision,
           step,
           status: verifyStep.status,
           changedFiles: verifyResult.changedFiles,
@@ -277,10 +278,7 @@ export async function executePlannerPlan(
           stop: verifyResult.stop,
           executionEpoch: runtimeCursor.epoch,
         });
-        const feedback: PlannerExecutionFeedbackArtifact = {
-          ...verifyFeedbackOutcome.feedback,
-          planRevision: nextPlan.revision,
-        };
+        const feedback: PlannerExecutionFeedbackArtifact = verifyFeedbackOutcome.feedback;
         await writePlannerExecutionFeedbackArtifact(session, feedback);
         if (verifyFeedbackOutcome.verifyFailedEvent) {
           await appendPlannerEvent(session, {

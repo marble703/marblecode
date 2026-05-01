@@ -302,6 +302,7 @@ export function createSkipBatchOutcome(steps: PlannerStep[]): PlannerSkipOutcome
 }
 
 export function createVerifyFeedbackOutcome(input: {
+  planRevision: number;
   step: PlannerStep;
   status: PlannerStepStatus;
   changedFiles: string[];
@@ -312,7 +313,7 @@ export function createVerifyFeedbackOutcome(input: {
   return {
     feedback: {
       version: '1',
-      planRevision: 0,
+      planRevision: input.planRevision,
       executionEpoch: input.executionEpoch,
       changedFiles: input.changedFiles,
       undeclaredChangedFiles: [],
@@ -357,7 +358,6 @@ export function createWaveFeedbackOutcome(input: {
     if (undeclared.length > 0) {
       allUndeclared.push(...undeclared);
     }
-    stepResult.undeclaredChangedFiles = undeclared;
     stepSummaries.push({
       stepId: stepResult.stepId,
       title: step.title,
