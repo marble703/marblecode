@@ -12,7 +12,11 @@ import {
   clearInterruptedWave,
   copyPersistedRecoverySnapshot,
   createPlannerRuntimeState,
+  createDependencyBlockedOutcome,
+  createExecutionCompletionOutcome,
+  createPlanningWindowCompletionOutcome,
   createRuntimeLocksFromExecutionLockTable,
+  createRuntimeLockBlockedOutcome,
   decidePlannerExecutionTurn,
   classifyPlannerStep,
   createExecutionLockTable,
@@ -441,6 +445,47 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   });
   assert.equal(executeBatchTurn.kind, 'execute_batch');
   assert.deepEqual(executeBatchTurn.kind === 'execute_batch' ? executeBatchTurn.batch.map((step) => step.id) : [], ['step-2', 'step-3']);
+
+  const dependencyBlockedOutcome = createDependencyBlockedOutcome({
+    step: plan.steps[3]!,
+    blockedReasons: [{
+      kind: 'dependency',
+      stepId: 'step-4',
+      blockedByStepId: 'step-2',
+      edgeType: 'dependency',
+      message: 'step-4 is blocked by dependency step-2',
+    }],
+  });
+  assert.equal(dependencyBlockedOutcome.stepUpdates.status, 'FAILED');
+  assert.match(dependencyBlockedOutcome.stepUpdates.lastError ?? '', /step-2/);
+  assert.equal(dependencyBlockedOutcome.statePatch.phase, 'BLOCKED');
+  assert.equal(dependencyBlockedOutcome.event.blockedByStepIds[0], 'step-2');
+
+  const runtimeLockBlockedOutcome = createRuntimeLockBlockedOutcome({
+    step: plan.steps[1]!,
+    activeLockOwners: ['step-98', 'step-99'],
+  });
+  assert.equal(runtimeLockBlockedOutcome.stepUpdates.status, 'FAILED');
+  assert.match(runtimeLockBlockedOutcome.event.reason, /step-98/);
+  assert.deepEqual(runtimeLockBlockedOutcome.event.blockedByStepIds, ['step-98', 'step-99']);
+
+  const windowCompletionOutcome = createPlanningWindowCompletionOutcome({
+    plan,
+    executedWaveCount: 2,
+    planningWindowWaves: 2,
+    consistencyErrors: [],
+  });
+  assert.equal(windowCompletionOutcome.statePatch.outcome, 'DONE');
+  assert.match(windowCompletionOutcome.statePatch.message ?? '', /Executed 2 planning waves/);
+  assert.equal(windowCompletionOutcome.windowEvent.executedWaveCount, 2);
+
+  const completionOutcome = createExecutionCompletionOutcome({
+    degradedStepIds: ['step-7'],
+    consistencyErrors: [],
+  });
+  assert.equal(completionOutcome.statePatch.outcome, 'DONE');
+  assert.equal(completionOutcome.finishEvent.degradedCompletion, true);
+  assert.deepEqual(completionOutcome.finishEvent.degradedStepIds, ['step-7']);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {

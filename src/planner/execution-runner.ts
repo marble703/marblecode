@@ -1,9 +1,10 @@
 import { selectRunnableRuntimeBatchFromCandidates } from './execution-scheduler.js';
 import { createPlannerRuntimeState } from './execution-runtime-state.js';
+import type { PlannerBlockedReason } from './graph.js';
 import type { PlannerRuntimeLock } from './execution-runtime-types.js';
 import type { PlannerExecutionStrategyMode } from './execution-types.js';
 import type { ExecutionLockTable } from './locks.js';
-import type { PlannerPlan, PlannerStep } from './types.js';
+import type { PlannerPlan, PlannerState, PlannerStep } from './types.js';
 
 export interface PlannerExecutionSelection {
   pendingSteps: PlannerStep[];
@@ -22,6 +23,41 @@ export type PlannerReadyQueueSelection =
   | { kind: 'selected'; batch: PlannerStep[] }
   | { kind: 'defer_legacy_fallback' }
   | { kind: 'blocked_by_runtime_locks' };
+
+export interface PlannerBlockedOutcome {
+  step: PlannerStep;
+  stepUpdates: Partial<PlannerStep>;
+  statePatch: Partial<PlannerState>;
+  event: {
+    reason: string;
+    blockedByStepIds: string[];
+    blockedReasons?: PlannerBlockedReason[];
+  };
+  dispatch: {
+    recoveryStepId: string;
+    recoveryReason: string;
+    lastEventReason: string;
+    blockedReasons?: PlannerBlockedReason[];
+  };
+}
+
+export interface PlannerCompletionOutcome {
+  statePatch: Partial<PlannerState>;
+  finishEvent: {
+    outcome: PlannerState['outcome'];
+    degradedCompletion?: true;
+    degradedStepIds?: string[];
+  };
+}
+
+export interface PlannerWindowCompletionOutcome {
+  statePatch: Partial<PlannerState>;
+  windowEvent: {
+    revision: number;
+    executedWaveCount: number;
+    planningWindowWaves: number;
+  };
+}
 
 export function selectPlannerExecutionBatch(input: {
   plan: PlannerPlan;
@@ -101,6 +137,124 @@ export function decidePlannerExecutionTurn(input: {
     readySteps: selection.readySteps,
     batch: selection.batch,
     source: selection.source,
+  };
+}
+
+export function createDependencyBlockedOutcome(input: {
+  step: PlannerStep;
+  blockedReasons: PlannerBlockedReason[];
+}): PlannerBlockedOutcome {
+  const blockedSummary = input.blockedReasons.length > 0
+    ? input.blockedReasons.map((reason) => reason.kind === 'conflict'
+      ? `${reason.kind}:${reason.blockedByStepId}${reason.conflictDomain ? `(${reason.conflictDomain})` : ''}`
+      : `${reason.kind}:${reason.blockedByStepId}`).join(', ')
+    : input.step.dependencies.join(', ');
+  const reason = input.blockedReasons[0]?.message ?? `Planner execution blocked by unmet prerequisites for ${input.step.id}.`;
+  return {
+    step: input.step,
+    stepUpdates: {
+      status: 'FAILED',
+      executionState: 'failed',
+      failureKind: 'dependency',
+      lastError: `Blocked by unmet prerequisites: ${blockedSummary}`,
+      details: `Blocked by unmet prerequisites: ${blockedSummary}`,
+    },
+    statePatch: {
+      phase: 'BLOCKED',
+      outcome: 'FAILED',
+      currentStepId: input.step.id,
+      message: reason,
+    },
+    event: {
+      reason,
+      blockedByStepIds: input.blockedReasons.map((blockedReason) => blockedReason.blockedByStepId),
+      ...(input.blockedReasons.length > 0 ? { blockedReasons: input.blockedReasons } : {}),
+    },
+    dispatch: {
+      recoveryStepId: input.step.id,
+      recoveryReason: reason,
+      lastEventReason: reason,
+      ...(input.blockedReasons.length > 0 ? { blockedReasons: input.blockedReasons } : {}),
+    },
+  };
+}
+
+export function createRuntimeLockBlockedOutcome(input: {
+  step: PlannerStep;
+  activeLockOwners: string[];
+}): PlannerBlockedOutcome {
+  const reason = input.activeLockOwners.length > 0
+    ? `Planner execution cannot continue because ready steps are blocked by active runtime locks held by: ${input.activeLockOwners.join(', ')}.`
+    : 'Planner execution cannot continue because ready steps are blocked by active runtime locks.';
+  return {
+    step: input.step,
+    stepUpdates: {
+      status: 'FAILED',
+      executionState: 'failed',
+      failureKind: 'dependency',
+      lastError: reason,
+      details: reason,
+    },
+    statePatch: {
+      phase: 'BLOCKED',
+      outcome: 'FAILED',
+      currentStepId: input.step.id,
+      message: reason,
+    },
+    event: {
+      reason,
+      blockedByStepIds: input.activeLockOwners,
+    },
+    dispatch: {
+      recoveryStepId: input.step.id,
+      recoveryReason: reason,
+      lastEventReason: reason,
+    },
+  };
+}
+
+export function createPlanningWindowCompletionOutcome(input: {
+  plan: PlannerPlan;
+  executedWaveCount: number;
+  planningWindowWaves: number;
+  consistencyErrors: string[];
+}): PlannerWindowCompletionOutcome {
+  return {
+    statePatch: {
+      phase: 'PENDING',
+      outcome: 'DONE',
+      currentStepId: null,
+      message: `Executed ${input.executedWaveCount} planning wave${input.executedWaveCount === 1 ? '' : 's'} from partial plan revision ${input.plan.revision}.`,
+      consistencyErrors: input.consistencyErrors,
+    },
+    windowEvent: {
+      revision: input.plan.revision,
+      executedWaveCount: input.executedWaveCount,
+      planningWindowWaves: input.planningWindowWaves,
+    },
+  };
+}
+
+export function createExecutionCompletionOutcome(input: {
+  degradedStepIds: string[];
+  consistencyErrors: string[];
+}): PlannerCompletionOutcome {
+  const degradedCompletion = input.degradedStepIds.length > 0;
+  return {
+    statePatch: {
+      phase: 'PENDING',
+      outcome: 'DONE',
+      currentStepId: null,
+      message: degradedCompletion
+        ? `Planner executed core subtasks and verifier passed with degraded steps: ${input.degradedStepIds.join(', ')}.`
+        : 'Planner executed all subtasks and verifier passed.',
+      consistencyErrors: input.consistencyErrors,
+      ...(degradedCompletion ? { degradedCompletion: true } : {}),
+    },
+    finishEvent: {
+      outcome: 'DONE',
+      ...(degradedCompletion ? { degradedCompletion: true, degradedStepIds: input.degradedStepIds } : {}),
+    },
   };
 }
 

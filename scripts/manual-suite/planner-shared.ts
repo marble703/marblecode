@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { executePlannerPlan } from '../../src/planner/execute.js';
 import { createInitialExecutionState, dispatchExecutionEvent, transitionExecutionPhase } from '../../src/planner/execution-machine.js';
 import { reducePlannerRuntimeState } from '../../src/planner/execution-reducer.js';
-import { createRuntimeLocksFromExecutionLockTable, decidePlannerExecutionTurn, selectPlannerExecutionBatch, selectPlannerReadyQueueBatch } from '../../src/planner/execution-runner.js';
+import { createDependencyBlockedOutcome, createExecutionCompletionOutcome, createPlanningWindowCompletionOutcome, createRuntimeLocksFromExecutionLockTable, createRuntimeLockBlockedOutcome, decidePlannerExecutionTurn, selectPlannerExecutionBatch, selectPlannerReadyQueueBatch } from '../../src/planner/execution-runner.js';
 import { createPlannerRuntimeState, deriveReadyRuntimeTaskIds } from '../../src/planner/execution-runtime-state.js';
 import { getReadyRuntimeTasks, selectRunnableRuntimeBatch } from '../../src/planner/execution-scheduler.js';
 import { acquireRuntimeLocks, canAcquireRuntimeLocks, releaseRuntimeLocks } from '../../src/planner/simple-locks.js';
@@ -78,7 +78,11 @@ export {
   createExecutionLocks,
   createExecutionState,
   createPlannerRuntimeState,
+  createDependencyBlockedOutcome,
+  createExecutionCompletionOutcome,
+  createPlanningWindowCompletionOutcome,
   createRuntimeLocksFromExecutionLockTable,
+  createRuntimeLockBlockedOutcome,
   decidePlannerExecutionTurn,
   selectPlannerExecutionBatch,
   deriveReadyRuntimeTaskIds,

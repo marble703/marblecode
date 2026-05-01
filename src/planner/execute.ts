@@ -29,7 +29,13 @@ import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
-import { decidePlannerExecutionTurn } from './execution-runner.js';
+import {
+  createDependencyBlockedOutcome,
+  createExecutionCompletionOutcome,
+  createPlanningWindowCompletionOutcome,
+  createRuntimeLockBlockedOutcome,
+  decidePlannerExecutionTurn,
+} from './execution-runner.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import { buildPlannerAffectedSubgraph, computeUndeclaredChangedFiles } from './replan-merge.js';
 import { attemptPlannerNodeReplan } from './recovery.js';
@@ -164,40 +170,22 @@ export async function executePlannerPlan(
         break;
       }
       const blockedReasons = getStructuredBlockedReasons(blockedStep, nextPlan, executionGraph);
-      const blockedSummary = blockedReasons.length > 0
-        ? blockedReasons.map((reason) => reason.kind === 'conflict'
-          ? `${reason.kind}:${reason.blockedByStepId}${reason.conflictDomain ? `(${reason.conflictDomain})` : ''}`
-          : `${reason.kind}:${reason.blockedByStepId}`).join(', ')
-        : blockedStep.dependencies.join(', ');
-      nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, {
-        status: 'FAILED',
-        executionState: 'failed',
-        failureKind: 'dependency',
-        lastError: `Blocked by unmet prerequisites: ${blockedSummary}`,
-        details: `Blocked by unmet prerequisites: ${blockedSummary}`,
-      });
+      const blockedOutcome = createDependencyBlockedOutcome({ step: blockedStep, blockedReasons });
+      nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, blockedOutcome.stepUpdates);
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
-        phase: 'BLOCKED',
-        outcome: 'FAILED',
-        currentStepId: blockedStep.id,
-        message: blockedReasons[0]?.message ?? `Planner execution blocked by unmet prerequisites for ${blockedStep.id}.`,
+        ...blockedOutcome.statePatch,
       });
       await appendPlannerEvent(session, {
         type: 'subtask_blocked',
         stepId: blockedStep.id,
-        reason: nextState.message,
-        blockedByStepIds: blockedReasons.map((reason) => reason.blockedByStepId),
-        blockedReasons,
+        reason: blockedOutcome.event.reason,
+        blockedByStepIds: blockedOutcome.event.blockedByStepIds,
+        ...(blockedOutcome.event.blockedReasons ? { blockedReasons: blockedOutcome.event.blockedReasons } : {}),
       }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, {
-        recoveryStepId: blockedStep.id,
-        recoveryReason: nextState.message,
-        blockedReasons,
-        lastEventReason: nextState.message,
-      });
+      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, blockedOutcome.dispatch);
       return { plan: nextPlan, state: nextState };
     }
 
@@ -207,36 +195,21 @@ export async function executePlannerPlan(
         break;
       }
       const activeLockOwners = summarizeActiveLockOwners(lockTable);
-      const blockedMessage = activeLockOwners.length > 0
-        ? `Planner execution cannot continue because ready steps are blocked by active runtime locks held by: ${activeLockOwners.join(', ')}.`
-        : 'Planner execution cannot continue because ready steps are blocked by active runtime locks.';
-      nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, {
-        status: 'FAILED',
-        executionState: 'failed',
-        failureKind: 'dependency',
-        lastError: blockedMessage,
-        details: blockedMessage,
-      });
+      const blockedOutcome = createRuntimeLockBlockedOutcome({ step: blockedStep, activeLockOwners });
+      nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, blockedOutcome.stepUpdates);
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
-        phase: 'BLOCKED',
-        outcome: 'FAILED',
-        currentStepId: blockedStep.id,
-        message: blockedMessage,
+        ...blockedOutcome.statePatch,
       });
       await appendPlannerEvent(session, {
         type: 'subtask_blocked',
         stepId: blockedStep.id,
-        reason: blockedMessage,
-        blockedByStepIds: activeLockOwners,
+        reason: blockedOutcome.event.reason,
+        blockedByStepIds: blockedOutcome.event.blockedByStepIds,
       }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
-      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, {
-        recoveryStepId: blockedStep.id,
-        recoveryReason: blockedMessage,
-        lastEventReason: blockedMessage,
-      });
+      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, blockedOutcome.dispatch);
       return { plan: nextPlan, state: nextState };
     }
     const selectedExecutionBatch = turn.batch;
@@ -459,19 +432,19 @@ export async function executePlannerPlan(
     await dispatchExecution({ type: 'WAVE_CONVERGED' });
     if (nextPlan.isPartial === true && executedWaveCount >= config.routing.planningWindowWaves) {
       runtimeCursor = markPlanningWindowCompleted(runtimeCursor);
+      const windowCompletion = createPlanningWindowCompletionOutcome({
+        plan: nextPlan,
+        executedWaveCount,
+        planningWindowWaves: config.routing.planningWindowWaves,
+        consistencyErrors: runPlanConsistencyChecks(nextPlan),
+      });
       nextState = refreshPlannerStateFromPlan(nextPlan, {
         ...nextState,
-        phase: 'PENDING',
-        outcome: 'DONE',
-        currentStepId: null,
-        message: `Executed ${executedWaveCount} planning wave${executedWaveCount === 1 ? '' : 's'} from partial plan revision ${nextPlan.revision}.`,
-        consistencyErrors: runPlanConsistencyChecks(nextPlan),
+        ...windowCompletion.statePatch,
       });
       await appendPlannerEvent(session, {
         type: 'planner_execution_window_completed',
-        revision: nextPlan.revision,
-        executedWaveCount,
-        planningWindowWaves: config.routing.planningWindowWaves,
+        ...windowCompletion.windowEvent,
       }, config.session.redactSecrets);
       await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
       await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
@@ -480,24 +453,18 @@ export async function executePlannerPlan(
     }
   }
 
+  const completionOutcome = createExecutionCompletionOutcome({
+    degradedStepIds: nextState.degradedStepIds ?? [],
+    consistencyErrors: runPlanConsistencyChecks(nextPlan),
+  });
   nextState = refreshPlannerStateFromPlan(nextPlan, {
     ...nextState,
-    phase: 'PENDING',
-    outcome: 'DONE',
-    currentStepId: null,
-    message: nextState.degradedStepIds && nextState.degradedStepIds.length > 0
-      ? `Planner executed core subtasks and verifier passed with degraded steps: ${nextState.degradedStepIds.join(', ')}.`
-      : 'Planner executed all subtasks and verifier passed.',
-    consistencyErrors: runPlanConsistencyChecks(nextPlan),
-    ...(nextState.degradedStepIds && nextState.degradedStepIds.length > 0 ? { degradedCompletion: true } : {}),
+    ...completionOutcome.statePatch,
   });
 
   await appendPlannerEvent(session, {
     type: 'planner_execution_finished',
-    outcome: nextState.outcome,
-    ...(nextState.degradedStepIds && nextState.degradedStepIds.length > 0
-      ? { degradedCompletion: true, degradedStepIds: nextState.degradedStepIds }
-      : {}),
+    ...completionOutcome.finishEvent,
   }, config.session.redactSecrets);
   await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
   await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
