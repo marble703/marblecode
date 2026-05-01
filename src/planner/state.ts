@@ -1,4 +1,3 @@
-import { buildExecutionGraph as buildPlannerExecutionGraph, getBlockedReasons, type PlannerExecutionGraph } from './graph.js';
 import type { PlannerFailureTolerance, PlannerPhase, PlannerPlan, PlannerState, PlannerStep, PlannerStepExecutionState, PlannerStepStatus } from './types.js';
 
 export function statusToPhase(status: PlannerStepStatus): PlannerPhase {
@@ -30,7 +29,6 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
     };
   }
 
-  const graph = buildPlannerExecutionGraph(plan);
   const activeStepIds: string[] = [];
   const readyStepIds: string[] = [];
   const completedStepIds: string[] = [];
@@ -43,7 +41,7 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
       degradedStepIds.push(step.id);
       continue;
     }
-    const executionState = deriveExecutionState(step, plan, graph);
+    const executionState = deriveExecutionState(step, plan);
     if (executionState === 'running' || executionState === 'retrying' || executionState === 'fallback') {
       activeStepIds.push(step.id);
       continue;
@@ -77,7 +75,7 @@ export function refreshPlannerStateFromPlan(plan: PlannerPlan | undefined, state
   };
 }
 
-function deriveExecutionState(step: PlannerStep, plan: PlannerPlan, graph: PlannerExecutionGraph): PlannerStepExecutionState {
+function deriveExecutionState(step: PlannerStep, plan: PlannerPlan): PlannerStepExecutionState {
   if (step.executionState === 'running' || step.executionState === 'retrying' || step.executionState === 'fallback') {
     return step.executionState;
   }
@@ -87,10 +85,36 @@ function deriveExecutionState(step: PlannerStep, plan: PlannerPlan, graph: Plann
   if (step.status === 'FAILED') {
     return 'failed';
   }
-  if (getBlockedReasons(step, plan, graph).length > 0) {
+  if (hasUnsatisfiedDependencies(step, plan)) {
     return 'blocked';
   }
   return 'ready';
+}
+
+function hasUnsatisfiedDependencies(step: PlannerStep, plan: PlannerPlan): boolean {
+  for (const dependencyId of step.dependencies) {
+    if (!dependencySatisfied(step, dependencyId, plan)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function dependencySatisfied(step: PlannerStep, dependencyId: string, plan: PlannerPlan): boolean {
+  const dependency = plan.steps.find((candidate) => candidate.id === dependencyId);
+  if (!dependency) {
+    return false;
+  }
+  if (dependency.status === 'DONE') {
+    return true;
+  }
+  if (step.kind === 'verify') {
+    return false;
+  }
+
+  const tolerance = step.dependencyTolerances?.[dependencyId] ?? 'required';
+  return tolerance === 'degrade' && dependency.status === 'FAILED' && dependency.failureTolerance === 'degrade';
 }
 
 export function isPlannerStepDegraded(step: PlannerStep): boolean {

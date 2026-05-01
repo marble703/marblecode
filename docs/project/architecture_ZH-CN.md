@@ -289,10 +289,10 @@ planner-rich recent-session projection 现在位于存储层之上的 `src/tui/r
 - `execute-subtask.ts`：subtask 尝试准备、锁准备和 coder 子代理执行辅助逻辑
 - `execute-resume.ts`：基于执行 artifacts 的 execution resume 入口
 - `prompts.ts`：子任务、修复和重新规划的提示词构建器
-- `state.ts`：ready/active/blocked/done 状态推导
+- `state.ts`：基于 plan status 与 dependency 的 ready/active/blocked/done 状态推导
 - `recovery.ts`：本地重新规划流程
 - `replan-merge.ts`：bounded local recovery 的 proposal/replan merge 辅助函数
-- `graph.ts`：执行图、冲突边和波次
+- `graph.ts`：执行图、冲突边和波次；当前仍用于 execute/runtime 与兼容 artifacts，但不再是 `state.ts` / `parse.ts` 的基础依赖
 - `locks.ts`：文件锁所有权及写入断言
 - `utils.ts`：规划器共享辅助函数
 
@@ -338,6 +338,7 @@ Planner execute 是架构中超出原始 MVP 的主要部分。
 当前主机端执行的基础能力包括：
 
 - 带有显式依赖和文件作用域的归一化规划器步骤
+- `plan.state.json` 的基础 ready/blocked 推导现在直接基于 step status 与 dependency，而不是每次先重建完整 execution graph；execution graph 仍保留给 execute/runtime、恢复与兼容 read-model 使用
 - 包含 `dependency`、`must_run_after`、`conflict` 和 `fallback` 边的执行图，并带有用于语义写入耦合的 conflict reason/domain 元数据
 - 从执行图中派生的执行波次
 - 带有写所有权和降级为受保护读的文件锁表

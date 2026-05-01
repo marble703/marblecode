@@ -1,5 +1,4 @@
 import { extractJsonObject } from '../shared/json-response.js';
-import { buildExecutionGraph as buildPlannerExecutionGraph, hasDependencyCycle } from './graph.js';
 import type {
   PlannerContextPacket,
   PlannerDependencyTolerance,
@@ -225,12 +224,53 @@ export function runPlanConsistencyChecks(plan: PlannerPlan): string[] {
     }
   }
 
-  const graph = buildPlannerExecutionGraph(plan);
-  if (hasDependencyCycle(graph)) {
+  if (hasDependencyCycleFromSteps(plan.steps)) {
     errors.push('Plan contains at least one dependency cycle.');
   }
 
   return errors;
+}
+
+function hasDependencyCycleFromSteps(steps: PlannerStep[]): boolean {
+  const inDegree = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+
+  for (const step of steps) {
+    inDegree.set(step.id, 0);
+    dependents.set(step.id, []);
+  }
+
+  for (const step of steps) {
+    for (const dependencyId of step.dependencies) {
+      if (!inDegree.has(dependencyId) || !dependents.has(dependencyId) || !inDegree.has(step.id)) {
+        continue;
+      }
+      inDegree.set(step.id, (inDegree.get(step.id) ?? 0) + 1);
+      dependents.get(dependencyId)?.push(step.id);
+    }
+  }
+
+  const queue = steps
+    .map((step) => step.id)
+    .filter((stepId) => (inDegree.get(stepId) ?? 0) === 0);
+  let visited = 0;
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) {
+      continue;
+    }
+    visited += 1;
+    for (const dependent of dependents.get(current) ?? []) {
+      const degree = (inDegree.get(dependent) ?? 0) - 1;
+      inDegree.set(dependent, degree);
+      if (degree === 0) {
+        queue.push(dependent);
+      }
+    }
+  }
+
+  return visited !== steps.length;
 }
 
 function normalizePlannerStep(step: unknown, index: number, workspaceRoot: string): PlannerStep {
