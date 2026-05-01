@@ -11,7 +11,15 @@ export function selectRunnableRuntimeBatch(
   state: PlannerRuntimeState,
   maxConcurrentSubtasks: number,
 ): PlannerRuntimeTask[] {
-  const readyTasks = getReadyRuntimeTasks(state);
+  return selectRunnableRuntimeBatchFromCandidates(getReadyRuntimeTasks(state), maxConcurrentSubtasks, state.locks);
+}
+
+export function selectRunnableRuntimeBatchFromCandidates(
+  candidateTasks: PlannerRuntimeTask[],
+  maxConcurrentSubtasks: number,
+  locks: PlannerRuntimeState['locks'],
+): PlannerRuntimeTask[] {
+  const readyTasks = candidateTasks;
   const verifyTask = readyTasks.find((task) => task.accessMode === 'verify');
   if (verifyTask) {
     return [verifyTask];
@@ -22,7 +30,13 @@ export function selectRunnableRuntimeBatch(
     if (selected.length >= Math.max(1, maxConcurrentSubtasks)) {
       break;
     }
-    if (!canAcquireRuntimeLocks(state.locks, task)) {
+    const activeLocks = [
+      ...locks,
+      ...selected.flatMap((selectedTask) => selectedTask.accessMode === 'write'
+        ? selectedTask.fileScope.map((path) => ({ path, ownerTaskId: selectedTask.id }))
+        : []),
+    ];
+    if (!canAcquireRuntimeLocks(activeLocks, task)) {
       continue;
     }
     if (task.accessMode === 'write' && task.fileScope.length === 0 && selected.length > 0) {
