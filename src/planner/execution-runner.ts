@@ -9,8 +9,13 @@ export interface PlannerExecutionSelection {
   pendingSteps: PlannerStep[];
   readySteps: PlannerStep[];
   batch: PlannerStep[];
-  source: 'ready_queue' | 'legacy_wave';
+  source: 'ready_queue' | 'legacy_wave' | 'runtime_blocked';
 }
+
+export type PlannerReadyQueueSelection =
+  | { kind: 'selected'; batch: PlannerStep[] }
+  | { kind: 'defer_legacy_fallback' }
+  | { kind: 'blocked_by_runtime_locks' };
 
 export function selectPlannerExecutionBatch(input: {
   plan: PlannerPlan;
@@ -23,7 +28,7 @@ export function selectPlannerExecutionBatch(input: {
 }): PlannerExecutionSelection {
   const pendingSteps = input.plan.steps.filter((step) => step.status !== 'DONE' && step.status !== 'FAILED');
   const readySteps = input.getReadySteps(input.plan);
-  const readyQueueBatch = selectPlannerReadyQueueBatch({
+  const readyQueueSelection = selectPlannerReadyQueueBatch({
     plan: input.plan,
     readySteps,
     lockTable: input.lockTable,
@@ -31,12 +36,21 @@ export function selectPlannerExecutionBatch(input: {
     maxConcurrentSubtasks: input.maxConcurrentSubtasks,
     classifyPlannerStep: input.classifyPlannerStep,
   });
-  if (readyQueueBatch.length > 0) {
+  if (readyQueueSelection.kind === 'selected') {
     return {
       pendingSteps,
       readySteps,
-      batch: readyQueueBatch,
+      batch: readyQueueSelection.batch,
       source: 'ready_queue',
+    };
+  }
+
+  if (readyQueueSelection.kind === 'blocked_by_runtime_locks') {
+    return {
+      pendingSteps,
+      readySteps,
+      batch: [],
+      source: 'runtime_blocked',
     };
   }
 
@@ -55,16 +69,19 @@ export function selectPlannerReadyQueueBatch(input: {
   strategyMode: PlannerExecutionStrategyMode;
   maxConcurrentSubtasks: number;
   classifyPlannerStep: (step: PlannerStep) => 'skip' | 'subagent' | 'verify';
-}): PlannerStep[] {
+}): PlannerReadyQueueSelection {
   if (containsReadyFallbackStep(input.plan, input.readySteps)) {
-    return [];
+    return { kind: 'defer_legacy_fallback' };
   }
 
   const skipSteps = input.readySteps.filter((step) => input.classifyPlannerStep(step) === 'skip');
   if (skipSteps.length > 0) {
-    return input.strategyMode === 'deterministic'
-      ? [skipSteps[0]].filter((step): step is PlannerStep => Boolean(step))
-      : skipSteps.slice(0, Math.max(1, input.maxConcurrentSubtasks));
+    return {
+      kind: 'selected',
+      batch: input.strategyMode === 'deterministic'
+        ? [skipSteps[0]].filter((step): step is PlannerStep => Boolean(step))
+        : skipSteps.slice(0, Math.max(1, input.maxConcurrentSubtasks)),
+    };
   }
 
   const runtimeState = createPlannerRuntimeState(input.plan);
@@ -77,8 +94,14 @@ export function selectPlannerReadyQueueBatch(input: {
     effectiveRuntimeMaxConcurrent(input.strategyMode, input.maxConcurrentSubtasks, runtimeState.tasks.length),
     runtimeState.locks,
   );
+  if (selected.length === 0 && input.readySteps.length > 0) {
+    return { kind: 'blocked_by_runtime_locks' };
+  }
   const selectedIds = new Set(selected.map((task) => task.stepId));
-  return input.readySteps.filter((step) => selectedIds.has(step.id));
+  return {
+    kind: 'selected',
+    batch: input.readySteps.filter((step) => selectedIds.has(step.id)),
+  };
 }
 
 export function createRuntimeLocksFromExecutionLockTable(lockTable: ExecutionLockTable): PlannerRuntimeLock[] {

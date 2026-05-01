@@ -20,6 +20,7 @@ import {
   createInitialExecutionRuntimeCursor,
   markPlanningWindowCompleted,
   markRecoveryFallback,
+  summarizeActiveLockOwners,
   markWaveCompleted,
   markWaveSelected,
 } from './execution-state.js';
@@ -154,7 +155,7 @@ export async function executePlannerPlan(
         dependencies.classifyPlannerStep,
       ),
     });
-    const { pendingSteps, readySteps, batch: selectedExecutionBatch } = selection;
+    const { pendingSteps, readySteps, batch: selectedExecutionBatch, source: selectionSource } = selection;
     if (pendingSteps.length === 0) {
       break;
     }
@@ -201,6 +202,44 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
+    if (selectionSource === 'runtime_blocked') {
+      const blockedStep = readySteps[0] ?? pendingSteps[0];
+      if (!blockedStep) {
+        break;
+      }
+      const activeLockOwners = summarizeActiveLockOwners(lockTable);
+      const blockedMessage = activeLockOwners.length > 0
+        ? `Planner execution cannot continue because ready steps are blocked by active runtime locks held by: ${activeLockOwners.join(', ')}.`
+        : 'Planner execution cannot continue because ready steps are blocked by active runtime locks.';
+      nextPlan = dependencies.updatePlannerStep(nextPlan, blockedStep.id, {
+        status: 'FAILED',
+        executionState: 'failed',
+        failureKind: 'dependency',
+        lastError: blockedMessage,
+        details: blockedMessage,
+      });
+      nextState = refreshPlannerStateFromPlan(nextPlan, {
+        ...nextState,
+        phase: 'BLOCKED',
+        outcome: 'FAILED',
+        currentStepId: blockedStep.id,
+        message: blockedMessage,
+      });
+      await appendPlannerEvent(session, {
+        type: 'subtask_blocked',
+        stepId: blockedStep.id,
+        reason: blockedMessage,
+        blockedByStepIds: activeLockOwners,
+      }, config.session.redactSecrets);
+      await writeSessionArtifact(session, 'plan.json', JSON.stringify(nextPlan, null, 2));
+      await writeSessionArtifact(session, 'plan.state.json', JSON.stringify(nextState, null, 2));
+      await dispatchExecution({ type: 'DEPENDENCIES_BLOCKED' }, {
+        recoveryStepId: blockedStep.id,
+        recoveryReason: blockedMessage,
+        lastEventReason: blockedMessage,
+      });
+      return { plan: nextPlan, state: nextState };
+    }
     if (selectedExecutionBatch.length === 0) {
       break;
     }

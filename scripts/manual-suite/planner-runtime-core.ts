@@ -266,42 +266,39 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   };
 
   const readySteps = [plan.steps[0]!, plan.steps[1]!, plan.steps[2]!];
-  assert.deepEqual(
-    selectPlannerReadyQueueBatch({
-      plan,
-      readySteps,
-      lockTable: createExecutionLockTable(1),
-      strategyMode: 'serial',
-      maxConcurrentSubtasks: 2,
-      classifyPlannerStep,
-    }).map((step) => step.id),
-    ['step-1'],
-  );
+  const skipSelection = selectPlannerReadyQueueBatch({
+    plan,
+    readySteps,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(skipSelection.kind, 'selected');
+  assert.deepEqual(skipSelection.kind === 'selected' ? skipSelection.batch.map((step) => step.id) : [], ['step-1']);
 
   const runnableSteps = [plan.steps[1]!, plan.steps[2]!];
-  assert.deepEqual(
-    selectPlannerReadyQueueBatch({
-      plan,
-      readySteps: runnableSteps,
-      lockTable: createExecutionLockTable(1),
-      strategyMode: 'serial',
-      maxConcurrentSubtasks: 2,
-      classifyPlannerStep,
-    }).map((step) => step.id),
-    ['step-2', 'step-3'],
-  );
+  const runnableSelection = selectPlannerReadyQueueBatch({
+    plan,
+    readySteps: runnableSteps,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(runnableSelection.kind, 'selected');
+  assert.deepEqual(runnableSelection.kind === 'selected' ? runnableSelection.batch.map((step) => step.id) : [], ['step-2', 'step-3']);
 
-  assert.deepEqual(
-    selectPlannerReadyQueueBatch({
-      plan,
-      readySteps: runnableSteps,
-      lockTable: createExecutionLockTable(1),
-      strategyMode: 'deterministic',
-      maxConcurrentSubtasks: 2,
-      classifyPlannerStep,
-    }).map((step) => step.id),
-    ['step-2'],
-  );
+  const deterministicSelection = selectPlannerReadyQueueBatch({
+    plan,
+    readySteps: runnableSteps,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'deterministic',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(deterministicSelection.kind, 'selected');
+  assert.deepEqual(deterministicSelection.kind === 'selected' ? deterministicSelection.batch.map((step) => step.id) : [], ['step-2']);
 
   const verifyPlan = {
     ...plan,
@@ -310,17 +307,16 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
       { ...plan.steps[3]! },
     ],
   };
-  assert.deepEqual(
-    selectPlannerReadyQueueBatch({
-      plan: verifyPlan,
-      readySteps: [verifyPlan.steps[1]!],
-      lockTable: createExecutionLockTable(1),
-      strategyMode: 'serial',
-      maxConcurrentSubtasks: 2,
-      classifyPlannerStep,
-    }).map((step) => step.id),
-    ['step-4'],
-  );
+  const verifySelection = selectPlannerReadyQueueBatch({
+    plan: verifyPlan,
+    readySteps: [verifyPlan.steps[1]!],
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(verifySelection.kind, 'selected');
+  assert.deepEqual(verifySelection.kind === 'selected' ? verifySelection.batch.map((step) => step.id) : [], ['step-4']);
 
   const lockTable = createExecutionLockTable(1);
   const locked = {
@@ -328,17 +324,16 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
     entries: [{ path: 'src/math.js', mode: 'write_locked' as const, ownerStepId: 'step-99', revision: 1 }],
   };
   assert.deepEqual(createRuntimeLocksFromExecutionLockTable(locked), [{ path: 'src/math.js', ownerTaskId: 'step-99' }]);
-  assert.deepEqual(
-    selectPlannerReadyQueueBatch({
-      plan,
-      readySteps: runnableSteps,
-      lockTable: locked,
-      strategyMode: 'serial',
-      maxConcurrentSubtasks: 2,
-      classifyPlannerStep,
-    }).map((step) => step.id),
-    ['step-3'],
-  );
+  const lockedSelection = selectPlannerReadyQueueBatch({
+    plan,
+    readySteps: runnableSteps,
+    lockTable: locked,
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(lockedSelection.kind, 'selected');
+  assert.deepEqual(lockedSelection.kind === 'selected' ? lockedSelection.batch.map((step) => step.id) : [], ['step-3']);
 
   const fallbackPlan = {
     ...plan,
@@ -359,6 +354,36 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   assert.equal(fallbackSelection.source, 'legacy_wave');
   assert.deepEqual(fallbackSelection.readySteps.map((step) => step.id), ['step-3']);
   assert.deepEqual(fallbackSelection.batch.map((step) => step.id), ['step-3']);
+
+  const fallbackReadyQueueSelection = selectPlannerReadyQueueBatch({
+    plan: fallbackPlan,
+    readySteps: [fallbackPlan.steps[1]!],
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+  });
+  assert.equal(fallbackReadyQueueSelection.kind, 'defer_legacy_fallback');
+
+  const runtimeBlockedSelection = selectPlannerExecutionBatch({
+    plan,
+    lockTable: {
+      ...createExecutionLockTable(1),
+      entries: [
+        { path: 'src/math.js', mode: 'write_locked' as const, ownerStepId: 'step-98', revision: 1 },
+        { path: 'src/notes.txt', mode: 'write_locked' as const, ownerStepId: 'step-99', revision: 1 },
+      ],
+    },
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => runnableSteps,
+    selectLegacyWave: () => {
+      throw new Error('legacy wave should not be used for runtime lock blocking');
+    },
+  });
+  assert.equal(runtimeBlockedSelection.source, 'runtime_blocked');
+  assert.deepEqual(runtimeBlockedSelection.batch, []);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
