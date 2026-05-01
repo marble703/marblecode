@@ -28,6 +28,7 @@ import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
+import { selectPlannerReadyQueueBatch } from './execution-runner.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import { buildPlannerAffectedSubgraph, computeUndeclaredChangedFiles } from './replan-merge.js';
 import { attemptPlannerNodeReplan } from './recovery.js';
@@ -187,13 +188,23 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    const selectedWave = strategy.selectWave(readySteps, executionGraph, config.routing.maxConcurrentSubtasks, dependencies.classifyPlannerStep);
-    if (selectedWave.length === 0) {
+    const selectedWave = selectPlannerReadyQueueBatch({
+      plan: nextPlan,
+      readySteps,
+      lockTable,
+      strategyMode: strategy.mode,
+      maxConcurrentSubtasks: config.routing.maxConcurrentSubtasks,
+      classifyPlannerStep: dependencies.classifyPlannerStep,
+    });
+    const selectedExecutionBatch = selectedWave.length > 0
+      ? selectedWave
+      : strategy.selectWave(readySteps, executionGraph, config.routing.maxConcurrentSubtasks, dependencies.classifyPlannerStep);
+    if (selectedExecutionBatch.length === 0) {
       break;
     }
-    runtimeCursor = markWaveSelected(runtimeCursor, selectedWave.map((step) => step.id));
-    const skippable = selectedWave.filter((step) => dependencies.classifyPlannerStep(step) === 'skip');
-    if (skippable.length === selectedWave.length) {
+    runtimeCursor = markWaveSelected(runtimeCursor, selectedExecutionBatch.map((step) => step.id));
+    const skippable = selectedExecutionBatch.filter((step) => dependencies.classifyPlannerStep(step) === 'skip');
+    if (skippable.length === selectedExecutionBatch.length) {
       for (const step of skippable) {
         nextPlan = dependencies.updatePlannerStep(nextPlan, step.id, { status: 'DONE', executionState: 'done' });
         await appendPlannerEvent(session, { type: 'subtask_skipped', stepId: step.id, kind: step.kind, reason: 'Planning-only step' }, config.session.redactSecrets);
@@ -205,8 +216,8 @@ export async function executePlannerPlan(
       await dispatchExecution({ type: 'SKIP_WAVE_COMPLETED' });
       continue;
     }
-    if (selectedWave.length === 1 && dependencies.classifyPlannerStep(selectedWave[0] ?? nextPlan.steps[0] ?? { kind: 'note', title: '', details: '' } as PlannerStep) === 'verify') {
-      const step = selectedWave[0];
+    if (selectedExecutionBatch.length === 1 && dependencies.classifyPlannerStep(selectedExecutionBatch[0] ?? nextPlan.steps[0] ?? { kind: 'note', title: '', details: '' } as PlannerStep) === 'verify') {
+      const step = selectedExecutionBatch[0];
       if (!step) {
         break;
       }
@@ -282,7 +293,7 @@ export async function executePlannerPlan(
       requestArtifact,
       nextPlan,
       nextState,
-      selectedWave,
+      selectedExecutionBatch,
       executionGraph,
       lockTable,
       dependencies.updatePlannerStep,
@@ -299,7 +310,7 @@ export async function executePlannerPlan(
       const stepSummaries: PlannerExecutionFeedbackArtifact['stepSummaries'] = [];
       const allUndeclared: string[] = [];
       for (const stepResult of waveResult.stepFeedback) {
-        const step = selectedWave.find((candidate) => candidate.id === stepResult.stepId);
+        const step = selectedExecutionBatch.find((candidate) => candidate.id === stepResult.stepId);
         const currentStep = nextPlan.steps.find((s) => s.id === stepResult.stepId);
         if (!step) {
           continue;

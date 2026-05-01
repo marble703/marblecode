@@ -12,6 +12,7 @@ import {
   clearInterruptedWave,
   copyPersistedRecoverySnapshot,
   createPlannerRuntimeState,
+  createRuntimeLocksFromExecutionLockTable,
   classifyPlannerStep,
   createExecutionLockTable,
   createInitialExecutionState,
@@ -42,6 +43,7 @@ import {
   reducePlannerRuntimeState,
   releaseRuntimeLocks,
   runPlanner,
+  selectPlannerReadyQueueBatch,
   SequenceProvider,
   selectRunnableRuntimeBatch,
   transitionExecutionPhase,
@@ -69,6 +71,7 @@ export function createPlannerRuntimeCoreCases(): ManualSuiteCase[] {
     { name: 'planner runtime metadata helpers', run: testPlannerRuntimeMetadataHelpers },
     { name: 'planner runtime scheduler helpers', run: testPlannerRuntimeSchedulerHelpers },
     { name: 'planner runtime reducer helpers', run: testPlannerRuntimeReducerHelpers },
+    { name: 'planner runtime execute adapter helpers', run: testPlannerRuntimeExecuteAdapterHelpers },
   ];
 }
 
@@ -246,6 +249,95 @@ async function testPlannerRuntimeReducerHelpers(): Promise<void> {
   assert.equal(executionFailed.phase, 'failed');
 
   assert.deepEqual(releaseRuntimeLocks([{ path: 'src/math.js', ownerTaskId: 'step-1' }], 'step-1'), []);
+}
+
+async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
+  const plan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'adapter fixture',
+    steps: [
+      { id: 'step-1', title: 'Search files', status: 'PENDING' as const, kind: 'search' as const, attempts: 0, dependencies: [], children: [] },
+      { id: 'step-2', title: 'Fix math', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'], accessMode: 'write' as const },
+      { id: 'step-3', title: 'Update notes', status: 'PENDING' as const, kind: 'docs' as const, attempts: 0, dependencies: [], children: [], fileScope: ['src/notes.txt'], accessMode: 'write' as const },
+      { id: 'step-4', title: 'Run verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-2'], children: [] },
+    ],
+  };
+
+  const readySteps = [plan.steps[0]!, plan.steps[1]!, plan.steps[2]!];
+  assert.deepEqual(
+    selectPlannerReadyQueueBatch({
+      plan,
+      readySteps,
+      lockTable: createExecutionLockTable(1),
+      strategyMode: 'serial',
+      maxConcurrentSubtasks: 2,
+      classifyPlannerStep,
+    }).map((step) => step.id),
+    ['step-1'],
+  );
+
+  const runnableSteps = [plan.steps[1]!, plan.steps[2]!];
+  assert.deepEqual(
+    selectPlannerReadyQueueBatch({
+      plan,
+      readySteps: runnableSteps,
+      lockTable: createExecutionLockTable(1),
+      strategyMode: 'serial',
+      maxConcurrentSubtasks: 2,
+      classifyPlannerStep,
+    }).map((step) => step.id),
+    ['step-2', 'step-3'],
+  );
+
+  assert.deepEqual(
+    selectPlannerReadyQueueBatch({
+      plan,
+      readySteps: runnableSteps,
+      lockTable: createExecutionLockTable(1),
+      strategyMode: 'deterministic',
+      maxConcurrentSubtasks: 2,
+      classifyPlannerStep,
+    }).map((step) => step.id),
+    ['step-2'],
+  );
+
+  const verifyPlan = {
+    ...plan,
+    steps: [
+      { ...plan.steps[1]!, status: 'DONE' as const, attempts: 1 },
+      { ...plan.steps[3]! },
+    ],
+  };
+  assert.deepEqual(
+    selectPlannerReadyQueueBatch({
+      plan: verifyPlan,
+      readySteps: [verifyPlan.steps[1]!],
+      lockTable: createExecutionLockTable(1),
+      strategyMode: 'serial',
+      maxConcurrentSubtasks: 2,
+      classifyPlannerStep,
+    }).map((step) => step.id),
+    ['step-4'],
+  );
+
+  const lockTable = createExecutionLockTable(1);
+  const locked = {
+    ...lockTable,
+    entries: [{ path: 'src/math.js', mode: 'write_locked' as const, ownerStepId: 'step-99', revision: 1 }],
+  };
+  assert.deepEqual(createRuntimeLocksFromExecutionLockTable(locked), [{ path: 'src/math.js', ownerTaskId: 'step-99' }]);
+  assert.deepEqual(
+    selectPlannerReadyQueueBatch({
+      plan,
+      readySteps: runnableSteps,
+      lockTable: locked,
+      strategyMode: 'serial',
+      maxConcurrentSubtasks: 2,
+      classifyPlannerStep,
+    }).map((step) => step.id),
+    ['step-3'],
+  );
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
