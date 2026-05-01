@@ -1,4 +1,11 @@
 import type { PlannerAccessMode, PlannerPlan, PlannerState, PlannerStep } from './types.js';
+import { plannerDependencySatisfied } from './dependencies.js';
+import {
+  derivePlannerAccessMode,
+  derivePlannerConflictDomains,
+  derivePlannerConflicts,
+  derivePlannerFileScope,
+} from './step-metadata.js';
 
 export interface PlannerBlockedReason {
   kind: 'dependency' | 'must_run_after' | 'fallback_inactive' | 'conflict';
@@ -249,48 +256,13 @@ export function findPendingConflictSummary(plan: PlannerPlan, graph: PlannerExec
 }
 
 function dependencySatisfied(step: PlannerStep, dependencyId: string, plan: PlannerPlan, graph: PlannerExecutionGraph): boolean {
-  const dependency = plan.steps.find((candidate) => candidate.id === dependencyId);
-  if (!dependency) {
-    return false;
-  }
-  if (dependency.status === 'DONE') {
+  if (plannerDependencySatisfied(step, dependencyId, plan)) {
     return true;
   }
   if (fallbackReplacementSatisfied(plan, graph, dependencyId)) {
     return true;
   }
-  if (step.kind === 'verify') {
-    return false;
-  }
-
-  const tolerance = step.dependencyTolerances?.[dependencyId] ?? 'required';
-  return tolerance === 'degrade' && dependency.status === 'FAILED' && dependency.failureTolerance === 'degrade';
-}
-
-export function derivePlannerAccessMode(step: PlannerStep): PlannerAccessMode {
-  if (step.accessMode) {
-    return step.accessMode;
-  }
-  if (step.kind === 'verify') {
-    return 'verify';
-  }
-  if (step.kind === 'search' || step.kind === 'note') {
-    return 'read';
-  }
-  return 'write';
-}
-
-export function derivePlannerFileScope(step: PlannerStep): string[] {
-  const scope = step.fileScope ?? step.producesFiles ?? step.relatedFiles ?? [];
-  return [...new Set(scope)];
-}
-
-export function derivePlannerConflicts(step: PlannerStep): string[] {
-  return [...new Set(step.conflictsWith ?? [])];
-}
-
-export function derivePlannerConflictDomains(step: PlannerStep): string[] {
-  return [...new Set(step.conflictDomains ?? [])];
+  return false;
 }
 
 function getNodeConflict(

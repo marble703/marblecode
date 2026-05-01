@@ -103,6 +103,8 @@ wave 适合作为静态计划展示或兼容 artifact，但不适合作为主要
 
 目标：在不立刻删除旧模块的前提下，用新的运行时结构接管 `execute.ts` 的主执行循环。
 
+当前状态：runtime primitives 已开始落地，但 `execute.ts` 仍未切换到新 runner；本阶段应先稳定共享 helper、runtime state、scheduler、reducer 与纯函数测试，再进入主执行路径替换。
+
 计划内容：
 
 1. 新增运行时类型：`ExecutionTask` / `ExecutionStateV2`

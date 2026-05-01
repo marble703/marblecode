@@ -5,7 +5,7 @@ import { PolicyEngine } from '../policy/index.js';
 import type { ModelProvider } from '../provider/types.js';
 import { writeSessionArtifact, type SessionRecord } from '../session/index.js';
 import { createAgentToolRegistry } from '../tools/setup.js';
-import { derivePlannerAccessMode } from './graph.js';
+import { derivePlannerAccessMode } from './step-metadata.js';
 import {
   acquireWriteLocks,
   assertStepCanWrite,

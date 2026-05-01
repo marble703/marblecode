@@ -8,18 +8,26 @@ import {
   buildInitialExecutionRuntimeContext,
   buildInitialExecutionStateExtras,
   buildPlannerRequestArtifact,
+  canAcquireRuntimeLocks,
   clearInterruptedWave,
   copyPersistedRecoverySnapshot,
+  createPlannerRuntimeState,
   classifyPlannerStep,
   createExecutionLockTable,
   createInitialExecutionState,
   createInitialExecutionRuntimeCursor,
   createPlannerRegistry,
   createSession,
+  derivePlannerAccessMode,
+  derivePlannerConflictDomains,
+  derivePlannerConflicts,
+  derivePlannerFileScope,
+  deriveReadyRuntimeTaskIds,
   dispatchExecutionEvent,
   executePlannerPlan,
   executePlannerSubtaskWithRecovery,
   executePlannerVerifyStep,
+  getReadyRuntimeTasks,
   getPlannerExecutionStrategy,
   initializePlannerState,
   markPlanningWindowCompleted,
@@ -28,9 +36,14 @@ import {
   markWaveSelected,
   mapPlannerResult,
   path,
+  plannerDependencySatisfied,
+  plannerHasUnsatisfiedDependencies,
   readFile,
+  reducePlannerRuntimeState,
+  releaseRuntimeLocks,
   runPlanner,
   SequenceProvider,
+  selectRunnableRuntimeBatch,
   transitionExecutionPhase,
   updatePlannerStep,
   withWorkspace,
@@ -52,6 +65,10 @@ export function createPlannerRuntimeCoreCases(): ManualSuiteCase[] {
     { name: 'planner verify helper', run: testPlannerVerifyHelper },
     { name: 'planner subtask recovery helper', run: testPlannerSubtaskRecoveryHelper },
     { name: 'planner read-only flow', run: testPlannerReadOnlyFlow },
+    { name: 'planner runtime dependency helpers', run: testPlannerRuntimeDependencyHelpers },
+    { name: 'planner runtime metadata helpers', run: testPlannerRuntimeMetadataHelpers },
+    { name: 'planner runtime scheduler helpers', run: testPlannerRuntimeSchedulerHelpers },
+    { name: 'planner runtime reducer helpers', run: testPlannerRuntimeReducerHelpers },
   ];
 }
 
@@ -101,6 +118,134 @@ async function testPlannerRuntimeHelpers(): Promise<void> {
   assert.equal(updatedPlan.steps[0]?.executionState, 'done');
 
   assert.deepEqual(mapPlannerResult('DONE', '/tmp/session', 'ok'), { status: 'completed', sessionDir: '/tmp/session', message: 'ok' });
+}
+
+async function testPlannerRuntimeDependencyHelpers(): Promise<void> {
+  const plan = {
+    version: '1' as const,
+    revision: 1,
+    summary: 'dependency helper fixture',
+    steps: [
+      { id: 'step-1', title: 'Docs', status: 'FAILED' as const, kind: 'docs' as const, attempts: 1, dependencies: [], children: [], failureTolerance: 'degrade' as const },
+      { id: 'step-2', title: 'Code', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: ['step-1'], dependencyTolerances: { 'step-1': 'degrade' as const }, children: [] },
+      { id: 'step-3', title: 'Verify', status: 'PENDING' as const, kind: 'verify' as const, attempts: 0, dependencies: ['step-1'], dependencyTolerances: { 'step-1': 'degrade' as const }, children: [] },
+      { id: 'step-4', title: 'Strict downstream', status: 'PENDING' as const, kind: 'code' as const, attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  };
+
+  assert.equal(plannerDependencySatisfied(plan.steps[1]!, 'step-1', plan), true);
+  assert.equal(plannerDependencySatisfied(plan.steps[2]!, 'step-1', plan), false);
+  assert.equal(plannerDependencySatisfied(plan.steps[3]!, 'step-1', plan), false);
+  assert.equal(plannerHasUnsatisfiedDependencies(plan.steps[1]!, plan), false);
+  assert.equal(plannerHasUnsatisfiedDependencies(plan.steps[2]!, plan), true);
+  assert.equal(plannerHasUnsatisfiedDependencies(plan.steps[3]!, plan), true);
+}
+
+async function testPlannerRuntimeMetadataHelpers(): Promise<void> {
+  const step = {
+    id: 'step-1',
+    title: 'Update notes',
+    status: 'PENDING' as const,
+    kind: 'docs' as const,
+    attempts: 0,
+    dependencies: [],
+    children: [],
+    relatedFiles: ['src/notes.txt', 'src/notes.txt'],
+    conflictDomains: ['docs', 'docs'],
+    conflictsWith: ['step-9', 'step-9'],
+  };
+
+  assert.equal(derivePlannerAccessMode(step), 'write');
+  assert.deepEqual(derivePlannerFileScope(step), ['src/notes.txt']);
+  assert.deepEqual(derivePlannerConflictDomains(step), ['docs']);
+  assert.deepEqual(derivePlannerConflicts(step), ['step-9']);
+  assert.equal(derivePlannerAccessMode({ ...step, kind: 'search' as const }), 'read');
+  assert.equal(derivePlannerAccessMode({ ...step, kind: 'verify' as const }), 'verify');
+}
+
+async function testPlannerRuntimeSchedulerHelpers(): Promise<void> {
+  const runtime = createPlannerRuntimeState({
+    version: '1',
+    revision: 1,
+    summary: 'runtime state fixture',
+    steps: [
+      { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'], accessMode: 'write' },
+      { id: 'step-2', title: 'Update notes', status: 'PENDING', kind: 'docs', attempts: 0, dependencies: [], children: [], fileScope: ['src/notes.txt'], accessMode: 'write' },
+      { id: 'step-3', title: 'API docs', status: 'PENDING', kind: 'docs', attempts: 0, dependencies: [], children: [], fileScope: ['src/api.md'], accessMode: 'write', conflictDomains: ['api-contract'] },
+      { id: 'step-4', title: 'API tests', status: 'PENDING', kind: 'test', attempts: 0, dependencies: [], children: [], fileScope: ['tests/api.test.ts'], accessMode: 'write', conflictDomains: ['api-contract'] },
+      { id: 'step-5', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: ['step-1'], children: [] },
+      { id: 'step-6', title: 'Unknown writer', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [], accessMode: 'write' },
+    ],
+  });
+
+  assert.deepEqual(deriveReadyRuntimeTaskIds(runtime), ['step-1', 'step-2', 'step-3', 'step-4', 'step-6']);
+  assert.deepEqual(getReadyRuntimeTasks(runtime).map((task) => task.id), ['step-1', 'step-2', 'step-3', 'step-4', 'step-6']);
+  assert.deepEqual(selectRunnableRuntimeBatch(runtime, 2).map((task) => task.id), ['step-1', 'step-2']);
+  assert.equal(canAcquireRuntimeLocks(runtime.locks, runtime.tasks.find((task) => task.id === 'step-1')!), true);
+
+  const apiOnlyRuntime = {
+    ...runtime,
+    tasks: runtime.tasks.filter((task) => ['step-3', 'step-4'].includes(task.id)),
+  };
+  assert.deepEqual(selectRunnableRuntimeBatch(apiOnlyRuntime, 2).map((task) => task.id), ['step-3']);
+
+  const unknownOnlyRuntime = {
+    ...runtime,
+    tasks: runtime.tasks.filter((task) => ['step-1', 'step-6'].includes(task.id)),
+  };
+  assert.deepEqual(selectRunnableRuntimeBatch(unknownOnlyRuntime, 2).map((task) => task.id), ['step-1']);
+
+  const verifyRuntime = createPlannerRuntimeState({
+    version: '1',
+    revision: 1,
+    summary: 'verify runtime fixture',
+    steps: [
+      { id: 'step-1', title: 'Fix math', status: 'DONE', kind: 'code', attempts: 1, dependencies: [], children: [], fileScope: ['src/math.js'], accessMode: 'write' },
+      { id: 'step-2', title: 'Run verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  });
+  assert.deepEqual(selectRunnableRuntimeBatch(verifyRuntime, 2).map((task) => task.id), ['step-2']);
+}
+
+async function testPlannerRuntimeReducerHelpers(): Promise<void> {
+  const initial = createPlannerRuntimeState({
+    version: '1',
+    revision: 1,
+    summary: 'reducer fixture',
+    steps: [
+      { id: 'step-1', title: 'Fix math', status: 'PENDING', kind: 'code', attempts: 0, dependencies: [], children: [], fileScope: ['src/math.js'], accessMode: 'write' },
+      { id: 'step-2', title: 'Verify', status: 'PENDING', kind: 'verify', attempts: 0, dependencies: ['step-1'], children: [] },
+    ],
+  });
+
+  const started = reducePlannerRuntimeState(initial, { type: 'TASK_STARTED', taskId: 'step-1' });
+  assert.equal(started.phase, 'running');
+  assert.equal(started.epoch, 1);
+  assert.deepEqual(started.locks, [{ path: 'src/math.js', ownerTaskId: 'step-1' }]);
+
+  const succeeded = reducePlannerRuntimeState(started, { type: 'TASK_SUCCEEDED', taskId: 'step-1', changedFiles: ['src/math.js'] });
+  assert.deepEqual(succeeded.locks, []);
+  assert.deepEqual(succeeded.tasks.find((task) => task.id === 'step-1')?.changedFiles, ['src/math.js']);
+  assert.equal(succeeded.tasks.find((task) => task.id === 'step-1')?.status, 'done');
+
+  const verifyStarted = reducePlannerRuntimeState(succeeded, { type: 'TASK_STARTED', taskId: 'step-2' });
+  assert.equal(verifyStarted.phase, 'verifying');
+  assert.deepEqual(verifyStarted.locks, []);
+
+  const failed = reducePlannerRuntimeState(verifyStarted, { type: 'TASK_FAILED', taskId: 'step-2', message: 'verify failed' });
+  assert.equal(failed.tasks.find((task) => task.id === 'step-2')?.status, 'failed');
+  assert.equal(failed.tasks.find((task) => task.id === 'step-2')?.lastError, 'verify failed');
+
+  const degraded = reducePlannerRuntimeState(initial, { type: 'TASK_DEGRADED', taskId: 'step-1', message: 'docs optional' });
+  assert.equal(degraded.tasks.find((task) => task.id === 'step-1')?.status, 'degraded');
+
+  const completed = reducePlannerRuntimeState(succeeded, { type: 'EXECUTION_COMPLETED', message: 'done' });
+  assert.equal(completed.phase, 'done');
+
+  const executionFailed = reducePlannerRuntimeState(succeeded, { type: 'EXECUTION_FAILED', message: 'boom' });
+  assert.equal(executionFailed.phase, 'failed');
+
+  assert.deepEqual(releaseRuntimeLocks([{ path: 'src/math.js', ownerTaskId: 'step-1' }], 'step-1'), []);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {

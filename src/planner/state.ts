@@ -1,3 +1,4 @@
+import { plannerHasUnsatisfiedDependencies } from './dependencies.js';
 import type { PlannerFailureTolerance, PlannerPhase, PlannerPlan, PlannerState, PlannerStep, PlannerStepExecutionState, PlannerStepStatus } from './types.js';
 
 export function statusToPhase(status: PlannerStepStatus): PlannerPhase {
@@ -85,36 +86,10 @@ function deriveExecutionState(step: PlannerStep, plan: PlannerPlan): PlannerStep
   if (step.status === 'FAILED') {
     return 'failed';
   }
-  if (hasUnsatisfiedDependencies(step, plan)) {
+  if (plannerHasUnsatisfiedDependencies(step, plan)) {
     return 'blocked';
   }
   return 'ready';
-}
-
-function hasUnsatisfiedDependencies(step: PlannerStep, plan: PlannerPlan): boolean {
-  for (const dependencyId of step.dependencies) {
-    if (!dependencySatisfied(step, dependencyId, plan)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function dependencySatisfied(step: PlannerStep, dependencyId: string, plan: PlannerPlan): boolean {
-  const dependency = plan.steps.find((candidate) => candidate.id === dependencyId);
-  if (!dependency) {
-    return false;
-  }
-  if (dependency.status === 'DONE') {
-    return true;
-  }
-  if (step.kind === 'verify') {
-    return false;
-  }
-
-  const tolerance = step.dependencyTolerances?.[dependencyId] ?? 'required';
-  return tolerance === 'degrade' && dependency.status === 'FAILED' && dependency.failureTolerance === 'degrade';
 }
 
 export function isPlannerStepDegraded(step: PlannerStep): boolean {
