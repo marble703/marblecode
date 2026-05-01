@@ -322,7 +322,7 @@ node dist/index.js rollback --last
 - `examples/manual-test-suite`：确定性回归 fixture，以及真实模型 planner 校验任务文档
 - `docs/project/architecture.md`：当前架构总览和运行时模块关系
 - `docs/project/planner-parallel-graph.zh-CN.md`：planner 并行执行、任务图、wave、冲突检测和文件锁说明
-- `docs/plans/planner-evolution-roadmap.zh-CN.md`：当前 planner execute 路线图和剩余优先级
+- `docs/plans/planner-runtime-refactor.zh-CN.md`：当前 planner runtime 重构计划和执行优先级
 - `README.zh-CN.md`：中文说明文档
 
 ## 重构说明
@@ -330,11 +330,11 @@ node dist/index.js rollback --last
 - 共享 JSON 解析和共享文件遍历已经统一收口到 `src/shared`
 - planner、TUI、verifier、agent 的 runtime 热点已经拆成更聚焦的内部模块
 - 内置工具已经通过 provider-compatible registry 边界注册，后续 LSP/MCP 集成可复用同一 host tool path
-- 当前剩余工作以 `docs/plans/planner-evolution-roadmap.zh-CN.md` 为准；P3 read-model / inspector foundation 已基本收口，后续应按真实需求选择继续 inspector、execution recovery 或外部 readonly provider 方向
+- 当前执行内核重构以 `docs/plans/planner-runtime-refactor.zh-CN.md` 为准；后续优先级是 ready-queue runtime、failure handling 收敛，以及 `execution.state.json` truth-source 收口
 
 ## 下一步
 
-- 继续收口 planner execution recovery，让 `execution.state.json` 更接近恢复主真相源
+- 继续把 planner execution 从 wave-first 编排收敛到 ready-queue runtime，并让 `execution.state.json` 成为主要运行时真相源
 - 在现有 `ToolProvider` 边界和 external readonly provider gate 之上，再逐步尝试只读 LSP diagnostics 和本地 MCP 集成
 
 外部 tool provider 当前默认仍然禁用。共享配置现在预留了 `tools.externalProvidersEnabled` 和 `tools.allow`，后续只读集成必须显式启用并加入 allowlist。

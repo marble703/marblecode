@@ -318,7 +318,7 @@ node dist/index.js rollback --last
 - `examples/verifier-fixture`: small TypeScript fixture project for verifier smoke checks
 - `examples/manual-test-suite`: deterministic regression fixture plus real-model planner task docs for release-grade checks
 - `docs/project/architecture.md`: current architecture overview and runtime module map
-- `docs/plans/planner-evolution-roadmap.zh-CN.md`: current planner execution roadmap and remaining priorities
+- `docs/plans/planner-runtime-refactor.zh-CN.md`: current planner runtime refactor plan and priorities
 - `README.zh-CN.md`: Chinese project overview
 
 ## Refactor Notes
@@ -329,8 +329,8 @@ node dist/index.js rollback --last
 
 ## Next Steps
 
-- continue tightening planner execution recovery so `execution.state.json` becomes a clearer resume truth source
-- use the provider-compatible tool boundary plus external readonly provider gating as the base for read-only LSP diagnostics and local MCP experiments
+- shift planner execution from wave-first orchestration toward a ready-queue runtime with `execution.state.json` as the main runtime truth source
+- keep the provider-compatible tool boundary plus external readonly provider gating as the base for future readonly LSP diagnostics and local MCP experiments
 
 External tool providers remain disabled by default. Shared config now reserves `tools.externalProvidersEnabled` and `tools.allow` so future readonly integrations must be explicitly enabled and allowlisted.
 
