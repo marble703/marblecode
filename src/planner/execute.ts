@@ -29,7 +29,7 @@ import type { PlannerExecutionStateArtifact } from './execution-types.js';
 import { executePlannerWave } from './execute-wave.js';
 import { executePlannerVerifyStep } from './execute-verify.js';
 import { executePlannerSubtaskWithRecovery } from './execute-subtask.js';
-import { selectPlannerExecutionBatch } from './execution-runner.js';
+import { decidePlannerExecutionTurn } from './execution-runner.js';
 import { runPlanConsistencyChecks } from './parse.js';
 import { buildPlannerAffectedSubgraph, computeUndeclaredChangedFiles } from './replan-merge.js';
 import { attemptPlannerNodeReplan } from './recovery.js';
@@ -139,7 +139,7 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    const selection = selectPlannerExecutionBatch({
+    const turn = decidePlannerExecutionTurn({
       plan: nextPlan,
       lockTable,
       strategyMode: strategy.mode,
@@ -155,12 +155,11 @@ export async function executePlannerPlan(
         dependencies.classifyPlannerStep,
       ),
     });
-    const { pendingSteps, readySteps, batch: selectedExecutionBatch, source: selectionSource } = selection;
-    if (pendingSteps.length === 0) {
+    if (turn.kind === 'complete') {
       break;
     }
-    if (readySteps.length === 0) {
-      const blockedStep = pendingSteps[0];
+    if (turn.kind === 'blocked_no_ready') {
+      const blockedStep = turn.pendingSteps[0];
       if (!blockedStep) {
         break;
       }
@@ -202,8 +201,8 @@ export async function executePlannerPlan(
       return { plan: nextPlan, state: nextState };
     }
 
-    if (selectionSource === 'runtime_blocked') {
-      const blockedStep = readySteps[0] ?? pendingSteps[0];
+    if (turn.kind === 'blocked_runtime_locks') {
+      const blockedStep = turn.readySteps[0] ?? turn.pendingSteps[0];
       if (!blockedStep) {
         break;
       }
@@ -240,6 +239,7 @@ export async function executePlannerPlan(
       });
       return { plan: nextPlan, state: nextState };
     }
+    const selectedExecutionBatch = turn.batch;
     if (selectedExecutionBatch.length === 0) {
       break;
     }

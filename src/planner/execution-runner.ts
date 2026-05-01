@@ -12,6 +12,12 @@ export interface PlannerExecutionSelection {
   source: 'ready_queue' | 'legacy_wave' | 'runtime_blocked';
 }
 
+export type PlannerExecutionTurnDecision =
+  | { kind: 'complete' }
+  | { kind: 'blocked_no_ready'; pendingSteps: PlannerStep[]; readySteps: PlannerStep[] }
+  | { kind: 'blocked_runtime_locks'; pendingSteps: PlannerStep[]; readySteps: PlannerStep[] }
+  | { kind: 'execute_batch'; pendingSteps: PlannerStep[]; readySteps: PlannerStep[]; batch: PlannerStep[]; source: PlannerExecutionSelection['source'] };
+
 export type PlannerReadyQueueSelection =
   | { kind: 'selected'; batch: PlannerStep[] }
   | { kind: 'defer_legacy_fallback' }
@@ -59,6 +65,42 @@ export function selectPlannerExecutionBatch(input: {
     readySteps,
     batch: input.selectLegacyWave(readySteps),
     source: 'legacy_wave',
+  };
+}
+
+export function decidePlannerExecutionTurn(input: {
+  plan: PlannerPlan;
+  lockTable: ExecutionLockTable;
+  strategyMode: PlannerExecutionStrategyMode;
+  maxConcurrentSubtasks: number;
+  classifyPlannerStep: (step: PlannerStep) => 'skip' | 'subagent' | 'verify';
+  getReadySteps: (plan: PlannerPlan) => PlannerStep[];
+  selectLegacyWave: (readySteps: PlannerStep[]) => PlannerStep[];
+}): PlannerExecutionTurnDecision {
+  const selection = selectPlannerExecutionBatch(input);
+  if (selection.pendingSteps.length === 0) {
+    return { kind: 'complete' };
+  }
+  if (selection.readySteps.length === 0) {
+    return {
+      kind: 'blocked_no_ready',
+      pendingSteps: selection.pendingSteps,
+      readySteps: selection.readySteps,
+    };
+  }
+  if (selection.source === 'runtime_blocked') {
+    return {
+      kind: 'blocked_runtime_locks',
+      pendingSteps: selection.pendingSteps,
+      readySteps: selection.readySteps,
+    };
+  }
+  return {
+    kind: 'execute_batch',
+    pendingSteps: selection.pendingSteps,
+    readySteps: selection.readySteps,
+    batch: selection.batch,
+    source: selection.source,
   };
 }
 

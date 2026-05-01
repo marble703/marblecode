@@ -13,6 +13,7 @@ import {
   copyPersistedRecoverySnapshot,
   createPlannerRuntimeState,
   createRuntimeLocksFromExecutionLockTable,
+  decidePlannerExecutionTurn,
   classifyPlannerStep,
   createExecutionLockTable,
   createInitialExecutionState,
@@ -384,6 +385,62 @@ async function testPlannerRuntimeExecuteAdapterHelpers(): Promise<void> {
   });
   assert.equal(runtimeBlockedSelection.source, 'runtime_blocked');
   assert.deepEqual(runtimeBlockedSelection.batch, []);
+
+  const completeTurn = decidePlannerExecutionTurn({
+    plan: {
+      ...plan,
+      steps: plan.steps.map((step) => ({ ...step, status: 'DONE' as const, attempts: step.attempts + 1 })),
+    },
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => [],
+    selectLegacyWave: () => [],
+  });
+  assert.equal(completeTurn.kind, 'complete');
+
+  const blockedNoReadyTurn = decidePlannerExecutionTurn({
+    plan,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => [],
+    selectLegacyWave: () => [],
+  });
+  assert.equal(blockedNoReadyTurn.kind, 'blocked_no_ready');
+
+  const runtimeBlockedTurn = decidePlannerExecutionTurn({
+    plan,
+    lockTable: {
+      ...createExecutionLockTable(1),
+      entries: [
+        { path: 'src/math.js', mode: 'write_locked' as const, ownerStepId: 'step-98', revision: 1 },
+        { path: 'src/notes.txt', mode: 'write_locked' as const, ownerStepId: 'step-99', revision: 1 },
+      ],
+    },
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => runnableSteps,
+    selectLegacyWave: () => {
+      throw new Error('legacy wave should not be used for runtime lock blocking');
+    },
+  });
+  assert.equal(runtimeBlockedTurn.kind, 'blocked_runtime_locks');
+
+  const executeBatchTurn = decidePlannerExecutionTurn({
+    plan,
+    lockTable: createExecutionLockTable(1),
+    strategyMode: 'serial',
+    maxConcurrentSubtasks: 2,
+    classifyPlannerStep,
+    getReadySteps: () => runnableSteps,
+    selectLegacyWave: () => [],
+  });
+  assert.equal(executeBatchTurn.kind, 'execute_batch');
+  assert.deepEqual(executeBatchTurn.kind === 'execute_batch' ? executeBatchTurn.batch.map((step) => step.id) : [], ['step-2', 'step-3']);
 }
 
 async function testPlannerRuntimeRecoveryContextHelper(): Promise<void> {
